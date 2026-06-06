@@ -271,6 +271,11 @@ button {
   font-weight: 600;
   color: var(--text-primary);
   font-size: 15px;
+  cursor: pointer;
+}
+.msg-author:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 .msg-time {
   font-size: 11px;
@@ -299,17 +304,44 @@ button {
   font-weight: 500;
 }
 
+/* Quoted-message preview. Substack uses a tinted accent block; we mirror
+   that so it's visually distinct from the surrounding message text and the
+   reader can tell at a glance "this is the message being replied to." */
 .msg-quote {
-  border-left: 4px solid var(--bg-accent);
-  padding: 4px 8px;
+  border-left: 3px solid var(--accent);
+  padding: 6px 10px;
   margin-bottom: 6px;
-  background: var(--bg-tertiary);
+  background: rgba(88, 101, 242, 0.14);
   border-radius: 4px;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
-.msg-quote-author { font-weight: 600; color: var(--text-primary); font-size: 12px; }
-.msg-quote-body { margin-top: 2px; }
+.msg-quote:hover {
+  background: rgba(88, 101, 242, 0.22);
+}
+.msg-quote-author {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+.msg-quote-body {
+  color: var(--text-primary);
+  opacity: 0.85;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Flash highlight when jumping to a message (click on a quote). */
+.msg-group.highlight-flash {
+  animation: highlightFlash 1.8s ease;
+}
+@keyframes highlightFlash {
+  0% { background: rgba(88, 101, 242, 0.45); box-shadow: 0 0 0 2px var(--accent); }
+  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+}
 
 .msg-reactions {
   display: flex;

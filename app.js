@@ -30,6 +30,7 @@ import {
   maybeNotifyMention,
   resetUnreadMentions,
 } from "./lib/notify.js";
+import { reactionEmojiFor } from "./lib/emojis.js";
 
 // ============================================================
 // STATE
@@ -92,7 +93,6 @@ async function init() {
   try {
     state.user = await fetchUserIdentity();
   } catch (_) {}
-  console.log("[BetterSSC INIT] state.user:", state.user);
 
   // Load the publication header for chrome.
   try {
@@ -107,6 +107,7 @@ async function init() {
   document.getElementById(
     "openNativeChat"
   ).href = `https://substack.com/chat/${state.publicationId}/post/${state.postUuid}`;
+  updateBaseTitle();
 
   // Initial comments.
   await loadInitial();
@@ -145,8 +146,8 @@ async function pollNewMessages() {
     for (const r of replies) ingestComment(r);
     const added = state.comments.size - before;
     if (added > 0) {
-      console.log("[BetterSSC POLL] +", added, "new messages");
       renderAll();
+      incrementUnreadWhileHidden(added);
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
@@ -220,20 +221,7 @@ async function loadInitial() {
     const res = await fetchCommentsInitial(state.postUuid, {
       targetReplyId: state.targetReplyId,
     });
-    console.log(
-      "[BetterSSC] /comments?initial=true response — top keys:",
-      Object.keys(res || {}),
-      "· replies:",
-      (res && res.replies && res.replies.length) || 0,
-      "· post present:",
-      !!(res && res.post),
-      "· moreBefore:",
-      res && res.moreBefore
-    );
-
-    // v0.1.7: harvest user info from anywhere we can find it in the response.
-    // Substack distributes user objects across the response (top-level
-    // user_tables, post.communityPost embed, individual reply fields).
+    // Harvest user info from anywhere we can find it in the response.
     if (res && Array.isArray(res.users)) {
       registerUserObjects(res.users);
     }
@@ -243,54 +231,34 @@ async function loadInitial() {
       registerUserObjects(res.post.recent_commenters);
     }
     if (res && Array.isArray(res.replies)) {
-      // Walk replies for any embedded recent_commenters arrays that look
-      // like user objects.
       for (const r of res.replies) {
         if (r && Array.isArray(r.recent_commenters)) {
           registerUserObjects(r.recent_commenters);
         }
       }
     }
-    console.log(
-      "[BetterSSC] user table after harvest:",
-      _userTable.size,
-      "entries"
-    );
 
-    // Dump the first reply (truncated) so we can spot fields we missed.
-    if (res && res.replies && res.replies[0]) {
-      let dump;
-      try {
-        dump = JSON.stringify(res.replies[0]);
-      } catch (_) {
-        dump = "(stringify failed)";
-      }
-      console.log(
-        "[BetterSSC INGEST] full first reply (truncated 4KB):",
-        dump.slice(0, 4000)
-      );
-    }
     document.getElementById("postTitle").textContent =
       (res.post && res.post.communityPost && res.post.communityPost.body
         ? res.post.communityPost.body.slice(0, 80)
         : "");
-    const replies = (res.replies || []).slice();
-    // The asc endpoint returns oldest first by name, but verify and sort
-    // defensively.
-    replies.sort(
+    // v0.1.11: unwrap replies BEFORE reading created_at — REST replies are
+    // wrapped (`{comment: {...}, user: {...}}`), so the outer object's
+    // `created_at` is undefined and our pagination cursor was never set.
+    const unwrappedReplies = (res.replies || [])
+      .map((r) => unwrapComment(r) || r)
+      .filter((r) => r && r.created_at);
+    unwrappedReplies.sort(
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
-    for (const c of replies) ingestComment(c, { silent: true });
+    for (const c of unwrappedReplies) ingestComment(c, { silent: true });
     state.moreBefore = res.moreBefore !== false;
-    if (replies.length) {
-      state.earliestISO = replies[0].created_at;
+    if (unwrappedReplies.length) {
+      state.earliestISO = unwrappedReplies[0].created_at;
     } else {
-      // Visible diagnostic: if the server returned 200 with empty replies,
-      // the most common cause is that our session cookie didn't ride along
-      // on the cross-origin fetch from chrome-extension:// to substack.com.
       showError(
-        "Loaded 0 messages. Most likely: your Substack session cookie isn't being attached to the cross-origin API call. Open DevTools → Network → look at the /comments request to confirm cookies. Reporting back will help diagnose."
+        "Loaded 0 messages. Check DevTools → Network → /comments request and share what you see."
       );
     }
     renderAll();
@@ -304,25 +272,28 @@ async function loadInitial() {
 async function loadOlder() {
   if (state.loadingHistory || !state.moreBefore || !state.earliestISO) return;
   state.loadingHistory = true;
-  document.getElementById("historyLoading").style.display = "block";
+  document.getElementById("historyLoading").classList.remove("hidden");
   const prevScrollHeight = document.getElementById("stream").scrollHeight;
   const prevScrollTop = document.getElementById("stream").scrollTop;
   try {
     const res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
-    const replies = (res.replies || []).slice();
-    replies.sort(
+    // Same unwrap fix as loadInitial.
+    const unwrappedReplies = (res.replies || [])
+      .map((r) => unwrapComment(r) || r)
+      .filter((r) => r && r.created_at && r.id);
+    unwrappedReplies.sort(
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
     let count = 0;
-    for (const c of replies) {
+    for (const c of unwrappedReplies) {
       if (!state.comments.has(c.id)) {
         ingestComment(c, { silent: true });
         count++;
       }
     }
-    if (replies.length) {
-      state.earliestISO = replies[0].created_at;
+    if (unwrappedReplies.length) {
+      state.earliestISO = unwrappedReplies[0].created_at;
     }
     state.moreBefore = res.moreBefore !== false && count > 0;
     renderAll();
@@ -333,7 +304,7 @@ async function loadOlder() {
     showError(`Failed to load older messages: ${e.message}`);
   } finally {
     state.loadingHistory = false;
-    document.getElementById("historyLoading").style.display = "none";
+    document.getElementById("historyLoading").classList.add("hidden");
   }
 }
 
@@ -431,36 +402,11 @@ function syntheticAuthor(c) {
   };
 }
 
-let _loggedSampleShape = false;
-
 function ingestComment(c, { silent = false } = {}) {
   const unwrapped = unwrapComment(c);
-  if (!_loggedSampleShape && unwrapped) {
-    console.log(
-      "[BetterSSC INGEST] sample shape — keys:",
-      Object.keys(unwrapped).join(", "),
-      "· id:",
-      commentId(unwrapped),
-      "· author?:",
-      !!unwrapped.author,
-      "· name?:",
-      unwrapped.name,
-      "· user_id?:",
-      unwrapped.user_id,
-      "· handle?:",
-      unwrapped.handle
-    );
-    _loggedSampleShape = true;
-  }
   if (!unwrapped) return;
   const id = commentId(unwrapped);
-  if (!id) {
-    console.warn(
-      "[BetterSSC INGEST] no id, skipping. Top-level keys:",
-      Object.keys(unwrapped)
-    );
-    return;
-  }
+  if (!id) return;
   if (!unwrapped.id) unwrapped.id = id;
 
   // Normalize author shape — REST flat → synthesized object that matches
@@ -536,20 +482,7 @@ async function connectRealtime() {
     showError(`Realtime token fetch failed: ${e.message}`);
     return;
   }
-  console.log(
-    "[BetterSSC] probe token permissions:",
-    probe && probe.permissions
-  );
-
   const allChatChannels = detectChatChannels(probe, state.publicationId);
-  console.log("[BetterSSC] detected chatChannels (all):", allChatChannels);
-
-  // v0.1.8: Substack rejects multi-tier subscribe (Array(4)→Invalid). The
-  // native client subscribes to ONE chat tier per frame — pick the highest
-  // tier the user has access to. Messages published to a higher tier are
-  // restricted to higher subscribers anyway, so subscribing to only_founding
-  // (if available) covers founding-only + everything published to wider
-  // tiers IF Substack mirrors. If not we'll iterate v0.1.9.
   const tierOrder = ["only_founding", "only_paid", "all_subscribers"];
   const bestTier = tierOrder.find((t) =>
     allChatChannels.includes(`chat:${state.publicationId}:${t}`)
@@ -557,7 +490,6 @@ async function connectRealtime() {
   const chatChannels = bestTier
     ? [`chat:${state.publicationId}:${bestTier}`]
     : [];
-  console.log("[BetterSSC] picked chat tier:", bestTier, "→", chatChannels);
 
   if (!chatChannels.length && !state.user) {
     showError(
@@ -653,40 +585,18 @@ function renderAll() {
 
 function renderMessages() {
   const msgs = state.order.map((id) => state.comments.get(id)).filter(Boolean);
-  console.log(
-    "[BetterSSC RENDER] state.comments.size:",
-    state.comments.size,
-    "state.order.length:",
-    state.order.length,
-    "filtered msgs:",
-    msgs.length
-  );
   const groups = groupByAuthor(msgs);
-  console.log("[BetterSSC RENDER] grouped into", groups.length, "groups");
   const container = document.getElementById("messages");
-  if (!container) {
-    console.error("[BetterSSC RENDER] #messages container not found!");
-    return;
-  }
+  if (!container) return;
   const frag = document.createDocumentFragment();
-  let okGroups = 0;
   for (const g of groups) {
     try {
       frag.appendChild(renderGroup(g));
-      okGroups++;
     } catch (e) {
-      console.error("[BetterSSC RENDER] renderGroup failed for group:", g, e);
+      console.error("[BetterSSC] renderGroup failed:", e);
     }
   }
   container.replaceChildren(frag);
-  console.log(
-    "[BetterSSC RENDER] mounted",
-    okGroups,
-    "/",
-    groups.length,
-    "groups; container child count:",
-    container.childElementCount
-  );
 }
 
 function renderGroup(group) {
@@ -726,6 +636,14 @@ function renderGroup(group) {
   const authorEl = document.createElement("span");
   authorEl.className = "msg-author";
   authorEl.textContent = group.author?.name || "Unknown";
+  if (group.author?.name) {
+    authorEl.title = `Filter to ${group.author.name}'s messages`;
+    authorEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      filterByAuthorName(group.author.name);
+    });
+  }
   const timeEl = document.createElement("span");
   timeEl.className = "msg-time";
   timeEl.title = formatAbsoluteTime(group.items[0].created_at);
@@ -747,10 +665,15 @@ function renderMessageItem(c) {
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
 
-  // Quote preview if reply.
+  // Quote preview if reply — Substack-style accent-tinted block, clickable
+  // to jump to the original.
   if (c.quote && (c.quote.body || c.quote.author)) {
     const q = document.createElement("div");
     q.className = "msg-quote";
+    if (c.quote.id) {
+      q.dataset.quoteId = c.quote.id;
+      q.title = "Jump to original message";
+    }
     const qAuthor = document.createElement("div");
     qAuthor.className = "msg-quote-author";
     qAuthor.textContent = c.quote.author?.name || "Reply";
@@ -759,6 +682,11 @@ function renderMessageItem(c) {
     qBody.textContent = (c.quote.body || "").slice(0, 200);
     q.appendChild(qAuthor);
     q.appendChild(qBody);
+    q.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (c.quote && c.quote.id) jumpToMessage(c.quote.id);
+    });
     wrap.appendChild(q);
   }
 
@@ -787,67 +715,38 @@ function renderMessageItem(c) {
     }
   }
 
-  // Reactions row.
-  if (c.reactions && Object.keys(c.reactions).length) {
-    const reactionsEl = document.createElement("div");
-    reactionsEl.className = "msg-reactions";
-    for (const [reactionType, info] of Object.entries(c.reactions)) {
-      const pill = document.createElement("span");
-      pill.className = "msg-reaction";
-      pill.appendChild(document.createTextNode(reactionEmojiFor(reactionType)));
-      const count = document.createElement("span");
-      count.className = "msg-reaction-count";
-      count.textContent = String((info && info.count) || 0);
-      pill.appendChild(count);
-      reactionsEl.appendChild(pill);
+  // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
+  // shape might be {name: {count, has_reacted}}. Handle both, and filter
+  // out zero-count entries (we were rendering "👍 0" pills).
+  if (c.reactions && typeof c.reactions === "object") {
+    const entries = Object.entries(c.reactions)
+      .map(([name, v]) => {
+        const count = typeof v === "number" ? v : (v && v.count) || 0;
+        return [name, count];
+      })
+      .filter(([, count]) => count > 0);
+    if (entries.length) {
+      const reactionsEl = document.createElement("div");
+      reactionsEl.className = "msg-reactions";
+      for (const [reactionType, count] of entries) {
+        const pill = document.createElement("span");
+        pill.className = "msg-reaction";
+        pill.title = `:${reactionType}: ×${count}`;
+        pill.appendChild(
+          document.createTextNode(reactionEmojiFor(reactionType))
+        );
+        const countEl = document.createElement("span");
+        countEl.className = "msg-reaction-count";
+        countEl.textContent = String(count);
+        pill.appendChild(countEl);
+        reactionsEl.appendChild(pill);
+      }
+      wrap.appendChild(reactionsEl);
     }
-    wrap.appendChild(reactionsEl);
   }
 
   return wrap;
 }
-
-// Minimal emoji map for the most common reaction names. Substack ships
-// hundreds; missing ones render as the underscore name.
-const REACTION_EMOJI = {
-  thumbs_up: "👍",
-  upvote: "👍",
-  face_with_tears_of_joy: "😂",
-  rolling_on_the_floor_laughing: "🤣",
-  double_exclamation_mark: "‼️",
-  hundred_points: "💯",
-  folded_hands: "🙏",
-  rocket: "🚀",
-  broken_heart: "💔",
-  thinking_face: "🤔",
-  clapping_hands: "👏",
-  cowboy_hat_face: "🤠",
-  bear: "🐻",
-  ox: "🐂",
-  waving_hand: "👋",
-  raised_hand: "✋",
-  raising_hands: "🙌",
-  party_popper: "🎉",
-  smiling_face_with_sunglasses: "😎",
-  eyes: "👀",
-  smiling_face_with_heart_eyes: "😍",
-  smirking_face: "😏",
-  star_struck: "🤩",
-  sparkles: "✨",
-  red_question_mark: "❓",
-  fire: "🔥",
-  grinning_face: "😀",
-  grinning_face_with_big_eyes: "😃",
-  grinning_face_with_smiling_eyes: "😄",
-  beaming_face_with_smiling_eyes: "😁",
-  grinning_squinting_face: "😆",
-  grinning_face_with_sweat: "😅",
-  slightly_smiling_face: "🙂",
-  upside_down_face: "🙃",
-  melting_face: "🫠",
-  red_heart: "❤️",
-};
-const reactionEmojiFor = (name) => REACTION_EMOJI[name] || `:${name}:`;
 
 function commentMentionsUser(c, user) {
   if (!user) return false;
@@ -932,8 +831,8 @@ function hideNewMessageJump() {
 // ============================================================
 
 function applySearch() {
-  // Highlight matching groups; show count.
-  const q = state.searchQuery.trim().toLowerCase();
+  const raw = state.searchQuery.trim();
+  const q = raw.toLowerCase();
   const hits = [];
   document.querySelectorAll(".msg-group").forEach((node) => {
     node.classList.remove("search-hit", "search-active");
@@ -943,33 +842,97 @@ function applySearch() {
     state.searchHits = [];
     return;
   }
-  // Linear scan; v0.1 acceptable up to a few thousand messages.
+
+  // `@<name>` filter mode: match against author.name with case-insensitive
+  // prefix. Doesn't match body text. Useful for "show me all of Boz's posts."
+  const isAuthorFilter = raw.startsWith("@");
+  const authorQuery = isAuthorFilter ? q.slice(1) : null;
+
   for (const id of state.order) {
     const c = state.comments.get(id);
     if (!c) continue;
-    const body = (c.body || "").toLowerCase();
-    const author = (c.author && c.author.name) || "";
-    if (body.includes(q) || author.toLowerCase().includes(q)) {
-      hits.push(id);
+    const authorName = ((c.author && c.author.name) || "").toLowerCase();
+    if (isAuthorFilter) {
+      if (authorQuery && authorName.startsWith(authorQuery)) hits.push(id);
+    } else {
+      const body = (c.body || "").toLowerCase();
+      if (body.includes(q) || authorName.includes(q)) hits.push(id);
     }
   }
   state.searchHits = hits;
-  // Mark all hit groups.
   for (const id of hits) {
-    const groupNode = document.querySelector(
-      `.msg-group [data-id="${cssEscape(id)}"]`
-    );
-    if (groupNode) {
-      groupNode.closest(".msg-group").classList.add("search-hit");
-    }
+    const node = document.querySelector(`[data-id="${cssEscape(id)}"]`);
+    if (node) node.closest(".msg-group").classList.add("search-hit");
   }
-  document.getElementById("searchCount").textContent = `${hits.length} match${
-    hits.length !== 1 ? "es" : ""
-  }`;
+  const label = isAuthorFilter
+    ? `${hits.length} from author`
+    : `${hits.length} match${hits.length !== 1 ? "es" : ""}`;
+  document.getElementById("searchCount").textContent = label;
   if (hits.length) {
     state.searchActiveIdx = 0;
     focusSearchHit(0);
   }
+}
+
+// Set the search input to "@<name>" and apply — used by the click-author
+// affordance.
+function filterByAuthorName(name) {
+  if (!name) return;
+  const input = document.getElementById("searchInput");
+  input.value = "@" + name;
+  state.searchQuery = input.value;
+  applySearch();
+}
+
+// Scroll to a specific message id and flash it. Used by the quote
+// click-to-jump.
+function jumpToMessage(id) {
+  const node = document.querySelector(`[data-id="${cssEscape(id)}"]`);
+  if (!node) {
+    showError(
+      "Original message isn't loaded yet. Scroll up to load older history first."
+    );
+    return;
+  }
+  const group = node.closest(".msg-group");
+  if (group) {
+    group.classList.remove("highlight-flash");
+    // Force reflow so the animation re-fires if you click twice.
+    void group.offsetWidth;
+    group.classList.add("highlight-flash");
+    setTimeout(() => group.classList.remove("highlight-flash"), 1800);
+  }
+  node.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// ============================================================
+// TAB-TITLE UNREAD TRACKING
+// ============================================================
+// While the BetterSSC tab is hidden, count new messages from polling. On
+// return-to-visible, reset. Title format: "(N) <pub> · BetterSSC".
+
+let _baseTitle = "BetterSSC";
+let _unreadWhileHidden = 0;
+
+function updateBaseTitle() {
+  const pub =
+    (state.publication && state.publication.name) ||
+    (state.publicationId ? `Publication ${state.publicationId}` : "Chat");
+  _baseTitle = `${pub} · BetterSSC`;
+  document.title = _unreadWhileHidden
+    ? `(${_unreadWhileHidden}) ${_baseTitle}`
+    : _baseTitle;
+}
+
+function incrementUnreadWhileHidden(n) {
+  if (!document.hidden) return;
+  _unreadWhileHidden += n;
+  document.title = `(${_unreadWhileHidden}) ${_baseTitle}`;
+}
+
+function resetUnreadWhileHidden() {
+  _unreadWhileHidden = 0;
+  document.title = _baseTitle;
 }
 
 function focusSearchHit(idx) {
@@ -1049,7 +1012,10 @@ function bindEventHandlers() {
   // Poll immediately when tab becomes visible again (covers the period
   // when document.hidden suppressed scheduled polls).
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) pollNewMessages();
+    if (!document.hidden) {
+      resetUnreadWhileHidden();
+      pollNewMessages();
+    }
   });
 
   window.addEventListener("beforeunload", () => {
