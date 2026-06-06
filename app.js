@@ -9,6 +9,7 @@
 import {
   fetchCommentsInitial,
   fetchCommentsBefore,
+  fetchCommentsAfter,
   fetchPublication,
   fetchRealtimeToken,
   detectChatChannels,
@@ -111,8 +112,61 @@ async function init() {
   await loadInitial();
   // Mark as viewed.
   scheduleMarkViewed();
-  // Open WebSocket.
+  // Open WebSocket (best-effort — protocol issues, see below).
   await connectRealtime();
+  // Start polling fallback for live updates. WS is unreliable in v0.1
+  // (Substack's protocol rejects our subscribe frames with Invalid message
+  // for reasons we haven't pinned down). Polling matches what Substack's
+  // own native client does anyway (~10s interval with ?after=<ISO>).
+  startPollingFallback();
+}
+
+const POLL_INTERVAL_MS = 12_000;
+let _pollTimer = null;
+let _pollInflight = false;
+
+function startPollingFallback() {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(pollNewMessages, POLL_INTERVAL_MS);
+  // First poll fires after one interval — initial load already covers t=0.
+}
+
+async function pollNewMessages() {
+  if (_pollInflight) return;
+  if (document.hidden) return; // don't poll when tab is in background
+  const since = getNewestCommentISO();
+  if (!since) return;
+  _pollInflight = true;
+  try {
+    const res = await fetchCommentsAfter(state.postUuid, since);
+    const replies = (res && res.replies) || [];
+    if (!replies.length) return;
+    const before = state.comments.size;
+    for (const r of replies) ingestComment(r);
+    const added = state.comments.size - before;
+    if (added > 0) {
+      console.log("[BetterSSC POLL] +", added, "new messages");
+      renderAll();
+      if (state.isAtBottom) {
+        scrollToBottom();
+      } else {
+        state.pendingNewMessages += added;
+        showNewMessageJump();
+      }
+    }
+  } catch (e) {
+    console.warn("[BetterSSC POLL] failed:", e && e.message);
+  } finally {
+    _pollInflight = false;
+  }
+}
+
+function getNewestCommentISO() {
+  for (let i = state.order.length - 1; i >= 0; i--) {
+    const c = state.comments.get(state.order[i]);
+    if (c && c.created_at) return c.created_at;
+  }
+  return null;
 }
 
 // ============================================================
@@ -837,9 +891,11 @@ function renderMembers() {
 }
 
 function renderFooterStats() {
+  const wsStateText =
+    state.wsStatus === "connected" ? "ws+poll" : "poll only";
   document.getElementById(
     "footerStats"
-  ).textContent = `${state.comments.size} messages · ${state.authors.size} authors`;
+  ).textContent = `${state.comments.size} messages · ${state.authors.size} authors · live: ${wsStateText}`;
 }
 
 // ============================================================
@@ -985,8 +1041,15 @@ function bindEventHandlers() {
 
   window.addEventListener("focus", resetUnreadMentions);
 
+  // Poll immediately when tab becomes visible again (covers the period
+  // when document.hidden suppressed scheduled polls).
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) pollNewMessages();
+  });
+
   window.addEventListener("beforeunload", () => {
     if (state.ws) state.ws.close();
+    if (_pollTimer) clearInterval(_pollTimer);
   });
 }
 
