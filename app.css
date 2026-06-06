@@ -1,29 +1,6 @@
-/* BetterSSC — Discord-inspired theme. Dark by default; light via data-theme. */
+/* BetterSSC — Discord-inspired theme. Light by default; dark via data-theme. */
 
 :root,
-:root[data-theme="dark"] {
-  --bg-primary: #1f2024;          /* darker for more contrast vs purple */
-  --bg-secondary: #17181b;
-  --bg-tertiary: #0e0f11;
-  --bg-hover: #2a2c31;
-  --bg-accent: #4e5058;
-  --text-primary: #f6f7f9;
-  --text-secondary: #b9bdc7;
-  --text-muted: #80848e;
-  --text-link: #00a8fc;
-  --accent: #7b8aff;              /* brighter purple — pops harder vs dark bg */
-  --accent-hover: #4752c4;
-  --accent-bg-soft: rgba(123, 138, 255, 0.16);
-  --accent-bg-strong: rgba(123, 138, 255, 0.30);
-  --success: #23a559;
-  --warning: #f0b232;
-  --danger: #f23f42;
-  --border: #0e0f11;
-  --shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05),
-    0 2px 0 rgba(4, 4, 5, 0.05);
-  color-scheme: dark;
-}
-
 :root[data-theme="light"] {
   --bg-primary: #ffffff;
   --bg-secondary: #f4f6f8;
@@ -44,6 +21,29 @@
   --border: #d8dde3;
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 1.5px 3px rgba(0, 0, 0, 0.05);
   color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg-primary: #1f2024;
+  --bg-secondary: #17181b;
+  --bg-tertiary: #0e0f11;
+  --bg-hover: #2a2c31;
+  --bg-accent: #4e5058;
+  --text-primary: #f6f7f9;
+  --text-secondary: #b9bdc7;
+  --text-muted: #80848e;
+  --text-link: #00a8fc;
+  --accent: #7b8aff;
+  --accent-hover: #4752c4;
+  --accent-bg-soft: rgba(123, 138, 255, 0.16);
+  --accent-bg-strong: rgba(123, 138, 255, 0.30);
+  --success: #23a559;
+  --warning: #f0b232;
+  --danger: #f23f42;
+  --border: #0e0f11;
+  --shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05),
+    0 2px 0 rgba(4, 4, 5, 0.05);
+  color-scheme: dark;
 }
 
 :root {

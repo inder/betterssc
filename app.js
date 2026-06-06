@@ -597,6 +597,18 @@ function renderMessages() {
     }
   }
   container.replaceChildren(frag);
+
+  // v0.1.15: restore the vi-active marker so j/k navigation doesn't get
+  // teleported back to the first visible group every time polling triggers
+  // a re-render. _viActiveId is the first-id of the previously active group.
+  if (_viActiveId) {
+    const restored = container.querySelector(
+      `.msg-group[data-first-id="${cssEscape(_viActiveId)}"]`
+    );
+    if (restored && !restored.classList.contains("search-hidden")) {
+      restored.classList.add("vi-active");
+    }
+  }
 }
 
 function renderGroup(group) {
@@ -1308,7 +1320,9 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  // Light is default in v0.1.15. Toggle behavior: light→dark→light.
+  const current =
+    document.documentElement.getAttribute("data-theme") || "light";
   applyTheme(current === "light" ? "dark" : "light");
 }
 
@@ -1379,8 +1393,11 @@ function bindEventHandlers() {
       e.preventDefault();
       moveActive(-1);
     } else if (e.key === "g") {
+      // v0.1.15: single `g` jumps to top (was vim-style `gg` double-tap,
+      // which felt broken because nothing visible happened on the first
+      // press). Keeping `G` as bottom matches vim convention.
       e.preventDefault();
-      handleGKey();
+      jumpToStreamEdge("top");
     } else if (e.key === "G") {
       e.preventDefault();
       jumpToStreamEdge("bottom");
@@ -1393,8 +1410,6 @@ function bindEventHandlers() {
     } else if (e.key === "?") {
       e.preventDefault();
       showHelpOverlay();
-    } else if (e.key === "t" && (e.ctrlKey || e.metaKey)) {
-      // Cmd/Ctrl+T would normally open a new tab — only intercept if alt'd.
     }
   });
 
