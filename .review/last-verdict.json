@@ -1,12 +1,12 @@
 {
-  "sha": "393b626",
+  "sha": "2f19500",
   "branch": "main",
   "ts": "2026-06-06T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "501-line cumulative diff across 8 commits, multiple security and correctness findings, tab-proxy auth architecture is a new pattern with no prior review",
-  "critical_count": 2,
-  "should_fix_count": 3,
-  "nit_count": 2,
-  "files_reviewed": 4
+  "retro_reasoning": "25 commits, 1700+ line diff, new manifest permissions, multiple feature areas, and 2 should-fix findings including a user-visible filter correctness bug",
+  "critical_count": 0,
+  "should_fix_count": 2,
+  "nit_count": 3,
+  "files_reviewed": 7
 }

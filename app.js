@@ -1410,15 +1410,28 @@ function applySearch() {
   state.searchHits = hits;
 
   // Filter: every group that contains at least one matching message is
-  // shown + highlighted; every group with zero matches is HIDDEN. This
-  // matches the natural intent of "I typed @Jordan — show me Jordan's
-  // messages, not all messages with Jordan highlighted."
+  // shown + highlighted; every group with zero matches is HIDDEN.
+  // When a thread filter is also active, INTERSECT — a group is shown
+  // only if it's both in the thread AND matches the query. (Without
+  // this, the text-search loop would overwrite the thread filter and
+  // any out-of-thread match would become visible.)
+  const threadParentId = state.threadFilter
+    ? state.threadFilter.parentId
+    : null;
+  const threadMemberIds = threadParentId
+    ? new Set([
+        threadParentId,
+        ...((state.threadIndex && state.threadIndex.get(threadParentId)) || []),
+      ])
+    : null;
   document.querySelectorAll(".msg-group").forEach((group) => {
     const ids = Array.from(group.querySelectorAll("[data-id]")).map(
       (n) => n.dataset.id
     );
     const groupHasHit = ids.some((id) => hitIds.has(id));
-    if (groupHasHit) {
+    const inThread =
+      !threadMemberIds || ids.some((id) => threadMemberIds.has(id));
+    if (groupHasHit && inThread) {
       group.classList.add("search-hit");
     } else {
       group.classList.add("search-hidden");

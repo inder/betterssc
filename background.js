@@ -112,6 +112,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// Drop the ref when the notification auto-dismisses or is swiped away
+// without being clicked. Without this NOTIFICATION_REFS leaked entries
+// for every alert that wasn't acted on.
+chrome.notifications.onClosed.addListener((id) => {
+  NOTIFICATION_REFS.delete(id);
+});
+
 chrome.notifications.onClicked.addListener(async (id) => {
   const ref = NOTIFICATION_REFS.get(id);
   if (!ref) return;
