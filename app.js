@@ -244,26 +244,80 @@ async function loadOlder() {
   }
 }
 
+// Unwraps the various shapes a Substack comment can arrive in. The WS
+// `chat:new-comment` event wraps it as `{type, comment: {...}}`. The REST
+// /comments endpoint nests replies inside `comment` too in some cases. Plus
+// fallback ID field names that Substack has historically used.
+function unwrapComment(raw) {
+  if (!raw) return null;
+  // If the object has body+author at the top level, it's already a comment.
+  if (raw.body !== undefined && raw.author) return raw;
+  // Wrapped under `comment` (REST replies and WS chat:new-comment).
+  if (raw.comment) return raw.comment;
+  // Fallback: return as-is.
+  return raw;
+}
+
+function commentId(c) {
+  if (!c) return null;
+  return c.id || c.comment_id || c._id || c.uuid || null;
+}
+
+let _loggedSampleShape = false;
+
 function ingestComment(c, { silent = false } = {}) {
-  if (!c || !c.id) return;
-  const isNew = !state.comments.has(c.id);
-  state.comments.set(c.id, c);
+  const unwrapped = unwrapComment(c);
+  if (!_loggedSampleShape && unwrapped) {
+    console.log(
+      "[BetterSSC INGEST] sample shape — keys:",
+      Object.keys(unwrapped),
+      "· id:",
+      commentId(unwrapped),
+      "· hasAuthor:",
+      !!unwrapped.author,
+      "· raw:",
+      unwrapped
+    );
+    _loggedSampleShape = true;
+  }
+  if (!unwrapped) {
+    return;
+  }
+  const id = commentId(unwrapped);
+  if (!id) {
+    console.warn(
+      "[BetterSSC INGEST] no id, skipping. Top-level keys:",
+      Object.keys(unwrapped)
+    );
+    return;
+  }
+  // Stash the resolved id on the object so the rest of the code that reads
+  // c.id keeps working without further refactoring.
+  if (!unwrapped.id) unwrapped.id = id;
+
+  const isNew = !state.comments.has(id);
+  state.comments.set(id, unwrapped);
   if (isNew) {
-    insertInOrder(c);
-  } else {
-    // already present — order doesn't change for edits
+    insertInOrder(unwrapped);
   }
   // Track author seen-at.
-  if (c.author && c.author.id) {
-    const prev = state.authors.get(c.author.id);
-    const t = new Date(c.created_at).getTime();
+  if (unwrapped.author && unwrapped.author.id) {
+    const prev = state.authors.get(unwrapped.author.id);
+    const t = new Date(unwrapped.created_at).getTime() || 0;
     if (!prev || prev.lastSeenAt < t) {
-      state.authors.set(c.author.id, { profile: c.author, lastSeenAt: t });
+      state.authors.set(unwrapped.author.id, {
+        profile: unwrapped.author,
+        lastSeenAt: t,
+      });
     }
   }
   // Notification check on truly new live messages.
   if (isNew && !silent) {
-    maybeNotifyMention({ comment: c, user: state.user, settings: {} });
+    maybeNotifyMention({
+      comment: unwrapped,
+      user: state.user,
+      settings: {},
+    });
   }
 }
 
@@ -296,7 +350,8 @@ function insertInOrder(c) {
 // ============================================================
 
 async function connectRealtime() {
-  // First fetch a probe token to discover channel permissions.
+  // v0.1.5: match the native client's two-token pattern. First fetch a
+  // probe token to discover which chat tiers we have subscribe access to.
   let probe;
   try {
     probe = await fetchRealtimeToken([
@@ -311,12 +366,8 @@ async function connectRealtime() {
     return;
   }
 
-  // From the granted permissions list, pick all subscribe-allowed channels.
   const chatChannels = detectChatChannels(probe, state.publicationId);
-  const channels = [];
-  if (state.user) channels.push(`user:${state.user.id}`);
-  channels.push(...chatChannels);
-  if (!channels.length) {
+  if (!chatChannels.length && !state.user) {
     showError(
       "No accessible chat channels for this publication. Are you a subscriber?"
     );
@@ -324,8 +375,15 @@ async function connectRealtime() {
     return;
   }
 
+  // For the auth-then-subscribe handshake we provide TWO channel groups.
+  // First connects with user-only perms (auth). Second pushes a fresh token
+  // scoped to user + the highest accessible chat tier (subscribe).
+  const userChannels = state.user ? [`user:${state.user.id}`] : [];
+  const chatPlusUserChannels = [...userChannels, ...chatChannels];
+
   state.ws = new SubstackRealtime({
-    channels,
+    channels: userChannels.length ? userChannels : chatChannels,
+    secondaryChannels: chatPlusUserChannels,
     onStatusChange: setWsStatus,
   });
   state.ws.addEventListener("chat-event", (e) => handleChatEvent(e.detail));
