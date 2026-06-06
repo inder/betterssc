@@ -1039,7 +1039,8 @@ function renderMembers() {
     for (const a of pinned) frag.appendChild(buildMemberRow(a, true));
     const sub2 = document.createElement("li");
     sub2.className = "member-subheader";
-    sub2.textContent = state.memberSort === "name" ? "All (A→Z)" : "Active";
+    sub2.textContent =
+      state.memberSort === "name" ? "All (A→Z)" : "Most active";
     frag.appendChild(sub2);
   }
   for (const a of rest.slice(0, 80)) frag.appendChild(buildMemberRow(a, false));
@@ -1059,9 +1060,9 @@ function renderMembersHeader() {
   toggle.className = "members-sort-toggle";
   toggle.title =
     state.memberSort === "active"
-      ? "Sorted by # of messages — click to sort by name"
-      : "Sorted by name — click to sort by # of messages";
-  toggle.textContent = state.memberSort === "active" ? "↓ msgs" : "A→Z";
+      ? "Sorted by most active (most messages) — click to sort A→Z"
+      : "Sorted alphabetically — click to sort by most active";
+  toggle.textContent = state.memberSort === "active" ? "Most active" : "A→Z";
   toggle.addEventListener("click", () => {
     state.memberSort = state.memberSort === "active" ? "name" : "active";
     persistMembersUiPrefs();
