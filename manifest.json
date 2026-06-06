@@ -1,13 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "BetterSSC DOM Probe",
-  "version": "0.0.4",
-  "description": "Proof-of-concept: verify we can read the Substack Chat DOM, sniff its network, and inspect its inlined page state.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "name": "BetterSSC",
+  "version": "0.1.0",
+  "description": "A Discord-style client for Substack Chat. Live updates, search, @mention notifications.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs",
+    "notifications"
+  ],
   "host_permissions": [
     "https://substack.com/*",
     "https://*.substack.com/*"
   ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "content_scripts": [
     {
       "matches": [
@@ -30,7 +40,22 @@
     }
   ],
   "action": {
-    "default_title": "BetterSSC DOM Probe",
-    "default_popup": "popup.html"
-  }
+    "default_title": "Open BetterSSC",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["app.html"],
+      "matches": ["https://*.substack.com/*", "https://substack.com/*"]
+    }
+  ]
 }

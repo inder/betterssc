@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BetterSSC</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <!-- LANDING — shown when no pub/post in URL params -->
+    <div id="landing" class="landing hidden">
+      <div class="landing-card">
+        <h1>BetterSSC</h1>
+        <p class="landing-tagline">A Discord-style client for Substack Chat.</p>
+        <p id="landing-msg">
+          To start, open a Substack chat in another tab — then click the
+          BetterSSC icon again.
+        </p>
+        <div class="landing-actions">
+          <a
+            class="btn btn-primary"
+            href="https://substack.com/chat"
+            target="_blank"
+            rel="noopener"
+            >Open Substack inbox</a
+          >
+        </div>
+      </div>
+    </div>
+
+    <!-- APP — main chat client -->
+    <div id="app" class="app hidden">
+      <header class="header">
+        <div class="header-left">
+          <div class="pub-name" id="pubName">Loading…</div>
+          <div class="post-title" id="postTitle"></div>
+        </div>
+        <div class="header-right">
+          <div class="search-wrap">
+            <input
+              id="searchInput"
+              type="text"
+              placeholder="Search messages…  (press / to focus)"
+              autocomplete="off"
+            />
+            <span id="searchCount" class="search-count"></span>
+          </div>
+          <div
+            id="wsStatus"
+            class="ws-status"
+            title="WebSocket connection status"
+          >
+            <span class="dot dot-idle"></span>
+            <span class="ws-label">idle</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="stream" id="stream">
+          <div class="loading-banner" id="historyLoading">
+            Loading older messages…
+          </div>
+          <div id="messages" class="messages"></div>
+          <div id="newMessageJump" class="new-message-jump hidden">
+            <button type="button">↓ New messages</button>
+          </div>
+        </section>
+
+        <aside class="members" id="members">
+          <div class="members-header">Active</div>
+          <ul id="memberList" class="member-list"></ul>
+        </aside>
+      </main>
+
+      <footer class="footer">
+        <span class="footer-note">
+          v0.1 · Read-only. To send messages, use
+          <a id="openNativeChat" href="#" target="_blank" rel="noopener"
+            >Substack's native chat</a
+          >.
+        </span>
+        <span class="footer-stats" id="footerStats"></span>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

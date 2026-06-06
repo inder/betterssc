@@ -1,58 +1,104 @@
-# BetterSSC — DOM Probe (v0.0.1)
+# BetterSSC
 
-A Manifest V3 Chrome extension that answers one question: **can we read Substack Chat's DOM well enough to build a Discord-style overlay?**
+A Discord-style Chrome extension client for Substack Chat.
 
-It does not modify the page. It only inspects.
+Substack's native chat UI is clunky: weak presence, no real search, no @mention notifications, erratic scroll behavior. BetterSSC replaces it with a clean two-pane interface that uses Substack's own REST API and WebSocket so you get the same data your account already has access to — just better presented.
 
-## What it does
+**Status: v0.1 — read-only.** Send / react / mention land in v0.2.
 
-When you click the extension's icon on a Substack tab, it runs a content script that:
+## What v0.1 does
 
-1. Records URL, path, page title, and whether the path looks like a chat page (`/chat` or `/inbox`).
-2. Tries a list of selector hypotheses (`[class*="chat"]`, `[class*="message"]`, `[role="log"]`, etc.) and reports which ones actually match elements.
-3. If on a chat page, picks the "messageItem" selector with ≥2 hits and dumps 5 sample messages: outerHTML preview, text content, class list, ARIA label.
-4. Reports whether `__NEXT_DATA__` is present (indicates server-rendered JSON we could parse instead of scraping the DOM).
+- **Live message stream** of one Substack chat, rendered Discord-style with grouped consecutive sender messages.
+- **Realtime updates** via Substack's `wss://zyncrealtime.substack.com` channel. New messages and reaction changes appear instantly without polling.
+- **History pagination** — scroll up to load older messages via cursor-based REST.
+- **Client-side full-text search** across all loaded messages. Press `/` to focus, `Esc` to clear.
+- **@mention desktop notifications** via `chrome.notifications`. Click a notification → focus BetterSSC tab and scroll to the message. Toolbar badge shows unread mention count.
+- **Members rail** showing active participants derived from message authors, sorted by last-seen.
+- **Auto mark-viewed** so your unread count in native Substack stays in sync.
 
-You get a JSON report in the popup. Copy it and paste it back here.
+## What v0.1 does NOT do (yet)
 
-## Install (unpacked dev mode)
+- Send messages, react, or edit. Use the link in the footer to open the chat in native Substack for those actions — messages you send there will appear in BetterSSC live.
+- Multi-chat switching. v0.1 shows one chat per tab (the chat URL you had open when you clicked the toolbar icon).
+- Image / attachment / poll rendering.
 
-1. Open `chrome://extensions` in Chrome (or Brave/Arc/Edge — same UI).
-2. Toggle **Developer mode** on (top-right).
-3. Click **Load unpacked**.
-4. Select this directory: `/Users/indersabharwal/signaldeck/betterssc`.
-5. The extension card appears with name "BetterSSC DOM Probe".
+## How it works
 
-## Use
+1. Click the BetterSSC toolbar icon while you have a Substack chat tab open (any URL matching `substack.com/chat/<pubId>/post/<postUuid>`).
+2. BetterSSC opens in a new tab and reads that URL to know which chat to load.
+3. Identity comes from `window._analyticsConfig` in your Substack tab (read via a content script).
+4. Initial messages load via `GET /api/v1/community/posts/<postUuid>/comments?initial=true`.
+5. A JWT for `wss://zyncrealtime.substack.com` is fetched and the WebSocket subscribes to the highest-tier chat channel your account has access to.
+6. New comments, reaction changes, and post updates arrive as WS events and update the UI in place.
 
-1. Open a Substack page — ideally a chat URL like `https://substack.com/chat` or `https://<publication>.substack.com/chat`.
-2. If you installed *after* loading the page, **refresh the page** so the content script injects.
-3. Click the BetterSSC icon in the toolbar (you may need to pin it via the puzzle-piece menu).
-4. Click **Probe this tab**.
-5. Inspect the JSON. Click **Copy JSON** to grab the whole report.
+All HTTP and WebSocket traffic goes directly to Substack from your browser with your existing session cookie. **No third-party backend; nothing leaves your machine except calls to substack.com.**
 
-You can also run `__betterssc_probe()` directly in DevTools console on any Substack page.
+## Install (dev / unpacked)
 
-## What the report tells us
+1. Clone this repo.
+2. Open `chrome://extensions` in Chrome / Brave / Arc / Edge.
+3. Toggle **Developer mode** on (top right).
+4. Click **Load unpacked**.
+5. Select this directory.
+6. Open a Substack chat in another tab.
+7. Click the BetterSSC icon in the toolbar.
 
-| Field | Meaning |
-|---|---|
-| `isLikelyChatPage` | URL pattern matched `/chat` or `/inbox`. |
-| `selectorHits.chatContainer` | Which broad container selectors found anything. |
-| `selectorHits.messageItem` | Which selectors find individual messages. The one with the highest count is probably the right one. |
-| `selectorHits.composer` | Whether we found the textarea/contenteditable for sending messages. |
-| `messageSample.winningSelector` | The selector we'll use for message extraction. |
-| `messageSample.samples[*].textContent` | What the actual message text looks like. |
-| `nextDataPresent` | If true, Substack inlines a JSON blob — parsing that is more reliable than DOM scraping. |
+If you re-load the extension while the chat is already open in BetterSSC, refresh the BetterSSC tab too.
 
-## Next steps (after the probe confirms feasibility)
+## Architecture
 
-- Lock in the winning selectors → build a stable message-extractor module.
-- Decide whether to scrape the DOM or fetch from `__NEXT_DATA__` / internal `/api/v1/` endpoints.
-- Build the overlay UI (three-pane Discord layout) and inject as a sibling of the current chat view.
+```
+manifest.json              MV3 manifest. Two content scripts: a MAIN-world
+                           network sniffer + an ISOLATED-world DOM probe,
+                           both useful for debugging. Background service
+                           worker handles toolbar action + notifications.
+background.js              chrome.action.onClicked → opens app.html, passing
+                           pub/post params extracted from the active tab's
+                           URL. Forwards notification triggers.
+content.js                 Debug-only DOM probe + console helper. Exposes
+                           __betterssc_probe() on Substack pages.
+network-hook.js            Page-main-world fetch/XHR/WebSocket sniffer used
+                           during protocol discovery; left in for now to
+                           catch any new endpoints during build.
+app.html                   The Discord-style UI entry point. Two-pane.
+app.css                    Discord-inspired dark theme.
+app.js                     Main controller: state, REST loading, WS event
+                           handling, search, rendering, scroll behavior.
+lib/api.js                 REST client for every confirmed endpoint.
+lib/ws.js                  SubstackRealtime — WebSocket client with auto-
+                           reconnect (exponential backoff) and JWT refresh.
+lib/util.js                Helpers: time formatting, mention/URL segmenting,
+                           message grouping, throttle/debounce, uuid.
+lib/notify.js              @mention detection → background notification.
+```
 
-## Files
+## Endpoints used
 
-- `manifest.json` — MV3 manifest. Permissions: `activeTab`, `scripting`, `storage`; host: `*.substack.com`.
-- `content.js` — injected into every Substack page; listens for probe messages.
-- `popup.html` / `popup.js` — toolbar UI with Probe + Copy buttons.
+All REST calls require your Substack session cookie (sent automatically by the browser on cross-origin requests from the extension, since we declare `host_permissions` for substack.com).
+
+| Purpose | Method | Path |
+|---|---|---|
+| Initial messages | GET | `/api/v1/community/posts/<postUuid>/comments?order=asc&initial=true` |
+| Older messages | GET | `/api/v1/community/posts/<postUuid>/comments?order=desc&before=<ISO>` |
+| Publication metadata | GET | `/api/v1/publication/public/<publicationId>` |
+| Realtime token | GET | `/api/v1/realtime/token?channels=<encoded>` |
+| Mark chat viewed | POST | `/api/v1/community/chat/<pubId>/view` |
+| Reactions library | GET | `/api/v1/threads/reactions` |
+| Blocks / mutes | GET | `/api/v1/blocks/ids` |
+| WebSocket | WSS | `wss://zyncrealtime.substack.com` |
+
+## Privacy
+
+- BetterSSC does not phone home. There is no analytics, no telemetry, no third-party scripts.
+- All data fetched stays in your browser. Settings persist in `chrome.storage.local` only.
+- Your Substack session cookie is used for API calls in the same way Substack's own website uses it.
+
+## Roadmap
+
+- **v0.2** — Send messages, add reactions, @mention autocomplete, reply / quote, optimistic UI.
+- **v0.3** — Multi-chat support (left rail of all chats from inbox), unread badges, quick switcher.
+- **v0.4** — DMs, image upload, edit / delete own messages.
+
+## License
+
+MIT (or whatever — placeholder).
