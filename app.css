@@ -712,7 +712,7 @@ button {
   border: 1px solid transparent;
   cursor: pointer;
   opacity: 0.45;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
   flex-shrink: 0;
   color: var(--text-secondary);
   display: inline-flex;
@@ -731,12 +731,18 @@ button {
   background: var(--warning-bg-soft);
   border-color: var(--warning);
   color: var(--warning);
-  transform: rotate(-30deg);
 }
 .member-pin.on:hover {
   background: var(--warning-bg-strong);
 }
-.member.pinned .member-name { color: var(--warning); }
+/* Pinned name color must win over .member.watched, otherwise members who
+   are BOTH pinned and watched end up purple (watch color) while pinned-only
+   members are amber — that mismatch is confusing. The bell already carries
+   the watch state visually, so the name leans on pin color exclusively. */
+.member.pinned .member-name,
+.member.pinned.watched .member-name {
+  color: var(--warning);
+}
 .member-list { list-style: none; margin: 0; padding: 0 8px; }
 .member {
   display: flex;
