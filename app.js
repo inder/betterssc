@@ -605,9 +605,42 @@ function setWsStatus(s) {
   state.wsStatus = s;
   const el = document.getElementById("wsStatus");
   if (!el) return;
-  el.querySelector(".dot").className = `dot dot-${s}`;
-  el.querySelector(".ws-label").textContent = s;
-  el.title = `WebSocket: ${s}`;
+  // v0.1.26: the badge now reflects the LIVE-update mechanism the app is
+  // actually using, not the raw WS state. When WS is "disabled" we're
+  // still very much live via polling — show that as a green "live poll".
+  let label, dotState, title;
+  switch (s) {
+    case "connected":
+      label = "ws on";
+      dotState = "connected";
+      title = "Live updates via WebSocket (preferred)";
+      break;
+    case "connecting":
+      label = "connecting";
+      dotState = "connecting";
+      title = "Opening WebSocket…";
+      break;
+    case "error":
+      label = "error · polling";
+      dotState = "warning";
+      title = "WebSocket error — polling is still active";
+      break;
+    case "disconnected":
+      label = "reconnecting · polling";
+      dotState = "warning";
+      title = "WebSocket disconnected, retrying — polling is still active";
+      break;
+    case "disabled":
+    case "idle":
+    default:
+      label = "live poll";
+      dotState = "connected"; // green — polling delivers updates
+      title = "Live updates via 12s polling (WebSocket is off)";
+      break;
+  }
+  el.querySelector(".dot").className = `dot dot-${dotState}`;
+  el.querySelector(".ws-label").textContent = label;
+  el.title = title;
 }
 
 // ============================================================
@@ -1261,15 +1294,11 @@ function maybeAlertOnWatchedUser(comment) {
 }
 
 function renderFooterStats() {
-  const wsStateText =
-    state.wsStatus === "connected"
-      ? "ws+poll"
-      : state.wsStatus === "disabled"
-        ? "poll (ws off)"
-        : "poll only";
+  // v0.1.26: live-mechanism string moved into the header status badge
+  // (more prominent, with a colored dot). Footer now just shows counts.
   document.getElementById(
     "footerStats"
-  ).textContent = `${state.comments.size} messages · ${state.authors.size} authors · live: ${wsStateText}`;
+  ).textContent = `${state.comments.size} messages · ${state.authors.size} authors`;
 }
 
 // ============================================================

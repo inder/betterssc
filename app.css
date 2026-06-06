@@ -268,6 +268,7 @@ button {
 .dot-error { background: var(--danger); }
 .dot-disconnected { background: var(--warning); }
 .dot-disabled { background: var(--text-muted); opacity: 0.5; }
+.dot-warning { background: var(--warning); }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
