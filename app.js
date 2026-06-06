@@ -141,12 +141,9 @@ async function fetchUserIdentity() {
             func: () => {
               const cfg = window._analyticsConfig;
               if (!cfg || !cfg.user) return null;
-              return {
-                id: cfg.user.id,
-                name: cfg.user.name,
-                email: cfg.user.email,
-                anonymousId: cfg.anonymousId,
-              };
+              // Capture ONLY what the extension needs (id + name). Email and
+              // anonymousId are PII we don't use anywhere; not caching them.
+              return { id: cfg.user.id, name: cfg.user.name };
             },
           });
           if (result && result.id) return resolve(result);
@@ -736,7 +733,9 @@ function bindEventHandlers() {
   });
 
   // Background can send us "focusMessage" when a notification is clicked.
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    // Defense in depth: only accept messages from our own extension.
+    if (!sender || sender.id !== chrome.runtime.id) return;
     if (msg && msg.type === "focusMessage" && msg.messageId) {
       resetUnreadMentions();
       const node = document.querySelector(

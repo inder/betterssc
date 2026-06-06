@@ -21,8 +21,10 @@
   "content_scripts": [
     {
       "matches": [
-        "https://substack.com/*",
-        "https://*.substack.com/*"
+        "https://substack.com/chat/*",
+        "https://*.substack.com/chat/*",
+        "https://substack.com/inbox/*",
+        "https://*.substack.com/inbox/*"
       ],
       "js": ["network-hook.js"],
       "run_at": "document_start",
@@ -31,8 +33,10 @@
     },
     {
       "matches": [
-        "https://substack.com/*",
-        "https://*.substack.com/*"
+        "https://substack.com/chat/*",
+        "https://*.substack.com/chat/*",
+        "https://substack.com/inbox/*",
+        "https://*.substack.com/inbox/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle",
