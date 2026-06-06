@@ -591,16 +591,47 @@ button {
 .member {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 8px;
+  padding: 4px 6px;
   border-radius: 4px;
-  cursor: pointer;
   transition: background 0.1s ease;
   user-select: none;
 }
 .member:hover { background: var(--bg-hover); }
-.member:hover .member-name { color: var(--accent); }
-.member:active { background: var(--bg-accent); }
+.member-clickable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+.member-clickable:hover .member-name { color: var(--accent); }
+.member-bell {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.1s ease, background 0.1s ease;
+  flex-shrink: 0;
+}
+.member:hover .member-bell { opacity: 1; }
+.member-bell.on {
+  opacity: 1;
+  background: var(--accent-bg-soft);
+  border-color: var(--accent);
+}
+.member-bell:hover {
+  background: var(--bg-tertiary);
+}
+.member.watched .member-name {
+  color: var(--accent);
+  font-weight: 600;
+}
 .member-avatar {
   width: 28px;
   height: 28px;

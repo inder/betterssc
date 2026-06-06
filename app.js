@@ -55,6 +55,7 @@ const state = {
   searchActiveIdx: 0,
   isAtBottom: true,
   pendingNewMessages: 0,
+  watchedUserIds: new Set(),
 };
 
 // ============================================================
@@ -87,6 +88,7 @@ function showLanding() {
 
 async function init() {
   bindEventHandlers();
+  restoreWatchedUsers();
 
   // Identity comes from background which inspects an open Substack tab.
   // Fallback: try to read from a known route once we hit the API.
@@ -162,6 +164,11 @@ async function pollNewMessages() {
     if (added > 0) {
       renderAll();
       incrementUnreadWhileHidden(added);
+      // Fire per-user alerts on the newly-arrived comments.
+      for (const r of replies) {
+        const unwrapped = unwrapComment(r) || r;
+        maybeAlertOnWatchedUser(unwrapped);
+      }
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
@@ -774,32 +781,53 @@ function renderMessageItem(c) {
   return wrap;
 }
 
-// Build an avatar element. v0.1.18: declarativeNetRequest sets the Referer
-// header to https://substack.com/ on every S3 image request (see rules.json),
-// which is what Substack's bucket policy expects. The `referrerpolicy` attr
-// is intentionally left at default so the browser builds a Referer header
-// in the first place — DNR's "set" operation just overrides whatever value
-// the browser was about to send.
-function makeAvatar(author, cssClass) {
-  const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
-  if (author && author.photo_url) {
-    const img = document.createElement("img");
-    img.className = cssClass;
-    img.src = author.photo_url;
-    img.alt = author.name || "";
-    img.loading = "lazy";
-    img.addEventListener("error", () => {
-      const fallback = document.createElement("div");
-      fallback.className = cssClass + " msg-avatar-placeholder";
-      fallback.textContent = initial;
-      img.replaceWith(fallback);
-    });
-    return img;
+// Cache of image URLs we already know are 403/dead. Prevents the 12s poll
+// cycle from re-firing failed requests forever. v0.1.19.
+const _failedImageUrls = new Set();
+
+// Substack's media bucket (bucketeer-XXX.s3.amazonaws.com) blocks direct
+// client-side access. Their own UI fetches through substackcdn.com with a
+// server-generated signature. We try the unsigned form as a long shot —
+// works if Cloudinary is configured to allow it for this account.
+function rewriteImageUrl(url) {
+  if (!url) return url;
+  if (url.startsWith("https://substackcdn.com/")) return url;
+  if (/\.s3\.amazonaws\.com\/public\/images\//.test(url)) {
+    return (
+      "https://substackcdn.com/image/fetch/f_auto,q_auto:good,fl_progressive:steep/" +
+      encodeURIComponent(url)
+    );
   }
+  return url;
+}
+
+function makeAvatarPlaceholder(initial, cssClass) {
   const div = document.createElement("div");
   div.className = cssClass + " msg-avatar-placeholder";
   div.textContent = initial;
   return div;
+}
+
+function makeAvatar(author, cssClass) {
+  const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
+  if (!author || !author.photo_url) {
+    return makeAvatarPlaceholder(initial, cssClass);
+  }
+  const url = rewriteImageUrl(author.photo_url);
+  // Already-failed URLs go straight to placeholder — no more re-fetch storms.
+  if (_failedImageUrls.has(url)) {
+    return makeAvatarPlaceholder(initial, cssClass);
+  }
+  const img = document.createElement("img");
+  img.className = cssClass;
+  img.src = url;
+  img.alt = author.name || "";
+  img.loading = "lazy";
+  img.addEventListener("error", () => {
+    _failedImageUrls.add(url);
+    img.replaceWith(makeAvatarPlaceholder(initial, cssClass));
+  });
+  return img;
 }
 
 // Extract image/file URL from one of Substack's various attachment shapes.
@@ -850,25 +878,33 @@ function appendAttachments(wrap, c) {
   container.className = "msg-attachments";
   for (const { url, raw } of urls) {
     if (isImageUrl(url)) {
+      const finalUrl = rewriteImageUrl(url);
+      const fallbackLink = () => {
+        const a = document.createElement("a");
+        a.className = "msg-attachment-file";
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = "📎 image (click to open in new tab)";
+        return a;
+      };
+      if (_failedImageUrls.has(finalUrl)) {
+        container.appendChild(fallbackLink());
+        continue;
+      }
       const img = document.createElement("img");
       img.className = "msg-attachment-img";
-      img.src = url;
+      img.src = finalUrl;
       img.alt = (raw && (raw.alt || raw.filename || raw.name)) || "image";
       img.loading = "lazy";
-      img.referrerPolicy = "no-referrer";
       img.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        openLightbox(url);
+        openLightbox(finalUrl);
       });
       img.addEventListener("error", () => {
-        const link = document.createElement("a");
-        link.className = "msg-attachment-file";
-        link.href = url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = "📎 image (click to open)";
-        img.replaceWith(link);
+        _failedImageUrls.add(finalUrl);
+        img.replaceWith(fallbackLink());
       });
       container.appendChild(img);
     } else {
@@ -927,11 +963,9 @@ function renderMembers() {
     const li = document.createElement("li");
     li.className = "member";
     li.dataset.userId = String(a.profile.id);
-    li.title = `Filter to ${a.profile.name}'s messages`;
-    li.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (a.profile.name) filterByAuthorName(a.profile.name);
-    });
+    const isWatched = state.watchedUserIds.has(a.profile.id);
+    if (isWatched) li.classList.add("watched");
+    li.title = `Click name to filter · click 🔔 to alert on new messages`;
     const av = makeAvatar(a.profile, "member-avatar");
     const info = document.createElement("div");
     info.className = "member-info";
@@ -943,11 +977,94 @@ function renderMembers() {
     last.textContent = formatRelativeTime(new Date(a.lastSeenAt).toISOString());
     info.appendChild(name);
     info.appendChild(last);
-    li.appendChild(av);
-    li.appendChild(info);
+
+    // Bell toggle — click to alert when this user posts a new message.
+    const bell = document.createElement("button");
+    bell.type = "button";
+    bell.className = "member-bell" + (isWatched ? " on" : "");
+    bell.textContent = isWatched ? "🔔" : "🔕";
+    bell.title = isWatched
+      ? `Disable alerts for ${a.profile.name}`
+      : `Alert when ${a.profile.name} posts (only when tab is unfocused)`;
+    bell.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleWatchUser(a.profile.id, a.profile.name);
+    });
+
+    // Clicking the name (or avatar/info area) filters the stream.
+    const nameClickable = document.createElement("div");
+    nameClickable.className = "member-clickable";
+    nameClickable.title = `Filter to ${a.profile.name}'s messages`;
+    nameClickable.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (a.profile.name) filterByAuthorName(a.profile.name);
+    });
+    nameClickable.appendChild(av);
+    nameClickable.appendChild(info);
+
+    li.appendChild(nameClickable);
+    li.appendChild(bell);
     frag.appendChild(li);
   }
   list.replaceChildren(frag);
+}
+
+// ============================================================
+// PER-USER ALERTS ("watch this person")
+// ============================================================
+
+function toggleWatchUser(userId, userName) {
+  if (state.watchedUserIds.has(userId)) {
+    state.watchedUserIds.delete(userId);
+  } else {
+    state.watchedUserIds.add(userId);
+  }
+  persistWatchedUsers();
+  renderMembers();
+}
+
+function persistWatchedUsers() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_watched_users: Array.from(state.watchedUserIds),
+      });
+  } catch (_) {}
+}
+
+function restoreWatchedUsers() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.get(["bssc_watched_users"], (res) => {
+        const arr = (res && res.bssc_watched_users) || [];
+        state.watchedUserIds = new Set(arr);
+        renderMembers();
+      });
+  } catch (_) {}
+}
+
+// Called from pollNewMessages / handleChatEvent when a new comment arrives.
+// Fires a chrome notification when:
+//   - tab is hidden (background) AND
+//   - the comment is from a watched user
+function maybeAlertOnWatchedUser(comment) {
+  if (!comment) return;
+  if (!document.hidden) return; // only when user is away
+  const uid = comment.user_id;
+  if (uid == null || !state.watchedUserIds.has(uid)) return;
+  const name = (comment.author && comment.author.name) || "Someone";
+  const preview = (comment.body || "").slice(0, 200);
+  try {
+    chrome.runtime.sendMessage({
+      type: "notify",
+      title: `New from ${name}`,
+      message: preview || "(message)",
+      mentionRef: comment.id,
+    });
+  } catch (_) {}
 }
 
 function renderFooterStats() {
@@ -1299,14 +1416,18 @@ function getVisibleGroups() {
   );
 }
 
-function setActiveGroup(group) {
+function setActiveGroup(group, opts = {}) {
   document
     .querySelectorAll(".msg-group.vi-active")
     .forEach((n) => n.classList.remove("vi-active"));
   if (!group) return;
   group.classList.add("vi-active");
   _viActiveId = group.dataset.firstId || null;
-  group.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (opts.skipScroll) return;
+  group.scrollIntoView({
+    behavior: "smooth",
+    block: opts.block || "center",
+  });
 }
 
 function moveActive(direction) {
@@ -1335,12 +1456,23 @@ function handleGKey() {
   }
 }
 
-function jumpToStreamEdge(edge) {
+async function jumpToStreamEdge(edge) {
   const groups = getVisibleGroups();
   if (!groups.length) return;
-  const target = edge === "top" ? groups[0] : groups[groups.length - 1];
-  setActiveGroup(target);
-  if (edge === "top") loadOlder();
+  const stream = document.getElementById("stream");
+  if (edge === "top") {
+    // Mark the current first-visible group, but don't let setActiveGroup
+    // auto-center it (that's what was making `g` land in the middle of the
+    // viewport instead of scrolling to the actual top).
+    setActiveGroup(groups[0], { skipScroll: true });
+    // Pull in older history if available, THEN scroll to absolute top.
+    if (state.moreBefore) await loadOlder();
+    if (stream) stream.scrollTo({ top: 0, behavior: "smooth" });
+  } else {
+    setActiveGroup(groups[groups.length - 1], { skipScroll: true });
+    if (stream)
+      stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+  }
 }
 
 // Scroll the stream by a fraction of the viewport. amount=1 is one full
