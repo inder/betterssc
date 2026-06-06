@@ -378,9 +378,13 @@ button {
 .msg-body { flex: 1; min-width: 0; }
 .msg-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin-bottom: 2px;
+}
+.msg-header > .msg-author,
+.msg-header > .msg-time {
+  align-self: baseline;
 }
 .msg-author {
   font-weight: 600;
@@ -407,9 +411,7 @@ button {
   position: relative;
 }
 .msg-thread-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
+  margin-left: auto;
   font-size: 11px;
   font-weight: 600;
   background: var(--bg-tertiary);
@@ -418,9 +420,9 @@ button {
   padding: 2px 8px;
   border-radius: 12px;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0.7;
   transition: opacity 0.12s ease, background 0.12s ease;
-  z-index: 2;
+  flex-shrink: 0;
 }
 .msg-thread-btn:hover {
   opacity: 1;

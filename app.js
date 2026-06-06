@@ -738,6 +738,37 @@ function renderGroup(group) {
   timeEl.textContent = formatRelativeTime(group.items[0].created_at);
   header.appendChild(authorEl);
   header.appendChild(timeEl);
+
+  // Thread badge — sits at the right end of the header row. If any
+  // message in the group has replies (threaded or quote), show one badge
+  // for the first such message + count = max reply_count in the group.
+  let firstWithReplies = null;
+  let totalReplies = 0;
+  for (const item of group.items) {
+    const localRefs =
+      (state.threadIndex && state.threadIndex.get(item.id)) || null;
+    const localCount = localRefs ? localRefs.size : 0;
+    const n = Math.max(item.reply_count || 0, localCount);
+    if (n > 0) {
+      if (!firstWithReplies) firstWithReplies = item;
+      totalReplies = Math.max(totalReplies, n);
+    }
+  }
+  if (firstWithReplies) {
+    const threadBtn = document.createElement("button");
+    threadBtn.type = "button";
+    threadBtn.className = "msg-thread-btn";
+    threadBtn.textContent = `💬 ${totalReplies}`;
+    threadBtn.title = `Open thread (${totalReplies} repl${
+      totalReplies === 1 ? "y" : "ies"
+    })`;
+    threadBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openThreadFilter(firstWithReplies.id);
+    });
+    header.appendChild(threadBtn);
+  }
   body.appendChild(header);
 
   for (const c of group.items) {
@@ -753,27 +784,9 @@ function renderMessageItem(c) {
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
 
-  // Thread badge — shown when this message has replies (threaded OR quote).
-  // We use the larger of (server reply_count, locally-observed reply set)
-  // because the server reply_count only tracks threaded replies, not
-  // quote-replies — and Substack chat leans heavily on quote-replies.
-  const localRefs =
-    (state.threadIndex && state.threadIndex.get(c.id)) || null;
-  const localCount = localRefs ? localRefs.size : 0;
-  const totalReplies = Math.max(c.reply_count || 0, localCount);
-  if (totalReplies > 0) {
-    const threadBtn = document.createElement("button");
-    threadBtn.type = "button";
-    threadBtn.className = "msg-thread-btn";
-    threadBtn.textContent = `💬 ${totalReplies}`;
-    threadBtn.title = `Open thread (${totalReplies} repl${totalReplies === 1 ? "y" : "ies"})`;
-    threadBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openThreadFilter(c.id);
-    });
-    wrap.appendChild(threadBtn);
-  }
+  // Thread badge moved to renderGroup (above) so it sits in the header
+  // row next to the author name + timestamp, rather than overlapping the
+  // message text.
 
   // Quote preview if reply — Substack-style accent-tinted block, clickable
   // to jump to the original.
@@ -1528,11 +1541,13 @@ function openThreadFilter(parentId) {
 function closeThreadFilter() {
   state.threadFilter = null;
   renderThreadBanner();
-  // Reset visibility — applySearch with no query clears classes.
   document.querySelectorAll(".msg-group").forEach((node) => {
     node.classList.remove("search-hit", "search-active", "search-hidden");
   });
   applySearch();
+  // Per user request: closing a thread should land at the latest message,
+  // not stay at the thread parent position (which was usually mid-history).
+  scrollToBottom();
 }
 
 function applyThreadFilter() {
