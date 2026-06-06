@@ -1173,8 +1173,10 @@ function showHelpOverlay() {
       <dt>/</dt><dd>Focus search</dd>
       <dt>Esc</dt><dd>Clear search / close overlay</dd>
       <dt>j / k</dt><dd>Next / previous message</dd>
-      <dt>g g</dt><dd>Jump to top</dd>
-      <dt>Shift+G</dt><dd>Jump to bottom</dd>
+      <dt>PageDn / PageUp</dt><dd>Full page down / up</dd>
+      <dt>⌘D / ⌘U</dt><dd>Half page down / up (vim style)</dd>
+      <dt>g</dt><dd>Jump to top (+ load older history)</dd>
+      <dt>Shift+G</dt><dd>Jump to bottom (latest)</dd>
       <dt>n / Shift+N</dt><dd>Next / previous search match</dd>
     </dl>
     <div class="close-hint">click anywhere or press Esc to close</div>
@@ -1337,6 +1339,17 @@ function jumpToStreamEdge(edge) {
   if (edge === "top") loadOlder();
 }
 
+// Scroll the stream by a fraction of the viewport. amount=1 is one full
+// page; 0.5 is half. If we're already near the top, also kick off
+// loadOlder() so the user can keep paging up into history.
+function pageScroll(amount) {
+  const stream = document.getElementById("stream");
+  if (!stream) return;
+  const delta = stream.clientHeight * amount;
+  stream.scrollBy({ top: delta, behavior: "smooth" });
+  if (amount < 0 && stream.scrollTop < 400) loadOlder();
+}
+
 function cycleSearchHit(direction) {
   if (!state.searchHits.length) return;
   state.searchActiveIdx =
@@ -1434,14 +1447,23 @@ function bindEventHandlers() {
       e.preventDefault();
       moveActive(-1);
     } else if (e.key === "g") {
-      // v0.1.15: single `g` jumps to top (was vim-style `gg` double-tap,
-      // which felt broken because nothing visible happened on the first
-      // press). Keeping `G` as bottom matches vim convention.
       e.preventDefault();
       jumpToStreamEdge("top");
     } else if (e.key === "G") {
       e.preventDefault();
       jumpToStreamEdge("bottom");
+    } else if (e.key === "PageUp") {
+      e.preventDefault();
+      pageScroll(-1.0);
+    } else if (e.key === "PageDown") {
+      e.preventDefault();
+      pageScroll(1.0);
+    } else if (e.key === "u" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      pageScroll(-0.5);
+    } else if (e.key === "d" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      pageScroll(0.5);
     } else if (e.key === "n") {
       e.preventDefault();
       cycleSearchHit(1);
