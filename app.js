@@ -33,6 +33,34 @@ import {
 import { reactionEmojiFor } from "./lib/emojis.js";
 
 // ============================================================
+// SVG ICONS (inline so they inherit currentColor + scale crisply)
+// ============================================================
+
+const ICON_PIN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+  stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+  stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 17v5"/>
+  <path d="M9 10.76V6h6v4.76l3.5 4.24H5.5L9 10.76z"/>
+</svg>`;
+
+const ICON_BELL_ON = `<svg viewBox="0 0 24 24" width="14" height="14"
+  fill="currentColor" aria-hidden="true">
+  <path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22z"/>
+  <path d="M18 16v-5a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2
+    2v1h16v-1z"/>
+</svg>`;
+
+const ICON_BELL_OFF = `<svg viewBox="0 0 24 24" width="14" height="14"
+  fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M18 8a6 6 0 0 0-9.33-5"/>
+  <path d="M6.26 6.26A6 6 0 0 0 6 8v5l-2 2v1h12.74"/>
+  <path d="M18 14v-1l2-2"/>
+  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  <path d="M2 2l20 20"/>
+</svg>`;
+
+// ============================================================
 // STATE
 // ============================================================
 
@@ -1162,11 +1190,11 @@ function buildMemberRow(a, isPinned) {
   info.appendChild(name);
   info.appendChild(last);
 
-  // Pin toggle.
+  // Pin toggle — SVG icon, filled state when active.
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "member-pin" + (isPinned ? " on" : "");
-  pin.textContent = isPinned ? "📌" : "📍";
+  pin.innerHTML = ICON_PIN;
   pin.title = isPinned
     ? `Unpin ${a.profile.name}`
     : `Pin ${a.profile.name} to the top of the Active rail`;
@@ -1176,11 +1204,11 @@ function buildMemberRow(a, isPinned) {
     togglePinUser(a.profile.id);
   });
 
-  // Bell toggle — click to alert when this user posts a new message.
+  // Bell toggle — SVG icon, filled-ringing when watched, struck-through when off.
   const bell = document.createElement("button");
   bell.type = "button";
   bell.className = "member-bell" + (isWatched ? " on" : "");
-  bell.textContent = isWatched ? "🔔" : "🔕";
+  bell.innerHTML = isWatched ? ICON_BELL_ON : ICON_BELL_OFF;
   bell.title = isWatched
     ? `Disable alerts for ${a.profile.name}`
     : `Alert when ${a.profile.name} posts (only when tab is unfocused)`;

@@ -697,26 +697,37 @@ button {
   list-style: none;
 }
 .member-pin {
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
-  font-size: 12px;
   cursor: pointer;
-  opacity: 0.4;
-  transition: opacity 0.1s ease;
+  opacity: 0.45;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, transform 0.12s ease;
   flex-shrink: 0;
-  filter: grayscale(1);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
-.member:hover .member-pin { opacity: 0.85; }
+.member-pin svg { display: block; }
+.member:hover .member-pin { opacity: 0.95; }
+.member-pin:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
 .member-pin.on {
   opacity: 1;
-  filter: none;
   background: var(--accent-bg-soft);
   border-color: var(--accent);
+  color: var(--accent);
+  transform: rotate(-30deg);
 }
-.member-pin:hover { background: var(--bg-tertiary); }
+.member-pin.on:hover {
+  background: var(--accent-bg-strong);
+}
 .member.pinned .member-name { color: var(--accent); }
 .member-list { list-style: none; margin: 0; padding: 0 8px; }
 .member {
@@ -739,25 +750,35 @@ button {
 }
 .member-clickable:hover .member-name { color: var(--accent); }
 .member-bell {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
-  font-size: 14px;
   cursor: pointer;
-  opacity: 0.5;
-  transition: opacity 0.1s ease, background 0.1s ease;
+  opacity: 0.45;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
   flex-shrink: 0;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
-.member:hover .member-bell { opacity: 1; }
+.member-bell svg { display: block; }
+.member:hover .member-bell { opacity: 0.95; }
+.member-bell:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
 .member-bell.on {
   opacity: 1;
   background: var(--accent-bg-soft);
   border-color: var(--accent);
+  color: var(--accent);
 }
-.member-bell:hover {
-  background: var(--bg-tertiary);
+.member-bell.on:hover {
+  background: var(--accent-bg-strong);
 }
 .member.watched .member-name {
   color: var(--accent);
