@@ -241,6 +241,21 @@ button {
 .header-btn.at-bottom {
   opacity: 0.45;
 }
+.header-btn.icon-btn {
+  width: 32px;
+  padding: 0;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-btn.spinning {
+  animation: spinHeaderBtn 0.6s linear;
+}
+@keyframes spinHeaderBtn {
+  from { transform: rotate(0); }
+  to   { transform: rotate(360deg); }
+}
 .dot {
   width: 8px;
   height: 8px;

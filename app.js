@@ -1434,6 +1434,7 @@ function showHelpOverlay() {
       <dt>g</dt><dd>Jump to top (+ load older history)</dd>
       <dt>Shift+G</dt><dd>Jump to bottom (latest)</dd>
       <dt>n / Shift+N</dt><dd>Next / previous search match</dd>
+      <dt>r</dt><dd>Refresh now (polls for new messages)</dd>
     </dl>
     <div class="close-hint">click anywhere or press Esc to close</div>
   `;
@@ -1613,6 +1614,18 @@ async function jumpToStreamEdge(edge) {
 // Scroll the stream by a fraction of the viewport. amount=1 is one full
 // page; 0.5 is half. If we're already near the top, also kick off
 // loadOlder() so the user can keep paging up into history.
+async function manualRefresh(btn) {
+  if (btn) {
+    btn.classList.remove("spinning");
+    void btn.offsetWidth; // restart animation
+    btn.classList.add("spinning");
+    setTimeout(() => btn.classList.remove("spinning"), 600);
+  }
+  try {
+    await pollNewMessages();
+  } catch (_) {}
+}
+
 function pageScroll(amount) {
   const stream = document.getElementById("stream");
   if (!stream) return;
@@ -1744,6 +1757,9 @@ function bindEventHandlers() {
     } else if (e.key === "?") {
       e.preventDefault();
       showHelpOverlay();
+    } else if (e.key === "r") {
+      e.preventDefault();
+      manualRefresh(document.getElementById("refreshNow"));
     }
   });
 
@@ -1765,7 +1781,6 @@ function bindEventHandlers() {
   const latestBtn = document.getElementById("goLatest");
   if (latestBtn) {
     latestBtn.addEventListener("click", () => {
-      // Clear any active filter so the jump actually lands at the newest msg.
       const input = document.getElementById("searchInput");
       if (input && input.value) {
         input.value = "";
@@ -1773,6 +1788,14 @@ function bindEventHandlers() {
         applySearch();
       }
       scrollToBottom();
+    });
+  }
+
+  // Manual refresh button — triggers an immediate poll. Spins briefly.
+  const refreshBtn = document.getElementById("refreshNow");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      manualRefresh(refreshBtn);
     });
   }
 
