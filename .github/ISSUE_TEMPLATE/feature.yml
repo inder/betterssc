@@ -1,0 +1,24 @@
+name: Feature request
+description: An idea for something BetterSSC should do
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What's the idea?
+      description: A sentence or two about what you'd like to see.
+      placeholder: When I hover a message I want to see who reacted with what.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would this be useful?
+      description: What problem does it solve for you?
+      placeholder: Right now I have to click each reaction pill individually to see the user list.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: A screenshot of how Substack or Discord handles it, links to similar UIs, edge cases you've thought about.

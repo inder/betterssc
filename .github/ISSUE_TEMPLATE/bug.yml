@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in BetterSSC isn't working the way it should
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: One or two sentences about what went wrong.
+      placeholder: When I click a thread badge, the filter shows zero messages.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How would I trigger this on my machine?
+      placeholder: |
+        1. Open Substack chat at <URL>
+        2. Click the toolbar icon
+        3. Scroll to a specific message
+        4. Click the 💬 badge
+        5. Stream goes blank
+    validations:
+      required: true
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors
+      description: |
+        Open DevTools in the BetterSSC tab (Cmd-Opt-I on Mac, F12 on Windows).
+        Paste anything in red, or anything tagged with `[BetterSSC ...]`.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: BetterSSC version
+      description: You can find this in `chrome://extensions` on the BetterSSC card.
+      placeholder: 0.1.30
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 131 on macOS 15
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, a hunch about the cause, "this used to work in v0.1.X," anything that might help.
