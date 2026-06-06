@@ -1880,6 +1880,7 @@ function bindEventHandlers() {
         document.activeElement.tagName === "TEXTAREA");
 
     // Escape — clear active overlays, then thread filter, then search.
+    // v0.1.27: works from anywhere, not just when focused in the search box.
     if (e.key === "Escape") {
       const overlay = document.querySelector(".help-overlay, .lightbox");
       if (overlay) {
@@ -1890,12 +1891,16 @@ function bindEventHandlers() {
         closeThreadFilter();
         return;
       }
-      if (document.activeElement === searchInput) {
+      if (searchInput && searchInput.value) {
         searchInput.value = "";
         state.searchQuery = "";
         applySearch();
-        searchInput.blur();
+        if (document.activeElement === searchInput) searchInput.blur();
+        return;
       }
+      // Nothing to clear — make sure the input isn't focused after Esc
+      // in case the user wants to start fresh with j/k navigation.
+      if (document.activeElement === searchInput) searchInput.blur();
       return;
     }
 
