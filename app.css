@@ -239,8 +239,9 @@ button {
   transition: background 0.1s ease;
 }
 .msg-group:hover { background: var(--bg-hover); }
-.msg-group.search-hit { background: rgba(88, 101, 242, 0.1); }
-.msg-group.search-active { background: rgba(88, 101, 242, 0.25); }
+.msg-group.search-hit { background: rgba(88, 101, 242, 0.08); }
+.msg-group.search-active { background: rgba(88, 101, 242, 0.22); }
+.msg-group.search-hidden { display: none; }
 .msg-group.mention-row { background: rgba(240, 178, 50, 0.06); border-left: 2px solid var(--warning); padding-left: 6px; }
 
 .msg-avatar {
@@ -408,8 +409,11 @@ button {
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.1s ease;
+  user-select: none;
 }
 .member:hover { background: var(--bg-hover); }
+.member:hover .member-name { color: var(--accent); }
+.member:active { background: var(--bg-accent); }
 .member-avatar {
   width: 28px;
   height: 28px;

@@ -768,7 +768,11 @@ function renderMembers() {
     const li = document.createElement("li");
     li.className = "member";
     li.dataset.userId = String(a.profile.id);
-    li.title = a.profile.name;
+    li.title = `Filter to ${a.profile.name}'s messages`;
+    li.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (a.profile.name) filterByAuthorName(a.profile.name);
+    });
     const av = document.createElement(a.profile.photo_url ? "img" : "div");
     av.className = "member-avatar";
     if (a.profile.photo_url) {
@@ -833,10 +837,12 @@ function hideNewMessageJump() {
 function applySearch() {
   const raw = state.searchQuery.trim();
   const q = raw.toLowerCase();
-  const hits = [];
+
+  // Reset all groups to default state.
   document.querySelectorAll(".msg-group").forEach((node) => {
-    node.classList.remove("search-hit", "search-active");
+    node.classList.remove("search-hit", "search-active", "search-hidden");
   });
+
   if (!q) {
     document.getElementById("searchCount").textContent = "";
     state.searchHits = [];
@@ -848,25 +854,49 @@ function applySearch() {
   const isAuthorFilter = raw.startsWith("@");
   const authorQuery = isAuthorFilter ? q.slice(1) : null;
 
+  const hits = [];
+  const hitIds = new Set();
   for (const id of state.order) {
     const c = state.comments.get(id);
     if (!c) continue;
     const authorName = ((c.author && c.author.name) || "").toLowerCase();
+    let match = false;
     if (isAuthorFilter) {
-      if (authorQuery && authorName.startsWith(authorQuery)) hits.push(id);
+      match = !!authorQuery && authorName.startsWith(authorQuery);
     } else {
       const body = (c.body || "").toLowerCase();
-      if (body.includes(q) || authorName.includes(q)) hits.push(id);
+      match = body.includes(q) || authorName.includes(q);
+    }
+    if (match) {
+      hits.push(id);
+      hitIds.add(id);
     }
   }
   state.searchHits = hits;
-  for (const id of hits) {
-    const node = document.querySelector(`[data-id="${cssEscape(id)}"]`);
-    if (node) node.closest(".msg-group").classList.add("search-hit");
-  }
+
+  // Filter: every group that contains at least one matching message is
+  // shown + highlighted; every group with zero matches is HIDDEN. This
+  // matches the natural intent of "I typed @Jordan — show me Jordan's
+  // messages, not all messages with Jordan highlighted."
+  document.querySelectorAll(".msg-group").forEach((group) => {
+    const ids = Array.from(group.querySelectorAll("[data-id]")).map(
+      (n) => n.dataset.id
+    );
+    const groupHasHit = ids.some((id) => hitIds.has(id));
+    if (groupHasHit) {
+      group.classList.add("search-hit");
+    } else {
+      group.classList.add("search-hidden");
+    }
+  });
+
   const label = isAuthorFilter
-    ? `${hits.length} from author`
-    : `${hits.length} match${hits.length !== 1 ? "es" : ""}`;
+    ? hits.length
+      ? `${hits.length} from author · Esc to clear`
+      : `no messages from @${authorQuery} · Esc to clear`
+    : hits.length
+      ? `${hits.length} match${hits.length !== 1 ? "es" : ""} · Esc to clear`
+      : `no matches · Esc to clear`;
   document.getElementById("searchCount").textContent = label;
   if (hits.length) {
     state.searchActiveIdx = 0;
@@ -885,7 +915,7 @@ function filterByAuthorName(name) {
 }
 
 // Scroll to a specific message id and flash it. Used by the quote
-// click-to-jump.
+// click-to-jump and notification-click handlers.
 function jumpToMessage(id) {
   const node = document.querySelector(`[data-id="${cssEscape(id)}"]`);
   if (!node) {
@@ -895,9 +925,15 @@ function jumpToMessage(id) {
     return;
   }
   const group = node.closest(".msg-group");
+  // If the target is hidden by an active search filter, clear the search
+  // first so the user can actually see what they jumped to.
+  if (group && group.classList.contains("search-hidden")) {
+    document.getElementById("searchInput").value = "";
+    state.searchQuery = "";
+    applySearch();
+  }
   if (group) {
     group.classList.remove("highlight-flash");
-    // Force reflow so the animation re-fires if you click twice.
     void group.offsetWidth;
     group.classList.add("highlight-flash");
     setTimeout(() => group.classList.remove("highlight-flash"), 1800);
