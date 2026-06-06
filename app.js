@@ -113,12 +113,26 @@ async function init() {
   await loadInitial();
   // Mark as viewed.
   scheduleMarkViewed();
-  // Open WebSocket (best-effort — protocol issues, see below).
-  await connectRealtime();
-  // Start polling fallback for live updates. WS is unreliable in v0.1
-  // (Substack's protocol rejects our subscribe frames with Invalid message
-  // for reasons we haven't pinned down). Polling matches what Substack's
-  // own native client does anyway (~10s interval with ?after=<ISO>).
+  // WS is OFF by default in v0.1.16. Substack's wss://zyncrealtime protocol
+  // rejects our subscribe frames with `Invalid message` after auth OK, and
+  // we can't reverse-engineer the right shape from one-sided traces. To stop
+  // log noise and a wasted ~5s of open-then-error per page load, the
+  // attempt is gated behind a debug flag. Polling is the live mechanism.
+  // To re-enable for debugging:
+  //   chrome.storage.local.set({ bssc_ws_enabled: true })
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.get(["bssc_ws_enabled"], async (res) => {
+        if (res && res.bssc_ws_enabled) {
+          await connectRealtime();
+        } else {
+          setWsStatus("disabled");
+        }
+      });
+  } catch (_) {
+    setWsStatus("disabled");
+  }
   startPollingFallback();
 }
 
@@ -627,16 +641,10 @@ function renderGroup(group) {
     }
   }
 
-  // Avatar
-  const avatar = document.createElement(group.author?.photo_url ? "img" : "div");
-  avatar.className = "msg-avatar";
-  if (group.author?.photo_url) {
-    avatar.src = group.author.photo_url;
-    avatar.alt = group.author.name || "";
-  } else {
-    avatar.classList.add("msg-avatar-placeholder");
-    avatar.textContent = (group.author?.name || "?").charAt(0).toUpperCase();
-  }
+  // Avatar — referrerpolicy="no-referrer" stops Substack's S3 from 403'ing
+  // because we don't have a matching Referer header. onerror falls back to a
+  // letter placeholder so broken-image icons don't flicker into the stream.
+  const avatar = makeAvatar(group.author, "msg-avatar");
   root.appendChild(avatar);
 
   // Body
@@ -766,6 +774,32 @@ function renderMessageItem(c) {
   return wrap;
 }
 
+// Build an avatar element with safe defaults: no Referer (Substack's S3
+// rejects requests with the wrong Referer), lazy loading, and a graceful
+// onerror swap to the initial-letter placeholder.
+function makeAvatar(author, cssClass) {
+  const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
+  if (author && author.photo_url) {
+    const img = document.createElement("img");
+    img.className = cssClass;
+    img.src = author.photo_url;
+    img.alt = author.name || "";
+    img.referrerPolicy = "no-referrer";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      const fallback = document.createElement("div");
+      fallback.className = cssClass + " msg-avatar-placeholder";
+      fallback.textContent = initial;
+      img.replaceWith(fallback);
+    });
+    return img;
+  }
+  const div = document.createElement("div");
+  div.className = cssClass + " msg-avatar-placeholder";
+  div.textContent = initial;
+  return div;
+}
+
 // Extract image/file URL from one of Substack's various attachment shapes.
 // We don't have an exhaustive capture; this is defensive against:
 //   string URL, { url }, { src }, { image_url }, { imageUrl }, { href }
@@ -819,10 +853,20 @@ function appendAttachments(wrap, c) {
       img.src = url;
       img.alt = (raw && (raw.alt || raw.filename || raw.name)) || "image";
       img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
       img.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         openLightbox(url);
+      });
+      img.addEventListener("error", () => {
+        const link = document.createElement("a");
+        link.className = "msg-attachment-file";
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "📎 image (click to open)";
+        img.replaceWith(link);
       });
       container.appendChild(img);
     } else {
@@ -886,14 +930,7 @@ function renderMembers() {
       e.preventDefault();
       if (a.profile.name) filterByAuthorName(a.profile.name);
     });
-    const av = document.createElement(a.profile.photo_url ? "img" : "div");
-    av.className = "member-avatar";
-    if (a.profile.photo_url) {
-      av.src = a.profile.photo_url;
-      av.alt = a.profile.name;
-    } else {
-      av.textContent = (a.profile.name || "?").charAt(0).toUpperCase();
-    }
+    const av = makeAvatar(a.profile, "member-avatar");
     const info = document.createElement("div");
     info.className = "member-info";
     const name = document.createElement("div");
@@ -913,7 +950,11 @@ function renderMembers() {
 
 function renderFooterStats() {
   const wsStateText =
-    state.wsStatus === "connected" ? "ws+poll" : "poll only";
+    state.wsStatus === "connected"
+      ? "ws+poll"
+      : state.wsStatus === "disabled"
+        ? "poll (ws off)"
+        : "poll only";
   document.getElementById(
     "footerStats"
   ).textContent = `${state.comments.size} messages · ${state.authors.size} authors · live: ${wsStateText}`;
