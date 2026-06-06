@@ -56,6 +56,8 @@ const state = {
   isAtBottom: true,
   pendingNewMessages: 0,
   watchedUserIds: new Set(),
+  pinnedUserIds: new Set(),
+  memberSort: "active", // "active" (most messages) or "name"
 };
 
 // ============================================================
@@ -156,19 +158,25 @@ async function pollNewMessages() {
   _pollInflight = true;
   try {
     const res = await fetchCommentsAfter(state.postUuid, since);
-    const replies = (res && res.replies) || [];
+    // Flatten threaded replies so in-thread comments come through.
+    const replies = flattenReplies(res && res.replies);
     if (!replies.length) return;
     const before = state.comments.size;
-    for (const r of replies) ingestComment(r);
+    const newlyAdded = [];
+    for (const r of replies) {
+      const sizeBefore = state.comments.size;
+      ingestComment(r);
+      if (state.comments.size > sizeBefore) {
+        newlyAdded.push(unwrapComment(r) || r);
+      }
+    }
     const added = state.comments.size - before;
     if (added > 0) {
       renderAll();
       incrementUnreadWhileHidden(added);
-      // Fire per-user alerts on the newly-arrived comments.
-      for (const r of replies) {
-        const unwrapped = unwrapComment(r) || r;
-        maybeAlertOnWatchedUser(unwrapped);
-      }
+      // Fire per-user alerts on every truly-new comment (originals and
+      // threaded replies).
+      for (const c of newlyAdded) maybeAlertOnWatchedUser(c);
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
@@ -266,7 +274,9 @@ async function loadInitial() {
     // v0.1.11: unwrap replies BEFORE reading created_at — REST replies are
     // wrapped (`{comment: {...}, user: {...}}`), so the outer object's
     // `created_at` is undefined and our pagination cursor was never set.
-    const unwrappedReplies = (res.replies || [])
+    // v0.1.20: flatten threaded replies so in-thread comments are ingested
+    // too (they're nested under their parent in the response, not at top).
+    const unwrappedReplies = flattenReplies(res.replies || [])
       .map((r) => unwrapComment(r) || r)
       .filter((r) => r && r.created_at);
     unwrappedReplies.sort(
@@ -298,8 +308,8 @@ async function loadOlder() {
   const prevScrollTop = document.getElementById("stream").scrollTop;
   try {
     const res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
-    // Same unwrap fix as loadInitial.
-    const unwrappedReplies = (res.replies || [])
+    // Same unwrap + flatten fixes as loadInitial.
+    const unwrappedReplies = flattenReplies(res.replies || [])
       .map((r) => unwrapComment(r) || r)
       .filter((r) => r && r.created_at && r.id);
     unwrappedReplies.sort(
@@ -363,6 +373,30 @@ function unwrapComment(raw) {
 function commentId(c) {
   if (!c) return null;
   return c.id || c.comment_id || c._id || c.uuid || null;
+}
+
+// v0.1.20: flatten threaded reply trees. Substack returns top-level
+// comments in `replies[]`, but a comment that REPLIES to another
+// (parent_id set) lives nested under the parent. Without this walker we
+// silently drop every in-thread reply — which is why "X minutes ago" in
+// the Active rail and bell alerts both froze on a user's last top-level
+// message.
+function flattenReplies(items) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  const walk = (node) => {
+    if (!node) return;
+    out.push(node);
+    // Two shapes we've seen: nested at the wrapper level, or under
+    // wrapper.comment. Try both.
+    if (Array.isArray(node.replies)) for (const r of node.replies) walk(r);
+    if (node.comment && Array.isArray(node.comment.replies)) {
+      for (const r of node.comment.replies) walk(r);
+    }
+    if (Array.isArray(node.children)) for (const r of node.children) walk(r);
+  };
+  for (const r of items) walk(r);
+  return out;
 }
 
 // v0.1.6 found: Substack's REST /comments response gives flat user_id only,
@@ -444,12 +478,17 @@ function ingestComment(c, { silent = false } = {}) {
   if (unwrapped.author && unwrapped.author.id != null) {
     const prev = state.authors.get(unwrapped.author.id);
     const t = new Date(unwrapped.created_at).getTime() || 0;
-    if (!prev || prev.lastSeenAt < t) {
-      state.authors.set(unwrapped.author.id, {
-        profile: unwrapped.author,
-        lastSeenAt: t,
-      });
-    }
+    const next = prev || {
+      profile: unwrapped.author,
+      lastSeenAt: 0,
+      messageCount: 0,
+    };
+    // Update profile only if not already set (preserves first non-null fields).
+    if (!next.profile || !next.profile.name) next.profile = unwrapped.author;
+    if (t > next.lastSeenAt) next.lastSeenAt = t;
+    // Count each unique message ID once. isNew guarantees that.
+    if (isNew) next.messageCount = (next.messageCount || 0) + 1;
+    state.authors.set(unwrapped.author.id, next);
   }
   if (isNew && !silent) {
     maybeNotifyMention({
@@ -955,18 +994,72 @@ function commentMentionsUser(c, user) {
 
 function renderMembers() {
   const list = document.getElementById("memberList");
-  const arr = Array.from(state.authors.values()).sort(
-    (a, b) => b.lastSeenAt - a.lastSeenAt
-  );
+  if (!list) return;
+  const all = Array.from(state.authors.values());
+  const pinned = all.filter((a) => state.pinnedUserIds.has(a.profile.id));
+  const rest = all.filter((a) => !state.pinnedUserIds.has(a.profile.id));
+  const cmp =
+    state.memberSort === "name"
+      ? (a, b) =>
+          (a.profile.name || "").localeCompare(b.profile.name || "")
+      : (a, b) =>
+          (b.messageCount || 0) - (a.messageCount || 0) ||
+          (b.lastSeenAt || 0) - (a.lastSeenAt || 0);
+  pinned.sort(cmp);
+  rest.sort(cmp);
+
+  // Update header with the sort toggle (rebuild each render so the
+  // active option stays in sync).
+  renderMembersHeader();
+
   const frag = document.createDocumentFragment();
-  for (const a of arr.slice(0, 80)) {
-    const li = document.createElement("li");
-    li.className = "member";
-    li.dataset.userId = String(a.profile.id);
-    const isWatched = state.watchedUserIds.has(a.profile.id);
-    if (isWatched) li.classList.add("watched");
-    li.title = `Click name to filter · click 🔔 to alert on new messages`;
-    const av = makeAvatar(a.profile, "member-avatar");
+  if (pinned.length) {
+    const sub = document.createElement("li");
+    sub.className = "member-subheader";
+    sub.textContent = "Pinned";
+    frag.appendChild(sub);
+    for (const a of pinned) frag.appendChild(buildMemberRow(a, true));
+    const sub2 = document.createElement("li");
+    sub2.className = "member-subheader";
+    sub2.textContent = state.memberSort === "name" ? "All (A→Z)" : "Active";
+    frag.appendChild(sub2);
+  }
+  for (const a of rest.slice(0, 80)) frag.appendChild(buildMemberRow(a, false));
+  list.replaceChildren(frag);
+}
+
+function renderMembersHeader() {
+  const header = document.getElementById("membersHeader");
+  if (!header) return;
+  header.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "members-header-label";
+  label.textContent = "Active";
+  header.appendChild(label);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "members-sort-toggle";
+  toggle.title =
+    state.memberSort === "active"
+      ? "Sorted by # of messages — click to sort by name"
+      : "Sorted by name — click to sort by # of messages";
+  toggle.textContent = state.memberSort === "active" ? "↓ msgs" : "A→Z";
+  toggle.addEventListener("click", () => {
+    state.memberSort = state.memberSort === "active" ? "name" : "active";
+    persistMembersUiPrefs();
+    renderMembers();
+  });
+  header.appendChild(toggle);
+}
+
+function buildMemberRow(a, isPinned) {
+  const li = document.createElement("li");
+  li.className = "member";
+  li.dataset.userId = String(a.profile.id);
+  const isWatched = state.watchedUserIds.has(a.profile.id);
+  if (isWatched) li.classList.add("watched");
+  if (isPinned) li.classList.add("pinned");
+  const av = makeAvatar(a.profile, "member-avatar");
     const info = document.createElement("div");
     info.className = "member-info";
     const name = document.createElement("div");
@@ -975,39 +1068,52 @@ function renderMembers() {
     const last = document.createElement("div");
     last.className = "member-last";
     last.textContent = formatRelativeTime(new Date(a.lastSeenAt).toISOString());
-    info.appendChild(name);
-    info.appendChild(last);
+  info.appendChild(name);
+  info.appendChild(last);
 
-    // Bell toggle — click to alert when this user posts a new message.
-    const bell = document.createElement("button");
-    bell.type = "button";
-    bell.className = "member-bell" + (isWatched ? " on" : "");
-    bell.textContent = isWatched ? "🔔" : "🔕";
-    bell.title = isWatched
-      ? `Disable alerts for ${a.profile.name}`
-      : `Alert when ${a.profile.name} posts (only when tab is unfocused)`;
-    bell.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleWatchUser(a.profile.id, a.profile.name);
-    });
+  // Pin toggle.
+  const pin = document.createElement("button");
+  pin.type = "button";
+  pin.className = "member-pin" + (isPinned ? " on" : "");
+  pin.textContent = isPinned ? "📌" : "📍";
+  pin.title = isPinned
+    ? `Unpin ${a.profile.name}`
+    : `Pin ${a.profile.name} to the top of the Active rail`;
+  pin.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePinUser(a.profile.id);
+  });
 
-    // Clicking the name (or avatar/info area) filters the stream.
-    const nameClickable = document.createElement("div");
-    nameClickable.className = "member-clickable";
-    nameClickable.title = `Filter to ${a.profile.name}'s messages`;
-    nameClickable.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (a.profile.name) filterByAuthorName(a.profile.name);
-    });
-    nameClickable.appendChild(av);
-    nameClickable.appendChild(info);
+  // Bell toggle — click to alert when this user posts a new message.
+  const bell = document.createElement("button");
+  bell.type = "button";
+  bell.className = "member-bell" + (isWatched ? " on" : "");
+  bell.textContent = isWatched ? "🔔" : "🔕";
+  bell.title = isWatched
+    ? `Disable alerts for ${a.profile.name}`
+    : `Alert when ${a.profile.name} posts (only when tab is unfocused)`;
+  bell.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleWatchUser(a.profile.id, a.profile.name);
+  });
 
-    li.appendChild(nameClickable);
-    li.appendChild(bell);
-    frag.appendChild(li);
-  }
-  list.replaceChildren(frag);
+  // Clicking the name (or avatar/info area) filters the stream.
+  const nameClickable = document.createElement("div");
+  nameClickable.className = "member-clickable";
+  nameClickable.title = `Filter to ${a.profile.name}'s messages`;
+  nameClickable.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (a.profile.name) filterByAuthorName(a.profile.name);
+  });
+  nameClickable.appendChild(av);
+  nameClickable.appendChild(info);
+
+  li.appendChild(nameClickable);
+  li.appendChild(pin);
+  li.appendChild(bell);
+  return li;
 }
 
 // ============================================================
@@ -1038,10 +1144,39 @@ function restoreWatchedUsers() {
   try {
     chrome.storage &&
       chrome.storage.local &&
-      chrome.storage.local.get(["bssc_watched_users"], (res) => {
-        const arr = (res && res.bssc_watched_users) || [];
-        state.watchedUserIds = new Set(arr);
-        renderMembers();
+      chrome.storage.local.get(
+        ["bssc_watched_users", "bssc_pinned_users", "bssc_member_sort"],
+        (res) => {
+          if (res) {
+            state.watchedUserIds = new Set(res.bssc_watched_users || []);
+            state.pinnedUserIds = new Set(res.bssc_pinned_users || []);
+            if (res.bssc_member_sort === "name" || res.bssc_member_sort === "active") {
+              state.memberSort = res.bssc_member_sort;
+            }
+          }
+          renderMembers();
+        }
+      );
+  } catch (_) {}
+}
+
+function togglePinUser(userId) {
+  if (state.pinnedUserIds.has(userId)) {
+    state.pinnedUserIds.delete(userId);
+  } else {
+    state.pinnedUserIds.add(userId);
+  }
+  persistMembersUiPrefs();
+  renderMembers();
+}
+
+function persistMembersUiPrefs() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_pinned_users: Array.from(state.pinnedUserIds),
+        bssc_member_sort: state.memberSort,
       });
   } catch (_) {}
 }
