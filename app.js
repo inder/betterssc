@@ -58,6 +58,7 @@ const state = {
   watchedUserIds: new Set(),
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
+  threadFilter: null, // { parentId } when user clicked a 💬 thread icon
 };
 
 // ============================================================
@@ -731,6 +732,23 @@ function renderMessageItem(c) {
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
 
+  // Thread badge — shown when this message has direct replies. Clicking
+  // opens a thread filter that shows only this message + its replies.
+  // Only one level deep (replies-of-replies are NOT included).
+  if (c.reply_count > 0) {
+    const threadBtn = document.createElement("button");
+    threadBtn.type = "button";
+    threadBtn.className = "msg-thread-btn";
+    threadBtn.textContent = `💬 ${c.reply_count}`;
+    threadBtn.title = `Open thread (${c.reply_count} repl${c.reply_count === 1 ? "y" : "ies"})`;
+    threadBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openThreadFilter(c.id);
+    });
+    wrap.appendChild(threadBtn);
+  }
+
   // Quote preview if reply — Substack-style accent-tinted block, clickable
   // to jump to the original.
   if (c.quote && (c.quote.body || c.quote.author)) {
@@ -1251,6 +1269,16 @@ function applySearch() {
     node.classList.remove("search-hit", "search-active", "search-hidden");
   });
 
+  // Thread filter takes precedence — when active, hide every group whose
+  // messages aren't either the thread parent or a direct reply.
+  if (state.threadFilter) {
+    applyThreadFilter();
+    if (!q) {
+      // No search query — just keep the thread filter intact.
+      return;
+    }
+  }
+
   if (!q) {
     document.getElementById("searchCount").textContent = "";
     state.searchHits = [];
@@ -1450,6 +1478,90 @@ function showHelpOverlay() {
     }
   });
   document.body.appendChild(overlay);
+}
+
+// ============================================================
+// THREAD FILTER (click the 💬 badge on a message with replies)
+// ============================================================
+
+function openThreadFilter(parentId) {
+  state.threadFilter = { parentId };
+  // Clear any active search so the user sees just the thread.
+  const input = document.getElementById("searchInput");
+  if (input) {
+    input.value = "";
+    state.searchQuery = "";
+  }
+  renderThreadBanner();
+  applySearch();
+  // Scroll the parent message into view + flash it.
+  setTimeout(() => jumpToMessage(parentId), 50);
+}
+
+function closeThreadFilter() {
+  state.threadFilter = null;
+  renderThreadBanner();
+  // Reset visibility — applySearch with no query clears classes.
+  document.querySelectorAll(".msg-group").forEach((node) => {
+    node.classList.remove("search-hit", "search-active", "search-hidden");
+  });
+  applySearch();
+}
+
+function applyThreadFilter() {
+  if (!state.threadFilter) return;
+  const parentId = state.threadFilter.parentId;
+  // Find all comment ids that are part of the thread: the parent + every
+  // direct child (parent_id === parentId). Only one level — replies of
+  // replies are NOT included.
+  const idsInThread = new Set([parentId]);
+  for (const id of state.order) {
+    const c = state.comments.get(id);
+    if (c && c.parent_id === parentId) idsInThread.add(id);
+  }
+  // Hide every group whose messages aren't in the thread.
+  document.querySelectorAll(".msg-group").forEach((group) => {
+    const ids = Array.from(group.querySelectorAll("[data-id]")).map(
+      (n) => n.dataset.id
+    );
+    const inThread = ids.some((id) => idsInThread.has(id));
+    if (!inThread) {
+      group.classList.add("search-hidden");
+    } else {
+      group.classList.add("search-hit");
+    }
+  });
+}
+
+function renderThreadBanner() {
+  let banner = document.getElementById("threadBanner");
+  if (!state.threadFilter) {
+    if (banner) banner.remove();
+    return;
+  }
+  const parent = state.comments.get(state.threadFilter.parentId);
+  const preview = parent
+    ? `${(parent.author && parent.author.name) || "Unknown"}: ${(parent.body || "").slice(0, 60)}`
+    : "thread";
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "threadBanner";
+    banner.className = "thread-banner";
+    const stream = document.getElementById("stream");
+    if (stream) stream.prepend(banner);
+  }
+  banner.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "thread-banner-label";
+  label.textContent = `💬 Thread: ${preview}`;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "thread-banner-close";
+  close.textContent = "× close";
+  close.title = "Close thread (Esc)";
+  close.addEventListener("click", closeThreadFilter);
+  banner.appendChild(label);
+  banner.appendChild(close);
 }
 
 // Set the search input to "@<name>" and apply — used by the click-author
@@ -1698,11 +1810,15 @@ function bindEventHandlers() {
       (document.activeElement &&
         document.activeElement.tagName === "TEXTAREA");
 
-    // Escape — clear active overlays then input.
+    // Escape — clear active overlays, then thread filter, then search.
     if (e.key === "Escape") {
       const overlay = document.querySelector(".help-overlay, .lightbox");
       if (overlay) {
         overlay.remove();
+        return;
+      }
+      if (state.threadFilter) {
+        closeThreadFilter();
         return;
       }
       if (document.activeElement === searchInput) {

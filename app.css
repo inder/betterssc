@@ -300,6 +300,43 @@ button {
   color: var(--text-muted);
 }
 
+/* Thread filter banner — sticky at the top of the stream when active. */
+.thread-banner {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--accent-bg-strong);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+.thread-banner-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.thread-banner-close {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.thread-banner-close:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
 .messages {
   padding: 16px 16px 24px;
   display: flex;
@@ -367,6 +404,29 @@ button {
   word-wrap: break-word;
   white-space: pre-wrap;
   line-height: 1.4;
+  position: relative;
+}
+.msg-thread-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  z-index: 2;
+}
+.msg-thread-btn:hover {
+  opacity: 1;
+  background: var(--accent-bg-soft);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .msg-item.is-new { animation: flashIn 0.4s ease; }
 @keyframes flashIn {
