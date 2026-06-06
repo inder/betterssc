@@ -1,30 +1,56 @@
-/* BetterSSC — Discord-inspired dark theme */
+/* BetterSSC — Discord-inspired theme. Dark by default; light via data-theme. */
 
-:root {
-  --bg-primary: #313338;
-  --bg-secondary: #2b2d31;
-  --bg-tertiary: #1e1f22;
-  --bg-hover: #35373c;
+:root,
+:root[data-theme="dark"] {
+  --bg-primary: #1f2024;          /* darker for more contrast vs purple */
+  --bg-secondary: #17181b;
+  --bg-tertiary: #0e0f11;
+  --bg-hover: #2a2c31;
   --bg-accent: #4e5058;
-  --text-primary: #f2f3f5;
-  --text-secondary: #b5bac1;
+  --text-primary: #f6f7f9;
+  --text-secondary: #b9bdc7;
   --text-muted: #80848e;
   --text-link: #00a8fc;
-  --accent: #5865f2;
+  --accent: #7b8aff;              /* brighter purple — pops harder vs dark bg */
   --accent-hover: #4752c4;
+  --accent-bg-soft: rgba(123, 138, 255, 0.16);
+  --accent-bg-strong: rgba(123, 138, 255, 0.30);
   --success: #23a559;
   --warning: #f0b232;
   --danger: #f23f42;
-  --border: #1e1f22;
+  --border: #0e0f11;
   --shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05),
     0 2px 0 rgba(4, 4, 5, 0.05);
+  color-scheme: dark;
+}
 
+:root[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f6f8;
+  --bg-tertiary: #e6e9ee;
+  --bg-hover: #eef0f4;
+  --bg-accent: #c9cdd4;
+  --text-primary: #0d0f12;
+  --text-secondary: #4a4f57;
+  --text-muted: #6c727b;
+  --text-link: #0066cc;
+  --accent: #4e5cdb;
+  --accent-hover: #3e4ac0;
+  --accent-bg-soft: rgba(78, 92, 219, 0.10);
+  --accent-bg-strong: rgba(78, 92, 219, 0.22);
+  --success: #1a8a44;
+  --warning: #b07414;
+  --danger: #c92a2a;
+  --border: #d8dde3;
+  --shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 1.5px 3px rgba(0, 0, 0, 0.05);
+  color-scheme: light;
+}
+
+:root {
   --header-h: 56px;
   --footer-h: 32px;
   --members-w: 240px;
   --message-radius: 8px;
-
-  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -180,6 +206,22 @@ button {
   border-radius: 4px;
   background: var(--bg-tertiary);
 }
+.theme-toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 .dot {
   width: 8px;
   height: 8px;
@@ -239,8 +281,8 @@ button {
   transition: background 0.1s ease;
 }
 .msg-group:hover { background: var(--bg-hover); }
-.msg-group.search-hit { background: rgba(88, 101, 242, 0.08); }
-.msg-group.search-active { background: rgba(88, 101, 242, 0.22); }
+.msg-group.search-hit { background: var(--accent-bg-soft); }
+.msg-group.search-active { background: var(--accent-bg-strong); }
 .msg-group.search-hidden { display: none; }
 .msg-group.mention-row { background: rgba(240, 178, 50, 0.06); border-left: 2px solid var(--warning); padding-left: 6px; }
 
@@ -299,7 +341,7 @@ button {
 
 .msg-mention {
   color: var(--accent);
-  background: rgba(88, 101, 242, 0.15);
+  background: var(--accent-bg-soft);
   padding: 0 2px;
   border-radius: 3px;
   font-weight: 500;
@@ -309,10 +351,10 @@ button {
    that so it's visually distinct from the surrounding message text and the
    reader can tell at a glance "this is the message being replied to." */
 .msg-quote {
-  border-left: 3px solid var(--accent);
-  padding: 6px 10px;
-  margin-bottom: 6px;
-  background: rgba(88, 101, 242, 0.14);
+  border-left: 4px solid var(--accent);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: var(--accent-bg-soft);
   border-radius: 4px;
   font-size: 13px;
   color: var(--text-primary);
@@ -320,7 +362,7 @@ button {
   transition: background 0.15s ease;
 }
 .msg-quote:hover {
-  background: rgba(88, 101, 242, 0.22);
+  background: var(--accent-bg-strong);
 }
 .msg-quote-author {
   font-weight: 600;
@@ -340,8 +382,112 @@ button {
   animation: highlightFlash 1.8s ease;
 }
 @keyframes highlightFlash {
-  0% { background: rgba(88, 101, 242, 0.45); box-shadow: 0 0 0 2px var(--accent); }
+  0% { background: var(--accent-bg-strong); box-shadow: 0 0 0 2px var(--accent); }
   100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Vi-style active message marker (used by j/k navigation). */
+.msg-group.vi-active {
+  background: var(--accent-bg-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Image attachments inline in messages. */
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.msg-attachment-img {
+  max-width: 480px;
+  max-height: 400px;
+  border-radius: 6px;
+  cursor: zoom-in;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  object-fit: contain;
+}
+.msg-attachment-img:hover { filter: brightness(1.08); }
+.msg-attachment-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.msg-attachment-file:hover { background: var(--bg-hover); text-decoration: none; }
+
+/* Image lightbox overlay. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* Slash-command help overlay. */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  cursor: pointer;
+}
+.help-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  max-width: 560px;
+  cursor: default;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.help-card h2 {
+  margin: 0 0 12px 0;
+  color: var(--accent);
+  font-size: 16px;
+}
+.help-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.help-card dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent);
+  font-weight: 600;
+}
+.help-card dd {
+  margin: 0;
+  color: var(--text-secondary);
+}
+.help-card .close-hint {
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
 }
 
 .msg-reactions {

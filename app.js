@@ -715,6 +715,12 @@ function renderMessageItem(c) {
     }
   }
 
+  // Attachments (images and files). v0.1.13: defensively handle the three
+  // fields Substack exposes — media_uploads, threadMediaUploads,
+  // mediaAttachments — since we haven't fully captured every shape they
+  // can take.
+  appendAttachments(wrap, c);
+
   // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
   // shape might be {name: {count, has_reacted}}. Handle both, and filter
   // out zero-count entries (we were rendering "👍 0" pills).
@@ -746,6 +752,98 @@ function renderMessageItem(c) {
   }
 
   return wrap;
+}
+
+// Extract image/file URL from one of Substack's various attachment shapes.
+// We don't have an exhaustive capture; this is defensive against:
+//   string URL, { url }, { src }, { image_url }, { imageUrl }, { href }
+function extractAttachmentUrl(a) {
+  if (!a) return null;
+  if (typeof a === "string") return a;
+  return (
+    a.url ||
+    a.src ||
+    a.image_url ||
+    a.imageUrl ||
+    a.href ||
+    a.signed_url ||
+    a.signedUrl ||
+    null
+  );
+}
+
+function isImageUrl(url) {
+  if (!url) return false;
+  return /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?|$)/i.test(url) ||
+    /substack-post-media|substackcdn|substack-cdn|cloudfront|s3\.amazonaws/.test(url);
+}
+
+function appendAttachments(wrap, c) {
+  const buckets = [
+    c.media_uploads,
+    c.threadMediaUploads,
+    c.mediaAttachments,
+    c.attachments,
+  ];
+  const urls = [];
+  for (const b of buckets) {
+    if (Array.isArray(b)) {
+      for (const a of b) {
+        const u = extractAttachmentUrl(a);
+        if (u) urls.push({ url: u, raw: a });
+      }
+    }
+  }
+  if (!urls.length) return;
+  const container = document.createElement("div");
+  container.className = "msg-attachments";
+  for (const { url, raw } of urls) {
+    if (isImageUrl(url)) {
+      const img = document.createElement("img");
+      img.className = "msg-attachment-img";
+      img.src = url;
+      img.alt = (raw && (raw.alt || raw.filename || raw.name)) || "image";
+      img.loading = "lazy";
+      img.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openLightbox(url);
+      });
+      container.appendChild(img);
+    } else {
+      const link = document.createElement("a");
+      link.className = "msg-attachment-file";
+      link.href = url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent =
+        "📎 " + ((raw && (raw.filename || raw.name)) || url.split("/").pop());
+      container.appendChild(link);
+    }
+  }
+  wrap.appendChild(container);
+}
+
+function openLightbox(url) {
+  const existing = document.querySelector(".lightbox");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  const img = document.createElement("img");
+  img.src = url;
+  overlay.appendChild(img);
+  overlay.addEventListener("click", () => overlay.remove());
+  document.addEventListener(
+    "keydown",
+    function onKey(e) {
+      if (e.key === "Escape") {
+        overlay.remove();
+        document.removeEventListener("keydown", onKey);
+      }
+    },
+    { once: true }
+  );
+  document.body.appendChild(overlay);
 }
 
 function commentMentionsUser(c, user) {
@@ -849,25 +947,21 @@ function applySearch() {
     return;
   }
 
-  // `@<name>` filter mode: match against author.name with case-insensitive
-  // prefix. Doesn't match body text. Useful for "show me all of Boz's posts."
-  const isAuthorFilter = raw.startsWith("@");
-  const authorQuery = isAuthorFilter ? q.slice(1) : null;
+  // Slash command syntax: /from:<name>, /me, /has:link, /has:image,
+  // /has:reaction, /since:<iso-or-relative>, /help. Otherwise `@<name>` is
+  // the author-prefix filter, anything else is full-text on body+author.
+  const matcher = parseSearchQuery(raw);
+  if (matcher.help) {
+    showHelpOverlay();
+    return;
+  }
 
   const hits = [];
   const hitIds = new Set();
   for (const id of state.order) {
     const c = state.comments.get(id);
     if (!c) continue;
-    const authorName = ((c.author && c.author.name) || "").toLowerCase();
-    let match = false;
-    if (isAuthorFilter) {
-      match = !!authorQuery && authorName.startsWith(authorQuery);
-    } else {
-      const body = (c.body || "").toLowerCase();
-      match = body.includes(q) || authorName.includes(q);
-    }
-    if (match) {
+    if (matcher.test(c)) {
       hits.push(id);
       hitIds.add(id);
     }
@@ -890,18 +984,157 @@ function applySearch() {
     }
   });
 
-  const label = isAuthorFilter
-    ? hits.length
-      ? `${hits.length} from author · Esc to clear`
-      : `no messages from @${authorQuery} · Esc to clear`
-    : hits.length
-      ? `${hits.length} match${hits.length !== 1 ? "es" : ""} · Esc to clear`
-      : `no matches · Esc to clear`;
+  const label = hits.length
+    ? `${hits.length} ${matcher.kind} · Esc to clear`
+    : `no ${matcher.kind} · Esc to clear`;
   document.getElementById("searchCount").textContent = label;
   if (hits.length) {
     state.searchActiveIdx = 0;
     focusSearchHit(0);
   }
+}
+
+// Parse the search input into a {kind, test, help?} object.
+function parseSearchQuery(raw) {
+  const lower = raw.toLowerCase();
+  if (lower === "/help" || lower === "/?") return { kind: "", help: true };
+
+  // /me — current user's own messages
+  if (lower === "/me") {
+    const myId = state.user && state.user.id;
+    return {
+      kind: "from you",
+      test: (c) => myId != null && c.user_id === myId,
+    };
+  }
+
+  // /from:<name>
+  if (lower.startsWith("/from:")) {
+    const name = lower.slice(6).trim();
+    if (!name) return { kind: "matches", test: () => false };
+    return {
+      kind: "from author",
+      test: (c) =>
+        ((c.author && c.author.name) || "").toLowerCase().startsWith(name),
+    };
+  }
+
+  // /has:link, /has:image, /has:reaction
+  if (lower === "/has:link") {
+    return {
+      kind: "with link",
+      test: (c) => /https?:\/\//i.test(c.body || ""),
+    };
+  }
+  if (lower === "/has:image" || lower === "/has:img") {
+    return {
+      kind: "with image",
+      test: (c) =>
+        hasAttachment(c.media_uploads) ||
+        hasAttachment(c.threadMediaUploads) ||
+        hasAttachment(c.mediaAttachments) ||
+        hasAttachment(c.attachments),
+    };
+  }
+  if (lower === "/has:reaction") {
+    return {
+      kind: "with reaction",
+      test: (c) =>
+        c.reactions &&
+        Object.values(c.reactions).some(
+          (v) => (typeof v === "number" ? v : (v && v.count) || 0) > 0
+        ),
+    };
+  }
+
+  // /since:<iso-or-relative-day-count>
+  if (lower.startsWith("/since:")) {
+    const arg = lower.slice(7).trim();
+    let sinceTs;
+    if (/^\d+d?$/.test(arg)) {
+      // bare number = N days ago
+      sinceTs = Date.now() - parseInt(arg, 10) * 86400_000;
+    } else {
+      sinceTs = new Date(arg).getTime();
+    }
+    if (isNaN(sinceTs)) {
+      return { kind: "matches", test: () => false };
+    }
+    return {
+      kind: "since " + arg,
+      test: (c) => new Date(c.created_at).getTime() >= sinceTs,
+    };
+  }
+
+  // @<name> — author name prefix
+  if (raw.startsWith("@")) {
+    const name = lower.slice(1);
+    if (!name) return { kind: "matches", test: () => false };
+    return {
+      kind: "from author",
+      test: (c) =>
+        ((c.author && c.author.name) || "").toLowerCase().startsWith(name),
+    };
+  }
+
+  // Default: full-text on body + author name (case-insensitive substring).
+  return {
+    kind: "matches",
+    test: (c) => {
+      const body = (c.body || "").toLowerCase();
+      const name = ((c.author && c.author.name) || "").toLowerCase();
+      return body.includes(lower) || name.includes(lower);
+    },
+  };
+}
+
+function hasAttachment(arr) {
+  return Array.isArray(arr) && arr.length > 0;
+}
+
+function showHelpOverlay() {
+  const existing = document.querySelector(".help-overlay");
+  if (existing) existing.remove();
+  const overlay = document.createElement("div");
+  overlay.className = "help-overlay";
+  const card = document.createElement("div");
+  card.className = "help-card";
+  card.innerHTML = `
+    <h2>BetterSSC commands</h2>
+    <dl>
+      <dt>@boz</dt><dd>Show messages from authors whose name starts with "boz"</dd>
+      <dt>/from:boz</dt><dd>Same as above</dd>
+      <dt>/me</dt><dd>Show your own messages</dd>
+      <dt>/has:link</dt><dd>Messages containing a URL</dd>
+      <dt>/has:image</dt><dd>Messages with an image attachment</dd>
+      <dt>/has:reaction</dt><dd>Messages that have ≥1 reaction</dd>
+      <dt>/since:3</dt><dd>Messages from the last 3 days</dd>
+      <dt>/since:2026-06-01</dt><dd>Messages on or after a date</dd>
+      <dt>/help</dt><dd>This screen</dd>
+    </dl>
+    <h2 style="margin-top:18px">Keyboard</h2>
+    <dl>
+      <dt>/</dt><dd>Focus search</dd>
+      <dt>Esc</dt><dd>Clear search / close overlay</dd>
+      <dt>j / k</dt><dd>Next / previous message</dd>
+      <dt>g g</dt><dd>Jump to top</dd>
+      <dt>Shift+G</dt><dd>Jump to bottom</dd>
+      <dt>n / Shift+N</dt><dd>Next / previous search match</dd>
+    </dl>
+    <div class="close-hint">click anywhere or press Esc to close</div>
+  `;
+  overlay.appendChild(card);
+  card.addEventListener("click", (e) => e.stopPropagation());
+  overlay.addEventListener("click", () => {
+    overlay.remove();
+    const input = document.getElementById("searchInput");
+    if (input.value === "/help") {
+      input.value = "";
+      state.searchQuery = "";
+      applySearch();
+    }
+  });
+  document.body.appendChild(overlay);
 }
 
 // Set the search input to "@<name>" and apply — used by the click-author
@@ -991,6 +1224,93 @@ const cssEscape = (s) =>
 // EVENT WIRING
 // ============================================================
 
+// ============================================================
+// VI NAVIGATION
+// ============================================================
+
+let _viActiveId = null;
+let _lastGKeyTime = 0;
+
+function getVisibleGroups() {
+  return Array.from(
+    document.querySelectorAll(".msg-group:not(.search-hidden)")
+  );
+}
+
+function setActiveGroup(group) {
+  document
+    .querySelectorAll(".msg-group.vi-active")
+    .forEach((n) => n.classList.remove("vi-active"));
+  if (!group) return;
+  group.classList.add("vi-active");
+  _viActiveId = group.dataset.firstId || null;
+  group.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function moveActive(direction) {
+  const groups = getVisibleGroups();
+  if (!groups.length) return;
+  const currentIdx = groups.findIndex((g) => g.classList.contains("vi-active"));
+  let nextIdx;
+  if (currentIdx === -1) {
+    nextIdx = direction > 0 ? 0 : groups.length - 1;
+  } else {
+    nextIdx = Math.min(
+      groups.length - 1,
+      Math.max(0, currentIdx + direction)
+    );
+  }
+  setActiveGroup(groups[nextIdx]);
+}
+
+function handleGKey() {
+  const now = Date.now();
+  if (now - _lastGKeyTime < 500) {
+    jumpToStreamEdge("top");
+    _lastGKeyTime = 0;
+  } else {
+    _lastGKeyTime = now;
+  }
+}
+
+function jumpToStreamEdge(edge) {
+  const groups = getVisibleGroups();
+  if (!groups.length) return;
+  const target = edge === "top" ? groups[0] : groups[groups.length - 1];
+  setActiveGroup(target);
+  if (edge === "top") loadOlder();
+}
+
+function cycleSearchHit(direction) {
+  if (!state.searchHits.length) return;
+  state.searchActiveIdx =
+    (state.searchActiveIdx + direction + state.searchHits.length) %
+    state.searchHits.length;
+  focusSearchHit(state.searchActiveIdx);
+}
+
+// ============================================================
+// THEME
+// ============================================================
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = theme === "light" ? "☀" : "☾";
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({ bssc_theme: theme });
+  } catch (_) {}
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(current === "light" ? "dark" : "light");
+}
+
+// ============================================================
+
 function bindEventHandlers() {
   const stream = document.getElementById("stream");
   stream.addEventListener(
@@ -1018,17 +1338,77 @@ function bindEventHandlers() {
   );
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "/" && document.activeElement !== searchInput) {
+    const inInput =
+      document.activeElement === searchInput ||
+      (document.activeElement &&
+        document.activeElement.tagName === "TEXTAREA");
+
+    // Escape — clear active overlays then input.
+    if (e.key === "Escape") {
+      const overlay = document.querySelector(".help-overlay, .lightbox");
+      if (overlay) {
+        overlay.remove();
+        return;
+      }
+      if (document.activeElement === searchInput) {
+        searchInput.value = "";
+        state.searchQuery = "";
+        applySearch();
+        searchInput.blur();
+      }
+      return;
+    }
+
+    if (e.key === "/" && !inInput) {
       e.preventDefault();
       searchInput.focus();
       searchInput.select();
-    } else if (e.key === "Escape" && document.activeElement === searchInput) {
-      searchInput.value = "";
-      state.searchQuery = "";
-      applySearch();
-      searchInput.blur();
+      return;
+    }
+
+    // Vi navigation — gated to not interfere with typing.
+    if (inInput) return;
+
+    if (e.key === "j") {
+      e.preventDefault();
+      moveActive(1);
+    } else if (e.key === "k") {
+      e.preventDefault();
+      moveActive(-1);
+    } else if (e.key === "g") {
+      e.preventDefault();
+      handleGKey();
+    } else if (e.key === "G") {
+      e.preventDefault();
+      jumpToStreamEdge("bottom");
+    } else if (e.key === "n") {
+      e.preventDefault();
+      cycleSearchHit(1);
+    } else if (e.key === "N") {
+      e.preventDefault();
+      cycleSearchHit(-1);
+    } else if (e.key === "?") {
+      e.preventDefault();
+      showHelpOverlay();
+    } else if (e.key === "t" && (e.ctrlKey || e.metaKey)) {
+      // Cmd/Ctrl+T would normally open a new tab — only intercept if alt'd.
     }
   });
+
+  // Theme toggle.
+  const themeBtn = document.getElementById("themeToggle");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", toggleTheme);
+    // Restore stored theme preference.
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.get(["bssc_theme"], (res) => {
+          const stored = res && res.bssc_theme;
+          if (stored === "light" || stored === "dark") applyTheme(stored);
+        });
+    } catch (_) {}
+  }
 
   // Background can send us "focusMessage" when a notification is clicked.
   chrome.runtime.onMessage.addListener((msg, sender) => {
