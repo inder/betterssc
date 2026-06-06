@@ -638,10 +638,31 @@ const markViewed = throttle(async () => {
 // ============================================================
 
 function renderAll() {
+  buildThreadIndex();
   renderMessages();
   renderMembers();
   renderFooterStats();
-  if (state.searchQuery) applySearch();
+  if (state.searchQuery || state.threadFilter) applySearch();
+}
+
+// Build a client-side index of which messages reply to which others.
+// Substack chat has TWO reply patterns:
+//   - threaded reply (parent_id points at parent — server tracks via reply_count)
+//   - quote reply (quote_id points at parent — server does NOT increment reply_count)
+// Most chats lean heavily on quote-replies, so reply_count is often 0
+// even when the message clearly has follow-ups. The index unifies both.
+function buildThreadIndex() {
+  const idx = new Map(); // parentId → Set<childId>
+  for (const id of state.order) {
+    const c = state.comments.get(id);
+    if (!c) continue;
+    const parents = [c.parent_id, c.quote_id].filter(Boolean);
+    for (const p of parents) {
+      if (!idx.has(p)) idx.set(p, new Set());
+      idx.get(p).add(id);
+    }
+  }
+  state.threadIndex = idx;
 }
 
 function renderMessages() {
@@ -732,15 +753,20 @@ function renderMessageItem(c) {
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
 
-  // Thread badge — shown when this message has direct replies. Clicking
-  // opens a thread filter that shows only this message + its replies.
-  // Only one level deep (replies-of-replies are NOT included).
-  if (c.reply_count > 0) {
+  // Thread badge — shown when this message has replies (threaded OR quote).
+  // We use the larger of (server reply_count, locally-observed reply set)
+  // because the server reply_count only tracks threaded replies, not
+  // quote-replies — and Substack chat leans heavily on quote-replies.
+  const localRefs =
+    (state.threadIndex && state.threadIndex.get(c.id)) || null;
+  const localCount = localRefs ? localRefs.size : 0;
+  const totalReplies = Math.max(c.reply_count || 0, localCount);
+  if (totalReplies > 0) {
     const threadBtn = document.createElement("button");
     threadBtn.type = "button";
     threadBtn.className = "msg-thread-btn";
-    threadBtn.textContent = `💬 ${c.reply_count}`;
-    threadBtn.title = `Open thread (${c.reply_count} repl${c.reply_count === 1 ? "y" : "ies"})`;
+    threadBtn.textContent = `💬 ${totalReplies}`;
+    threadBtn.title = `Open thread (${totalReplies} repl${totalReplies === 1 ? "y" : "ies"})`;
     threadBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1512,14 +1538,12 @@ function closeThreadFilter() {
 function applyThreadFilter() {
   if (!state.threadFilter) return;
   const parentId = state.threadFilter.parentId;
-  // Find all comment ids that are part of the thread: the parent + every
-  // direct child (parent_id === parentId). Only one level — replies of
-  // replies are NOT included.
+  // Parent + every direct reply (threaded via parent_id OR quote via
+  // quote_id). One level only — replies-of-replies are NOT included.
   const idsInThread = new Set([parentId]);
-  for (const id of state.order) {
-    const c = state.comments.get(id);
-    if (c && c.parent_id === parentId) idsInThread.add(id);
-  }
+  const localRefs =
+    state.threadIndex && state.threadIndex.get(parentId);
+  if (localRefs) for (const id of localRefs) idsInThread.add(id);
   // Hide every group whose messages aren't in the thread.
   document.querySelectorAll(".msg-group").forEach((group) => {
     const ids = Array.from(group.querySelectorAll("[data-id]")).map(
