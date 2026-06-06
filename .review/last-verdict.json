@@ -1,12 +1,12 @@
 {
-  "sha": "6ff5a40384e253d0861895ab678cc5593e867f83",
+  "sha": "393b626",
   "branch": "main",
-  "ts": "2026-06-06T19:00:00Z",
+  "ts": "2026-06-06T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "Diff is 2121 lines, new product shipped with 3+ security/correctness findings, covers new architecture domain with memory entries",
+  "retro_reasoning": "501-line cumulative diff across 8 commits, multiple security and correctness findings, tab-proxy auth architecture is a new pattern with no prior review",
   "critical_count": 2,
   "should_fix_count": 3,
-  "nit_count": 1,
-  "files_reviewed": 9
+  "nit_count": 2,
+  "files_reviewed": 4
 }

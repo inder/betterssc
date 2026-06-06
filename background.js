@@ -81,6 +81,11 @@ chrome.action.onClicked.addListener(async (clickedTab) => {
 const NOTIFICATION_REFS = new Map(); // notificationId → {appTabId, mentionRef}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Reject messages from anything that isn't part of this extension. Content
+  // scripts, the app page, and the background script itself all share
+  // chrome.runtime.id. Defense in depth — external_connectable isn't enabled
+  // in the manifest but pinning this anyway avoids hostile-page spam.
+  if (!sender || sender.id !== chrome.runtime.id) return;
   if (!msg || !msg.type) return;
   if (msg.type === "notify") {
     const id = `bssc-${Date.now()}-${Math.floor(performance.now() * 1000) % 1000000}`;

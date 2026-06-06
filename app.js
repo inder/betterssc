@@ -350,7 +350,10 @@ async function loadOlder() {
 // normalizes both into a single shape with `author` populated.
 function unwrapComment(raw) {
   if (!raw) return null;
-  if (raw.comment && (raw.type || !raw.id)) {
+  // `raw.id == null` instead of `!raw.id` so a legitimate id of 0 doesn't
+  // accidentally trigger unwrap, and so wrapped replies whose outer object
+  // *also* has an id field still get unwrapped via the `raw.type` branch.
+  if (raw.comment && (raw.type || raw.id == null)) {
     const c = raw.comment;
     // Attach sibling `user` as the canonical author.
     if (raw.user && !c.author) c.author = raw.user;
@@ -618,9 +621,11 @@ function setWsStatus(s) {
 // MARK VIEWED
 // ============================================================
 
+let _markViewedTimer = null;
 const scheduleMarkViewed = () => {
   markViewed();
-  setInterval(() => {
+  if (_markViewedTimer) clearInterval(_markViewedTimer);
+  _markViewedTimer = setInterval(() => {
     if (!document.hidden) markViewed();
   }, 30_000);
 };
@@ -1050,6 +1055,7 @@ function bindEventHandlers() {
   window.addEventListener("beforeunload", () => {
     if (state.ws) state.ws.close();
     if (_pollTimer) clearInterval(_pollTimer);
+    if (_markViewedTimer) clearInterval(_markViewedTimer);
   });
 }
 
