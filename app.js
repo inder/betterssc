@@ -91,6 +91,7 @@ async function init() {
   try {
     state.user = await fetchUserIdentity();
   } catch (_) {}
+  console.log("[BetterSSC INIT] state.user:", state.user);
 
   // Load the publication header for chrome.
   try {
@@ -245,22 +246,36 @@ async function loadOlder() {
 }
 
 // Unwraps the various shapes a Substack comment can arrive in. The WS
-// `chat:new-comment` event wraps it as `{type, comment: {...}}`. The REST
-// /comments endpoint nests replies inside `comment` too in some cases. Plus
-// fallback ID field names that Substack has historically used.
+// `chat:new-comment` event wraps it as `{type, comment: {...}}`. REST
+// /comments returns flat objects (no nested wrapper) per v0.1.5 diagnostics.
 function unwrapComment(raw) {
   if (!raw) return null;
-  // If the object has body+author at the top level, it's already a comment.
-  if (raw.body !== undefined && raw.author) return raw;
-  // Wrapped under `comment` (REST replies and WS chat:new-comment).
-  if (raw.comment) return raw.comment;
-  // Fallback: return as-is.
+  if (raw.comment && (raw.type || !raw.id)) return raw.comment;
   return raw;
 }
 
 function commentId(c) {
   if (!c) return null;
   return c.id || c.comment_id || c._id || c.uuid || null;
+}
+
+// v0.1.6: Substack REST replies have FLAT author fields (name, handle,
+// photo_url, user_id) instead of a nested `author` object. This builds one
+// out of whatever flat fields are present, so the rest of the render code
+// (which expects c.author) works uniformly across REST + WS shapes.
+function syntheticAuthor(c) {
+  if (c.author && typeof c.author === "object") return c.author;
+  const id = c.user_id ?? c.author_id ?? c.userId ?? null;
+  const name = c.name || c.author_name || c.userName || null;
+  const handle = c.handle || c.author_handle || c.userHandle || null;
+  const photo = c.photo_url || c.author_photo_url || c.userPhotoUrl || null;
+  if (id == null && !name && !handle && !photo) return null;
+  return {
+    id: id != null ? id : "unknown",
+    name: name || "Unknown",
+    handle,
+    photo_url: photo,
+  };
 }
 
 let _loggedSampleShape = false;
@@ -270,19 +285,21 @@ function ingestComment(c, { silent = false } = {}) {
   if (!_loggedSampleShape && unwrapped) {
     console.log(
       "[BetterSSC INGEST] sample shape — keys:",
-      Object.keys(unwrapped),
+      Object.keys(unwrapped).join(", "),
       "· id:",
       commentId(unwrapped),
-      "· hasAuthor:",
+      "· author?:",
       !!unwrapped.author,
-      "· raw:",
-      unwrapped
+      "· name?:",
+      unwrapped.name,
+      "· user_id?:",
+      unwrapped.user_id,
+      "· handle?:",
+      unwrapped.handle
     );
     _loggedSampleShape = true;
   }
-  if (!unwrapped) {
-    return;
-  }
+  if (!unwrapped) return;
   const id = commentId(unwrapped);
   if (!id) {
     console.warn(
@@ -291,17 +308,20 @@ function ingestComment(c, { silent = false } = {}) {
     );
     return;
   }
-  // Stash the resolved id on the object so the rest of the code that reads
-  // c.id keeps working without further refactoring.
   if (!unwrapped.id) unwrapped.id = id;
+
+  // Normalize author shape — REST flat → synthesized object that matches
+  // what render code (and the WS event shape) expects.
+  if (!unwrapped.author) {
+    unwrapped.author = syntheticAuthor(unwrapped);
+  }
 
   const isNew = !state.comments.has(id);
   state.comments.set(id, unwrapped);
   if (isNew) {
     insertInOrder(unwrapped);
   }
-  // Track author seen-at.
-  if (unwrapped.author && unwrapped.author.id) {
+  if (unwrapped.author && unwrapped.author.id != null) {
     const prev = state.authors.get(unwrapped.author.id);
     const t = new Date(unwrapped.created_at).getTime() || 0;
     if (!prev || prev.lastSeenAt < t) {
@@ -311,7 +331,6 @@ function ingestComment(c, { silent = false } = {}) {
       });
     }
   }
-  // Notification check on truly new live messages.
   if (isNew && !silent) {
     maybeNotifyMention({
       comment: unwrapped,
