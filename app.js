@@ -401,15 +401,40 @@ function renderAll() {
 
 function renderMessages() {
   const msgs = state.order.map((id) => state.comments.get(id)).filter(Boolean);
+  console.log(
+    "[BetterSSC RENDER] state.comments.size:",
+    state.comments.size,
+    "state.order.length:",
+    state.order.length,
+    "filtered msgs:",
+    msgs.length
+  );
   const groups = groupByAuthor(msgs);
+  console.log("[BetterSSC RENDER] grouped into", groups.length, "groups");
   const container = document.getElementById("messages");
-  // Reuse existing nodes when count matches; simplest correct: replace.
-  // Performance optimization deferred (virtualized list in v0.2).
+  if (!container) {
+    console.error("[BetterSSC RENDER] #messages container not found!");
+    return;
+  }
   const frag = document.createDocumentFragment();
+  let okGroups = 0;
   for (const g of groups) {
-    frag.appendChild(renderGroup(g));
+    try {
+      frag.appendChild(renderGroup(g));
+      okGroups++;
+    } catch (e) {
+      console.error("[BetterSSC RENDER] renderGroup failed for group:", g, e);
+    }
   }
   container.replaceChildren(frag);
+  console.log(
+    "[BetterSSC RENDER] mounted",
+    okGroups,
+    "/",
+    groups.length,
+    "groups; container child count:",
+    container.childElementCount
+  );
 }
 
 function renderGroup(group) {
