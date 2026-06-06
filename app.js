@@ -36,9 +36,15 @@ import { reactionEmojiFor } from "./lib/emojis.js";
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
 // ============================================================
 
-const ICON_PIN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+const ICON_PIN_OFF = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
   stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
   stroke-linejoin="round" aria-hidden="true">
+  <path d="M12 17v5"/>
+  <path d="M9 10.76V6h6v4.76l3.5 4.24H5.5L9 10.76z"/>
+</svg>`;
+
+const ICON_PIN_ON = `<svg viewBox="0 0 24 24" width="14" height="14"
+  fill="currentColor" aria-hidden="true">
   <path d="M12 17v5"/>
   <path d="M9 10.76V6h6v4.76l3.5 4.24H5.5L9 10.76z"/>
 </svg>`;
@@ -1194,7 +1200,7 @@ function buildMemberRow(a, isPinned) {
   const pin = document.createElement("button");
   pin.type = "button";
   pin.className = "member-pin" + (isPinned ? " on" : "");
-  pin.innerHTML = ICON_PIN;
+  pin.innerHTML = isPinned ? ICON_PIN_ON : ICON_PIN_OFF;
   pin.title = isPinned
     ? `Unpin ${a.profile.name}`
     : `Pin ${a.profile.name} to the top of the Active rail`;

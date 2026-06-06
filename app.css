@@ -16,7 +16,11 @@
   --accent-bg-soft: rgba(78, 92, 219, 0.10);
   --accent-bg-strong: rgba(78, 92, 219, 0.22);
   --success: #1a8a44;
-  --warning: #b07414;
+  --success-bg-soft: rgba(26, 138, 68, 0.12);
+  --success-bg-strong: rgba(26, 138, 68, 0.22);
+  --warning: #c08400;
+  --warning-bg-soft: rgba(192, 132, 0, 0.14);
+  --warning-bg-strong: rgba(192, 132, 0, 0.26);
   --danger: #c92a2a;
   --border: #d8dde3;
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 1.5px 3px rgba(0, 0, 0, 0.05);
@@ -38,7 +42,11 @@
   --accent-bg-soft: rgba(123, 138, 255, 0.16);
   --accent-bg-strong: rgba(123, 138, 255, 0.30);
   --success: #23a559;
+  --success-bg-soft: rgba(35, 165, 89, 0.18);
+  --success-bg-strong: rgba(35, 165, 89, 0.32);
   --warning: #f0b232;
+  --warning-bg-soft: rgba(240, 178, 50, 0.18);
+  --warning-bg-strong: rgba(240, 178, 50, 0.32);
   --danger: #f23f42;
   --border: #0e0f11;
   --shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05),
@@ -720,15 +728,15 @@ button {
 }
 .member-pin.on {
   opacity: 1;
-  background: var(--accent-bg-soft);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--warning-bg-soft);
+  border-color: var(--warning);
+  color: var(--warning);
   transform: rotate(-30deg);
 }
 .member-pin.on:hover {
-  background: var(--accent-bg-strong);
+  background: var(--warning-bg-strong);
 }
-.member.pinned .member-name { color: var(--accent); }
+.member.pinned .member-name { color: var(--warning); }
 .member-list { list-style: none; margin: 0; padding: 0 8px; }
 .member {
   display: flex;
@@ -773,12 +781,12 @@ button {
 }
 .member-bell.on {
   opacity: 1;
-  background: var(--accent-bg-soft);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--success-bg-soft);
+  border-color: var(--success);
+  color: var(--success);
 }
 .member-bell.on:hover {
-  background: var(--accent-bg-strong);
+  background: var(--success-bg-strong);
 }
 .member.watched .member-name {
   color: var(--accent);
