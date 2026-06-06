@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "BetterSSC DOM Probe",
+  "version": "0.0.4",
+  "description": "Proof-of-concept: verify we can read the Substack Chat DOM, sniff its network, and inspect its inlined page state.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://substack.com/*",
+    "https://*.substack.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://substack.com/*",
+        "https://*.substack.com/*"
+      ],
+      "js": ["network-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://substack.com/*",
+        "https://*.substack.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "BetterSSC DOM Probe",
+    "default_popup": "popup.html"
+  }
+}

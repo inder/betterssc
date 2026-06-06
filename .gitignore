@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+dist/
+*.log
+.env
+.env.local
+
+# Local Claude Code state
+.claude/settings.local.json
+
+# Build artifacts
+*.zip
+*.crx
