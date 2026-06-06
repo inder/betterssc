@@ -222,6 +222,25 @@ button {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+
+.header-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.header-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.header-btn.at-bottom {
+  opacity: 0.45;
+}
 .dot {
   width: 8px;
   height: 8px;
@@ -377,13 +396,34 @@ button {
   word-break: break-word;
 }
 
-/* Flash highlight when jumping to a message (click on a quote). */
+/* Flash highlight when jumping to a message (click on a quote / notification).
+   Uses warning (amber) color so it stands out distinctly from the purple
+   accent already used everywhere else, with a double-pulse over 2.8s so the
+   reader's eye actually catches it. */
 .msg-group.highlight-flash {
-  animation: highlightFlash 1.8s ease;
+  animation: highlightFlash 2.8s ease-out;
 }
 @keyframes highlightFlash {
-  0% { background: var(--accent-bg-strong); box-shadow: 0 0 0 2px var(--accent); }
-  100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+  0%   {
+    background: rgba(240, 178, 50, 0.55);
+    box-shadow: inset 4px 0 0 var(--warning), 0 0 12px rgba(240, 178, 50, 0.4);
+  }
+  25%  {
+    background: rgba(240, 178, 50, 0.25);
+    box-shadow: inset 4px 0 0 var(--warning);
+  }
+  50%  {
+    background: rgba(240, 178, 50, 0.55);
+    box-shadow: inset 4px 0 0 var(--warning), 0 0 12px rgba(240, 178, 50, 0.4);
+  }
+  75%  {
+    background: rgba(240, 178, 50, 0.25);
+    box-shadow: inset 4px 0 0 var(--warning);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 /* Vi-style active message marker (used by j/k navigation). */

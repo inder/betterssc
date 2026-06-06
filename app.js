@@ -786,11 +786,14 @@ function appendAttachments(wrap, c) {
     c.attachments,
   ];
   const urls = [];
+  const seen = new Set();
   for (const b of buckets) {
     if (Array.isArray(b)) {
       for (const a of b) {
         const u = extractAttachmentUrl(a);
-        if (u) urls.push({ url: u, raw: a });
+        if (!u || seen.has(u)) continue;
+        seen.add(u);
+        urls.push({ url: u, raw: a });
       }
     }
   }
@@ -1169,7 +1172,7 @@ function jumpToMessage(id) {
     group.classList.remove("highlight-flash");
     void group.offsetWidth;
     group.classList.add("highlight-flash");
-    setTimeout(() => group.classList.remove("highlight-flash"), 1800);
+    setTimeout(() => group.classList.remove("highlight-flash"), 2800);
   }
   node.scrollIntoView({ behavior: "smooth", block: "center" });
 }
@@ -1399,7 +1402,6 @@ function bindEventHandlers() {
   const themeBtn = document.getElementById("themeToggle");
   if (themeBtn) {
     themeBtn.addEventListener("click", toggleTheme);
-    // Restore stored theme preference.
     try {
       chrome.storage &&
         chrome.storage.local &&
@@ -1408,6 +1410,21 @@ function bindEventHandlers() {
           if (stored === "light" || stored === "dark") applyTheme(stored);
         });
     } catch (_) {}
+  }
+
+  // "Latest" button — jump to the most recent message at any time.
+  const latestBtn = document.getElementById("goLatest");
+  if (latestBtn) {
+    latestBtn.addEventListener("click", () => {
+      // Clear any active filter so the jump actually lands at the newest msg.
+      const input = document.getElementById("searchInput");
+      if (input && input.value) {
+        input.value = "";
+        state.searchQuery = "";
+        applySearch();
+      }
+      scrollToBottom();
+    });
   }
 
   // Background can send us "focusMessage" when a notification is clicked.
