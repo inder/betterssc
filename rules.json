@@ -1,0 +1,31 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Referer", "operation": "set", "value": "https://substack.com/" },
+        { "header": "Origin", "operation": "remove" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||s3.amazonaws.com/public/images/",
+      "resourceTypes": ["image"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        { "header": "Referer", "operation": "set", "value": "https://substack.com/" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||substackcdn.com/image/",
+      "resourceTypes": ["image"]
+    }
+  }
+]

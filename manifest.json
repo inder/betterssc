@@ -8,12 +8,24 @@
     "scripting",
     "storage",
     "tabs",
-    "notifications"
+    "notifications",
+    "declarativeNetRequest"
   ],
   "host_permissions": [
     "https://substack.com/*",
-    "https://*.substack.com/*"
+    "https://*.substack.com/*",
+    "https://*.s3.amazonaws.com/*",
+    "https://substackcdn.com/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "referer_fix",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"

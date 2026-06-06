@@ -774,9 +774,12 @@ function renderMessageItem(c) {
   return wrap;
 }
 
-// Build an avatar element with safe defaults: no Referer (Substack's S3
-// rejects requests with the wrong Referer), lazy loading, and a graceful
-// onerror swap to the initial-letter placeholder.
+// Build an avatar element. v0.1.18: declarativeNetRequest sets the Referer
+// header to https://substack.com/ on every S3 image request (see rules.json),
+// which is what Substack's bucket policy expects. The `referrerpolicy` attr
+// is intentionally left at default so the browser builds a Referer header
+// in the first place — DNR's "set" operation just overrides whatever value
+// the browser was about to send.
 function makeAvatar(author, cssClass) {
   const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
   if (author && author.photo_url) {
@@ -784,7 +787,6 @@ function makeAvatar(author, cssClass) {
     img.className = cssClass;
     img.src = author.photo_url;
     img.alt = author.name || "";
-    img.referrerPolicy = "no-referrer";
     img.loading = "lazy";
     img.addEventListener("error", () => {
       const fallback = document.createElement("div");
@@ -1051,12 +1053,18 @@ function applySearch() {
 }
 
 // Parse the search input into a {kind, test, help?} object.
+// v0.1.18: commands work with or without a leading `/` — the `:` in
+// `has:image` / `from:boz` / `since:3` already makes the intent
+// unambiguous, so `/` becomes optional sugar.
 function parseSearchQuery(raw) {
   const lower = raw.toLowerCase();
-  if (lower === "/help" || lower === "/?") return { kind: "", help: true };
+  // Strip the optional leading slash for command matching, but keep `raw`
+  // intact for @-prefix and plain-text fallbacks below.
+  const cmd = lower.startsWith("/") ? lower.slice(1) : lower;
 
-  // /me — current user's own messages
-  if (lower === "/me") {
+  if (cmd === "help" || cmd === "?") return { kind: "", help: true };
+
+  if (cmd === "me") {
     const myId = state.user && state.user.id;
     return {
       kind: "from you",
@@ -1064,9 +1072,8 @@ function parseSearchQuery(raw) {
     };
   }
 
-  // /from:<name>
-  if (lower.startsWith("/from:")) {
-    const name = lower.slice(6).trim();
+  if (cmd.startsWith("from:")) {
+    const name = cmd.slice(5).trim();
     if (!name) return { kind: "matches", test: () => false };
     return {
       kind: "from author",
@@ -1075,14 +1082,13 @@ function parseSearchQuery(raw) {
     };
   }
 
-  // /has:link, /has:image, /has:reaction
-  if (lower === "/has:link") {
+  if (cmd === "has:link") {
     return {
       kind: "with link",
       test: (c) => /https?:\/\//i.test(c.body || ""),
     };
   }
-  if (lower === "/has:image" || lower === "/has:img") {
+  if (cmd === "has:image" || cmd === "has:img") {
     return {
       kind: "with image",
       test: (c) =>
@@ -1092,7 +1098,7 @@ function parseSearchQuery(raw) {
         hasAttachment(c.attachments),
     };
   }
-  if (lower === "/has:reaction") {
+  if (cmd === "has:reaction") {
     return {
       kind: "with reaction",
       test: (c) =>
@@ -1103,12 +1109,10 @@ function parseSearchQuery(raw) {
     };
   }
 
-  // /since:<iso-or-relative-day-count>
-  if (lower.startsWith("/since:")) {
-    const arg = lower.slice(7).trim();
+  if (cmd.startsWith("since:")) {
+    const arg = cmd.slice(6).trim();
     let sinceTs;
     if (/^\d+d?$/.test(arg)) {
-      // bare number = N days ago
       sinceTs = Date.now() - parseInt(arg, 10) * 86400_000;
     } else {
       sinceTs = new Date(arg).getTime();
