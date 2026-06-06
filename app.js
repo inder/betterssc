@@ -1403,7 +1403,7 @@ function applySearch() {
 
 // Parse the search input into a {kind, test, help?} object.
 // v0.1.18: commands work with or without a leading `/` — the `:` in
-// `has:image` / `from:boz` / `since:3` already makes the intent
+// `has:image` / `from:elon` / `since:3` already makes the intent
 // unambiguous, so `/` becomes optional sugar.
 function parseSearchQuery(raw) {
   const lower = raw.toLowerCase();
@@ -1511,8 +1511,8 @@ function showHelpOverlay() {
   card.innerHTML = `
     <h2>BetterSSC commands</h2>
     <dl>
-      <dt>@boz</dt><dd>Show messages from authors whose name starts with "boz"</dd>
-      <dt>/from:boz</dt><dd>Same as above</dd>
+      <dt>@elon</dt><dd>Show messages from authors whose name starts with "elon"</dd>
+      <dt>/from:elon</dt><dd>Same as above</dd>
       <dt>/me</dt><dd>Show your own messages</dd>
       <dt>/has:link</dt><dd>Messages containing a URL</dd>
       <dt>/has:image</dt><dd>Messages with an image attachment</dd>
