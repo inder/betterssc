@@ -1,100 +1,136 @@
 {
   "mode": "full",
-  "sha": "03354eb8b348d72f191687d5d355f4725b2c196a",
+  "sha": "4f775c8da11c48549c7f6416d631a159ecf10488",
   "branch": "main",
-  "ts": "2026-06-06T20:50:43.999Z",
+  "ts": "2026-06-06T23:17:16.245Z",
   "retro_skill_version": "manual-stamp-1",
-  "retro_required_reason": "user said 'ship it' + 2630-line diff + 3+ failed WS-protocol attempts + memory entries written",
+  "retro_required_reason": "user said 'ship it all' + 27-commit / 3487-line diff since v0.1.0 + new manifest permissions surface (declarativeNetRequest, *.s3.amazonaws.com host_perm) + new feature domains (threading, alerts, pinning)",
   "payload": {
     "what_went_right": [
-      "Code-review-then-fix gate worked as designed: the pre-tag review on commit 393b626 flagged 2 critical + 3 should-fix findings and v0.1.10 (03354eb) shipped before the v0.1.0 tag was applied \u2014 the cachedProxyTabId tab-leak loop and the unwrapComment `!raw.id` edge case would have bitten real users.",
-      "When the WebSocket protocol resisted decoding through 5 fix commits, the team made the right call in v0.1.9 to ship REST polling as the primary live-update path with WS deferred \u2014 Substack's own native client polls at ~10s anyway, so v0.1 users get a working feature instead of a broken-but-clever one.",
-      "Cross-origin cookie failure (v0.1.2) was diagnosed and replaced with a clean tab-proxy pattern (chrome.scripting.executeScript in MAIN world) that's structurally sound and self-documented in lib/api.js \u2014 not a hack pile.",
-      "Author-rendering recovery (v0.1.6 \u2192 v0.1.8) eventually built a cross-response user-table harvest that pulls user objects from top-level `users`, `post.communityPost.author`, `post.recent_commenters`, and per-reply `recent_commenters` \u2014 defensive in a way the first cut wasn't."
+      "Pre-tag review gate fired again at v0.1.33 and caught two real structural bugs the implementer missed: a thread+search filter intersection correctness bug (out-of-thread messages matching the query were leaking through) and a NOTIFICATION_REFS cache leak on auto-dismissed alerts. Both were fixed inline at 401ca0b before the tag, exactly mirroring the v0.1.0 cachedProxyTabId catch \u2014 confirming the gate is load-bearing, not bureaucratic.",
+      "Status badge correction at v0.1.26 (`live poll` + green dot instead of `disabled`) brought the UI back into truth-telling after a 10-commit window where the badge implied users had no live updates while polling was in fact delivering messages every 12s. The fix was small but the discipline matters \u2014 the runtime mechanism and the user-visible indicator have to move together.",
+      "declarativeNetRequest Referer rewrite at v0.1.18 was the structurally correct fix for the S3 image 403 problem (vs the speculative URL rewrite alone at v0.1.13). It required a new manifest permission + new rules.json, both clean and self-documented, and the legitimate path (substackcdn.com signed URLs) coexists with the rewrite rather than fighting it.",
+      "Flatten threaded replies + recursive walker (v0.1.20 `flattenReplies`) finally addressed the latent bug that polling had been silently dropping every in-thread reply since v0.1.11 \u2014 the Active rail and bell alerts had been frozen on each user's last top-level message for nine commits, and the in-code comment names the failure mode explicitly.",
+      "Issue templates + LICENSE + rewritten README (commit ba0507d) turned the repo from a private experiment into something an external user can file a bug against \u2014 the bug template explicitly asks for `[BetterSSC ...]` console tags, which is exactly the diagnostic signal the v0.1.3\u2013v0.1.8 debug loop wished it had from the user."
     ],
     "what_went_wrong": [
-      "v0.1.0 shipped with at least three live-blocking bugs that surfaced only in user testing: (a) cross-origin cookies not attaching (v0.1.2), (b) REST `/comments` author shape didn't include user objects inline so every message rendered as 'Unknown' (v0.1.6\u2013v0.1.8), (c) WebSocket subscribe frames rejected with 'Invalid message' (v0.1.3\u2013v0.1.8, never fixed). Nine follow-up commits required to make the v0.1 cut actually functional.",
-      "The memory file claimed the WS protocol was 'confirmed' but the verification was passive (open socket, watch idle channel) \u2014 the actual `chat:new-comment` event flow was never exercised end-to-end during the probe phase, so the post_id-vs-postUuid type mismatch (still unfixed, deferred to v0.2) was latent in shipped code.",
-      "Pre-tag code review caught a proxy-tab leak (chrome.scripting.executeScript can throw 'No tab with id' if the tab dies between findProxyTab() and the script run, leaving cachedProxyTabId pointing at a corpse forever) \u2014 that's a single try/catch the original author missed despite owning the file. Pattern: error paths around chrome.* async APIs need explicit cache-invalidation thought, not implicit.",
-      "Repo started nested at ~/signaldeck/betterssc/ (zero semantic relationship to SignalDeck) and was moved to ~/betterssc/ mid-session via the `02ef2f2` import commit. The session memory file documenting the entire Substack DOM + REST + WS protocol now lives stranded in the wrong project memory dir (-Users-indersabharwal-signaldeck/memory/) and won't auto-load in future BetterSSC sessions.",
-      "Diagnostic console.log noise was left in shipped code \u2014 `app.js` has at least 6 `console.log('[BetterSSC ...')` statements that were instrumented during the v0.1.3-v0.1.8 debug loop and never removed. Some are useful (REST shape sample), most are not (ingest sample shape, render group count). A v0.2 prep step should strip them or gate them behind a debug flag."
+      "v0.1.13 bundled five features in one commit (images + theme switch + slash commands + vi nav + WS retry) and produced a 7-commit fix tail through v0.1.19. The `g`-jumps-to-top keybinding alone was fixed three separate times (v0.1.13, v0.1.15, v0.1.19) because nobody walked the bundled feature end-to-end on a real chat before tagging. Same shape at v0.1.20 \u2192 v0.1.25 (pin + sort + flatten \u2192 thread badge placement + quote count + label rename, 4-commit tail).",
+      "WS got a second capitulation. v0.1.9 already fell back to polling after 5 fix commits. v0.1.13 retried it (bundled as 1/5th of a feature commit) with no new protocol evidence \u2014 just another speculative frame sequence. v0.1.16 disabled it AGAIN. That's two capitulations and one round-trip of wasted protocol effort. The retry was not gated on the missing piece (a side-by-side packet capture of a working native session).",
+      "Pin/bell icon design-color collision (member pinned-gold vs watched-green) was deferred into post-ship and paid off across FOUR sequential style commits: v0.1.29 SVG icons, v0.1.30 fill-state-when-on, v0.1.31 pinned-color-wins-over-watched, v0.1.32 watched-name-matches-bell-green. A 30-second design conversation before v0.1.20 (`when both states collide, which wins?`) would have collapsed all four into one.",
+      "Status badge lied for 10 commits between v0.1.16 (WS disabled) and v0.1.26 (badge rewritten to say `live poll`). Users who looked at the badge in that window would have concluded the extension was broken when polling was in fact delivering messages every 12s. The runtime change at v0.1.16 should have updated the indicator in the same commit."
     ],
     "three_whys": [
-      "Why 1: v0.1.0 needed 9 follow-up commits (v0.1.1\u2013v0.1.10) because three classes of bug only surfaced under real user testing \u2014 cross-origin cookie failure, missing-author render path, and broken WS subscribe.",
-      "Why 2: The pre-v0.1 probe phase verified each protocol component in isolation (REST endpoints returned 200, WS auth handshake returned OK, DOM probe found bubbles) but never ran the full integrated flow end-to-end as a logged-in user before declaring 'feasibility confirmed' and committing to v0.1.",
-      "Why 3: 'Confirmed' was conflated with 'individually responded 200' instead of 'live message round-trip observed and rendered.' The memory file documented inferred shapes (event envelope from a passive sniff, REST response shape from a public-only endpoint) as load-bearing facts. The cure is a v0.0.x integration smoke test that causes the exact events the production code path consumes (send a chat message, watch WS fire chat:new-comment, watch app.js render it) before any v0.1 ship."
+      "Why 1: The v0.1.11 \u2192 v0.1.33 range produced 23 commits across 4 hours where roughly half were small UI/correctness fixes for features shipped one or two commits earlier \u2014 and the same keybinding (g) and same status indicator (WS badge) were fixed multiple times.",
+      "Why 2: Because the two big feature commits (v0.1.13 with 5 features bundled, v0.1.20 with 3 features bundled) compressed five separate design passes into one think-through, so each feature got roughly 1/5th of the design attention it would have gotten in a one-feature-per-commit cadence. Bundled commits also obscure the cross-cutting interactions (vi nav vs theme vs slash commands all touch the keydown handler; pin state vs watched state both color the member name) so design-collision questions never get asked before shipping.",
+      "Why 3: Because the pre-commit walk-through is treated as a single gate per ship cut (the pre-tag review at v0.1.0 and v0.1.33), not a per-commit gate when a commit bundles user-visible UI surfaces. The pre-tag review catches structural bugs but it doesn't replace the 'walk each new UI surface on a real chat once' step that should fire whenever a commit changes user-visible behavior. v0.1.13 needed five walk-throughs and got zero; the seven follow-up fix commits ARE those walk-throughs, just spread across the next two hours instead of the next ten minutes."
     ],
     "learnings_written": [
       {
-        "name": "extension-cross-origin-cookies-dont-attach",
+        "name": "feature-bundling-causes-styling-iteration-tail",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/extension-cross-origin-cookies-dont-attach.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/feature-bundling-causes-styling-iteration-tail.md"
       },
       {
-        "name": "ws-protocol-not-actually-decoded-fall-back-to-poll",
+        "name": "ws-second-capitulation-stop-retrying-without-new-evidence",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/ws-protocol-not-actually-decoded-fall-back-to-poll.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/ws-second-capitulation-stop-retrying-without-new-evidence.md"
       },
       {
-        "name": "project-location-decided-mid-session",
-        "type": "project",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/project-location-decided-mid-session.md"
+        "name": "pre-tag-review-gate-is-load-bearing",
+        "type": "feedback",
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/pre-tag-review-gate-is-load-bearing.md"
       }
     ],
     "evidence_citations": [
       {
-        "learning_id": "extension-cross-origin-cookies-dont-attach",
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
         "source_type": "commit",
-        "source_ref": "5b66ddc429160f59ae2de41c8c110cbd4bd8e3e7",
-        "quote": "fix(v0.1.2): proxy API via Substack tab; WS sends auth+subscribe frames"
+        "source_ref": "64ba2e1e8d624cd2c1353a0639a87e9041b0636b",
+        "quote": "feat(v0.1.13): images + theme switch + slash commands + vi nav + WS retry"
       },
       {
-        "learning_id": "extension-cross-origin-cookies-dont-attach",
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
+        "source_type": "commit",
+        "source_ref": "63cace7e855e31be08a0b933c210c177ceb61ca0",
+        "quote": "feat(v0.1.20): pin users + sort active rail + flatten threaded replies"
+      },
+      {
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
+        "source_type": "commit",
+        "source_ref": "2e1e6f5b69375c82e551b3c34b7f075148caa5da",
+        "quote": "fix(v0.1.15): light theme default + g jumps to top + vi-active persists"
+      },
+      {
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
+        "source_type": "commit",
+        "source_ref": "df2a6615960a3b23297cf0ed4b1b6331fd0c1d61",
+        "quote": "feat(v0.1.19): per-user alerts + g scrolls to top + image cache + URL rewrite"
+      },
+      {
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
+        "source_type": "commit",
+        "source_ref": "c5469924c59fbc1086fc65f0b803dc3573f8bc7e",
+        "quote": "fix(v0.1.31): pinned name color wins over watched + pin icon sits upright"
+      },
+      {
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
+        "source_type": "commit",
+        "source_ref": "8067c61908ee9d0f21f431d4a36dae09a2a1ef63",
+        "quote": "fix(v0.1.32): watched user name color matches the bell (green)"
+      },
+      {
+        "learning_id": "feature-bundling-causes-styling-iteration-tail",
         "source_type": "diff",
-        "source_ref": "lib/api.js @@ CROSS-ORIGIN AUTH NOTE (v0.1.2) block",
-        "quote": "Direct fetch() from the extension page (chrome-extension://) to substack.com sends the request but does NOT attach the user's session cookie, even with `credentials: \"include\"` and host_permissions for substack.com. (SameSite=Lax/Strict cookies are not first-party from an extension origin.) The publication-public endpoint works without auth so it looked fine in v0.1, but the comments/inbox/realtime-token endpoints returned reduced-scope responses, causing empty chats and chat-tier WS subscription failures."
+        "source_ref": "app.css @@ .member.pinned.watched .member-name rule (v0.1.31)",
+        "quote": "Pinned name color must win over .member.watched, otherwise members who are BOTH pinned and watched end up purple (watch color) while pinned-only members are amber \u2014 that mismatch is confusing. The bell already carries the watch state visually, so the name leans on pin color exclusively."
       },
       {
-        "learning_id": "extension-cross-origin-cookies-dont-attach",
+        "learning_id": "ws-second-capitulation-stop-retrying-without-new-evidence",
         "source_type": "commit",
-        "source_ref": "03354eb8b348d72f191687d5d355f4725b2c196a",
-        "quote": "Critical \u2014 invalidate cachedProxyTabId on executeScript throw (lib/api.js): chrome.scripting.executeScript can throw \"No tab with id: N\" if the proxy tab closes between findProxyTab() returning and the script actually running. Previously that throw propagated unchanged and left cachedProxyTabId set to the dead id, so every subsequent API call would re-target the same dead tab and fail."
+        "source_ref": "4f353cdb87ae2c01430929946eb1ad88c14b7a51",
+        "quote": "fix(v0.1.16): silence 403s on images + disable WS attempt by default"
       },
       {
-        "learning_id": "ws-protocol-not-actually-decoded-fall-back-to-poll",
-        "source_type": "memory",
-        "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-signaldeck/memory/project_betterssc_substack_dom.md",
-        "quote": "WS smoke test verified \u2014 connection opens, auth frame `{token: <JWT>}` accepted with `{\"error\":null,\"data\":{\"status\":\"OK\"}}`. After ~250ms with no second frame, server sends `{\"error\":\"Invalid message\",\"data\":null}` \u2014 implies the protocol expects a subscribe/publish follow-up frame after auth."
-      },
-      {
-        "learning_id": "ws-protocol-not-actually-decoded-fall-back-to-poll",
-        "source_type": "commit",
-        "source_ref": "393b626ad285fc460e732babd2ed31a1c3d89c19",
-        "quote": "feat(v0.1.9): polling fallback for live updates (WS deferred)"
-      },
-      {
-        "learning_id": "ws-protocol-not-actually-decoded-fall-back-to-poll",
+        "learning_id": "ws-second-capitulation-stop-retrying-without-new-evidence",
         "source_type": "diff",
-        "source_ref": "app.js lines 846-850 (WS unreliable comment)",
-        "quote": "WS is unreliable in v0.1 (Substack's protocol rejects our subscribe frames with Invalid message for reasons we haven't pinned down). Polling matches what Substack's own native client does anyway (~10s interval with ?after=<ISO>)."
+        "source_ref": "app.js @@ init() WS-disabled block (v0.1.16)",
+        "quote": "WS is OFF by default in v0.1.16. Substack's wss://zyncrealtime protocol rejects our subscribe frames with `Invalid message` after auth OK, and we can't reverse-engineer the right shape from one-sided traces. To stop log noise and a wasted ~5s of open-then-error per page load, the attempt is gated behind a debug flag. Polling is the live mechanism."
       },
       {
-        "learning_id": "ws-protocol-not-actually-decoded-fall-back-to-poll",
+        "learning_id": "ws-second-capitulation-stop-retrying-without-new-evidence",
         "source_type": "commit",
-        "source_ref": "03354eb8b348d72f191687d5d355f4725b2c196a",
-        "quote": "Deferred to v0.2 (per review): WS post_id (int) vs state.postUuid (string) mismatch \u2014 WS already documented as broken and polling covers, but this is the first thing to fix when tackling WS protocol in v0.2."
+        "source_ref": "536f5e4ec01a1f0b8847e4816ef26578af7fc51b",
+        "quote": "fix(v0.1.26): status badge says \"live poll\" with green dot instead of \"disabled\""
       },
       {
-        "learning_id": "project-location-decided-mid-session",
+        "learning_id": "ws-second-capitulation-stop-retrying-without-new-evidence",
+        "source_type": "diff",
+        "source_ref": "app.js @@ setWsStatus rewrite (v0.1.26)",
+        "quote": "v0.1.26: the badge now reflects the LIVE-update mechanism the app is actually using, not the raw WS state. When WS is \"disabled\" we're still very much live via polling \u2014 show that as a green \"live poll\"."
+      },
+      {
+        "learning_id": "pre-tag-review-gate-is-load-bearing",
         "source_type": "commit",
-        "source_ref": "02ef2f206b448ac86db7b8a4e4869ad1074e2be5",
-        "quote": "chore: import v0.0.4 probe baseline from signaldeck/betterssc"
+        "source_ref": "401ca0bb25c7317b1b8a5716fe013d065c49ade9",
+        "quote": "fix(v0.1.33): pre-tag review fixes \u2014 thread+search intersection + notif leak"
       },
       {
-        "learning_id": "project-location-decided-mid-session",
-        "source_type": "memory",
-        "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-signaldeck/memory/project_betterssc_substack_dom.md",
-        "quote": "BetterSSC = \"Better Substack Chat.\" Chrome extension that overlays a Discord-style three-pane view on top of Substack Chat. Lives at `/Users/indersabharwal/signaldeck/betterssc/` (should be split into its own git repo \u2014 currently nested inside SignalDeck, separate product)."
+        "learning_id": "pre-tag-review-gate-is-load-bearing",
+        "source_type": "diff",
+        "source_ref": ".review/last-verdict.json (v0.1.33)",
+        "quote": "\"retro_reasoning\": \"25 commits, 1700+ line diff, new manifest permissions, multiple feature areas, and 2 should-fix findings including a user-visible filter correctness bug\", \"critical_count\": 0, \"should_fix_count\": 2"
+      },
+      {
+        "learning_id": "pre-tag-review-gate-is-load-bearing",
+        "source_type": "diff",
+        "source_ref": "background.js @@ chrome.notifications.onClosed listener (v0.1.33)",
+        "quote": "Drop the ref when the notification auto-dismisses or is swiped away without being clicked. Without this NOTIFICATION_REFS leaked entries for every alert that wasn't acted on."
+      },
+      {
+        "learning_id": "pre-tag-review-gate-is-load-bearing",
+        "source_type": "diff",
+        "source_ref": "app.js @@ applySearch intersection branch (v0.1.33)",
+        "quote": "When a thread filter is also active, INTERSECT \u2014 a group is shown only if it's both in the thread AND matches the query. (Without this, the text-search loop would overwrite the thread filter and any out-of-thread match would become visible.)"
       }
     ]
   }
