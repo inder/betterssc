@@ -794,8 +794,11 @@ button {
 .member-bell.on:hover {
   background: var(--success-bg-strong);
 }
+/* Watched-user name matches the bell-on color (green) so the toggle and
+   its visual cue read as one theme. Pinned (gold) still wins when both
+   are active — see the pinned-name rule lower down. */
 .member.watched .member-name {
-  color: var(--accent);
+  color: var(--success);
   font-weight: 600;
 }
 .member-avatar {
