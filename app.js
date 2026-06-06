@@ -283,12 +283,31 @@ async function loadOlder() {
   }
 }
 
-// Unwraps the various shapes a Substack comment can arrive in. The WS
-// `chat:new-comment` event wraps it as `{type, comment: {...}}`. REST
-// /comments returns flat objects (no nested wrapper) per v0.1.5 diagnostics.
+// Unwraps the various shapes a Substack comment can arrive in.
+//
+// REST /comments shape (v0.1.7 dump):
+//   { comment: { id, user_id, body, ... }, user: { id, name, handle, photo_url }, quote: {comment, user}, pub_roles, user_status }
+//
+// WS chat:new-comment shape (v0.0.5):
+//   { type: "chat:new-comment", comment: { id, ..., author: {...} } }
+//
+// Both wrap the actual comment under `comment`, but REST puts the author as
+// a sibling `user` while WS nests it as `comment.author`. This unwrap
+// normalizes both into a single shape with `author` populated.
 function unwrapComment(raw) {
   if (!raw) return null;
-  if (raw.comment && (raw.type || !raw.id)) return raw.comment;
+  if (raw.comment && (raw.type || !raw.id)) {
+    const c = raw.comment;
+    // Attach sibling `user` as the canonical author.
+    if (raw.user && !c.author) c.author = raw.user;
+    // Same for the quoted comment (replies).
+    if (c.quote == null && raw.quote && raw.quote.comment) {
+      const q = raw.quote.comment;
+      if (raw.quote.user && !q.author) q.author = raw.quote.user;
+      c.quote = q;
+    }
+    return c;
+  }
   return raw;
 }
 
@@ -465,8 +484,24 @@ async function connectRealtime() {
     probe && probe.permissions
   );
 
-  const chatChannels = detectChatChannels(probe, state.publicationId);
-  console.log("[BetterSSC] detected chatChannels:", chatChannels);
+  const allChatChannels = detectChatChannels(probe, state.publicationId);
+  console.log("[BetterSSC] detected chatChannels (all):", allChatChannels);
+
+  // v0.1.8: Substack rejects multi-tier subscribe (Array(4)→Invalid). The
+  // native client subscribes to ONE chat tier per frame — pick the highest
+  // tier the user has access to. Messages published to a higher tier are
+  // restricted to higher subscribers anyway, so subscribing to only_founding
+  // (if available) covers founding-only + everything published to wider
+  // tiers IF Substack mirrors. If not we'll iterate v0.1.9.
+  const tierOrder = ["only_founding", "only_paid", "all_subscribers"];
+  const bestTier = tierOrder.find((t) =>
+    allChatChannels.includes(`chat:${state.publicationId}:${t}`)
+  );
+  const chatChannels = bestTier
+    ? [`chat:${state.publicationId}:${bestTier}`]
+    : [];
+  console.log("[BetterSSC] picked chat tier:", bestTier, "→", chatChannels);
+
   if (!chatChannels.length && !state.user) {
     showError(
       "No accessible chat channels for this publication. Are you a subscriber?"
