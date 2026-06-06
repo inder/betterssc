@@ -165,6 +165,18 @@ async function loadInitial() {
     const res = await fetchCommentsInitial(state.postUuid, {
       targetReplyId: state.targetReplyId,
     });
+    console.log(
+      "[BetterSSC] /comments?initial=true response — top keys:",
+      Object.keys(res || {}),
+      "· replies:",
+      (res && res.replies && res.replies.length) || 0,
+      "· post present:",
+      !!(res && res.post),
+      "· moreBefore:",
+      res && res.moreBefore,
+      "· raw:",
+      res
+    );
     document.getElementById("postTitle").textContent =
       (res.post && res.post.communityPost && res.post.communityPost.body
         ? res.post.communityPost.body.slice(0, 80)
@@ -180,10 +192,18 @@ async function loadInitial() {
     state.moreBefore = res.moreBefore !== false;
     if (replies.length) {
       state.earliestISO = replies[0].created_at;
+    } else {
+      // Visible diagnostic: if the server returned 200 with empty replies,
+      // the most common cause is that our session cookie didn't ride along
+      // on the cross-origin fetch from chrome-extension:// to substack.com.
+      showError(
+        "Loaded 0 messages. Most likely: your Substack session cookie isn't being attached to the cross-origin API call. Open DevTools → Network → look at the /comments request to confirm cookies. Reporting back will help diagnose."
+      );
     }
     renderAll();
     scrollToBottom();
   } catch (e) {
+    console.error("[BetterSSC] loadInitial failed:", e);
     showError(`Failed to load chat: ${e.message}`);
   }
 }
