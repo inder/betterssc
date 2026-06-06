@@ -174,10 +174,48 @@ async function loadInitial() {
       "· post present:",
       !!(res && res.post),
       "· moreBefore:",
-      res && res.moreBefore,
-      "· raw:",
-      res
+      res && res.moreBefore
     );
+
+    // v0.1.7: harvest user info from anywhere we can find it in the response.
+    // Substack distributes user objects across the response (top-level
+    // user_tables, post.communityPost embed, individual reply fields).
+    if (res && Array.isArray(res.users)) {
+      registerUserObjects(res.users);
+    }
+    if (res && res.post) {
+      registerUserObjects([res.post.communityPost?.author].filter(Boolean));
+      registerUserObjects(res.post.users);
+      registerUserObjects(res.post.recent_commenters);
+    }
+    if (res && Array.isArray(res.replies)) {
+      // Walk replies for any embedded recent_commenters arrays that look
+      // like user objects.
+      for (const r of res.replies) {
+        if (r && Array.isArray(r.recent_commenters)) {
+          registerUserObjects(r.recent_commenters);
+        }
+      }
+    }
+    console.log(
+      "[BetterSSC] user table after harvest:",
+      _userTable.size,
+      "entries"
+    );
+
+    // Dump the first reply (truncated) so we can spot fields we missed.
+    if (res && res.replies && res.replies[0]) {
+      let dump;
+      try {
+        dump = JSON.stringify(res.replies[0]);
+      } catch (_) {
+        dump = "(stringify failed)";
+      }
+      console.log(
+        "[BetterSSC INGEST] full first reply (truncated 4KB):",
+        dump.slice(0, 4000)
+      );
+    }
     document.getElementById("postTitle").textContent =
       (res.post && res.post.communityPost && res.post.communityPost.body
         ? res.post.communityPost.body.slice(0, 80)
@@ -259,22 +297,61 @@ function commentId(c) {
   return c.id || c.comment_id || c._id || c.uuid || null;
 }
 
-// v0.1.6: Substack REST replies have FLAT author fields (name, handle,
-// photo_url, user_id) instead of a nested `author` object. This builds one
-// out of whatever flat fields are present, so the rest of the render code
-// (which expects c.author) works uniformly across REST + WS shapes.
+// v0.1.6 found: Substack's REST /comments response gives flat user_id only,
+// no name/handle/photo_url inline. v0.1.7 looks up display info from the
+// response-wide user-table the controller maintains.
+const _userTable = new Map(); // user_id → {id, name, handle, photo_url}
+
+function registerUserObjects(arr) {
+  if (!Array.isArray(arr)) return 0;
+  let n = 0;
+  for (const u of arr) {
+    if (u && (u.id != null || u.user_id != null)) {
+      const id = u.id ?? u.user_id;
+      if (!_userTable.has(id)) {
+        _userTable.set(id, {
+          id,
+          name: u.name || u.handle || `User ${id}`,
+          handle: u.handle || null,
+          photo_url: u.photo_url || null,
+        });
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
 function syntheticAuthor(c) {
-  if (c.author && typeof c.author === "object") return c.author;
-  const id = c.user_id ?? c.author_id ?? c.userId ?? null;
-  const name = c.name || c.author_name || c.userName || null;
-  const handle = c.handle || c.author_handle || c.userHandle || null;
-  const photo = c.photo_url || c.author_photo_url || c.userPhotoUrl || null;
-  if (id == null && !name && !handle && !photo) return null;
+  if (c.author && typeof c.author === "object" && c.author.name) return c.author;
+  const uid = c.user_id ?? c.author_id ?? c.userId;
+  // First: look up in cumulative user table (populated from recent_commenters,
+  // post.author, mentions, etc).
+  if (uid != null && _userTable.has(uid)) {
+    return { ..._userTable.get(uid) };
+  }
+  // Second: try the comment's own `recent_commenters` if it looks like users.
+  if (Array.isArray(c.recent_commenters)) {
+    const match = c.recent_commenters.find(
+      (u) => u && (u.id === uid || u.user_id === uid)
+    );
+    if (match) {
+      const obj = {
+        id: match.id ?? match.user_id,
+        name: match.name || `User ${uid}`,
+        handle: match.handle || null,
+        photo_url: match.photo_url || null,
+      };
+      _userTable.set(obj.id, obj);
+      return obj;
+    }
+  }
+  // Last resort: show user_id so the user sees SOMETHING distinguishing.
   return {
-    id: id != null ? id : "unknown",
-    name: name || "Unknown",
-    handle,
-    photo_url: photo,
+    id: uid != null ? uid : "unknown",
+    name: uid != null ? `User #${uid}` : "Unknown",
+    handle: null,
+    photo_url: null,
   };
 }
 
@@ -369,23 +446,27 @@ function insertInOrder(c) {
 // ============================================================
 
 async function connectRealtime() {
-  // v0.1.5: match the native client's two-token pattern. First fetch a
-  // probe token to discover which chat tiers we have subscribe access to.
+  // v0.1.7: match what the native client does — request just one chat tier
+  // in the probe. Substack's server returns perms for ALL tiers the user
+  // has access to, not just the one requested.
   let probe;
   try {
     probe = await fetchRealtimeToken([
       `user:${state.user ? state.user.id : "0"}`,
       `chat:${state.publicationId}:all_subscribers`,
-      `chat:${state.publicationId}:only_paid`,
-      `chat:${state.publicationId}:only_founding`,
     ]);
   } catch (e) {
     setWsStatus("error");
     showError(`Realtime token fetch failed: ${e.message}`);
     return;
   }
+  console.log(
+    "[BetterSSC] probe token permissions:",
+    probe && probe.permissions
+  );
 
   const chatChannels = detectChatChannels(probe, state.publicationId);
+  console.log("[BetterSSC] detected chatChannels:", chatChannels);
   if (!chatChannels.length && !state.user) {
     showError(
       "No accessible chat channels for this publication. Are you a subscriber?"
