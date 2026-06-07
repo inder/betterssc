@@ -304,9 +304,21 @@ async function fetchUserIdentity() {
             func: () => {
               const cfg = window._analyticsConfig;
               if (!cfg || !cfg.user) return null;
-              // Capture ONLY what the extension needs (id + name). Email and
-              // anonymousId are PII we don't use anywhere; not caching them.
-              return { id: cfg.user.id, name: cfg.user.name };
+              // Capture id, name, AND photo_url so the top-right avatar
+              // can render even before any comments are ingested. Email
+              // / anonymousId are PII we don't use; not caching them.
+              const u = cfg.user;
+              return {
+                id: u.id,
+                name: u.name,
+                handle: u.handle || u.username || null,
+                photo_url:
+                  u.photo_url ||
+                  u.photoUrl ||
+                  u.profile_image_url ||
+                  u.avatar_url ||
+                  null,
+              };
             },
           });
           if (result && result.id) return resolve(result);
@@ -1658,9 +1670,15 @@ function renderChatHeader() {
       userSlot.setAttribute("title", self.name || "You");
     }
   }
-  // Body panel: render once, then the toggle just flips .hidden.
-  const meta = document.getElementById("postBodyPanelMeta");
-  const content = document.getElementById("postBodyPanelContent");
+  // Modal: render meta + body once. Visibility is toggled by the
+  // backdrop's .hidden class.
+  const titleEl = document.getElementById("postModalTitle");
+  if (titleEl) {
+    titleEl.textContent =
+      (state.publication && state.publication.name) || "Post";
+  }
+  const meta = document.getElementById("postModalMeta");
+  const body = document.getElementById("postModalBody");
   if (meta) {
     meta.innerHTML = "";
     if (postAuthor && postAuthor.name) {
@@ -1678,18 +1696,37 @@ function renderChatHeader() {
       meta.appendChild(span);
     }
   }
-  if (content) {
-    content.textContent = fullBody || "(this chat doesn't have a post body)";
+  if (body) {
+    body.textContent = fullBody || "(this chat doesn't have a post body)";
   }
 }
 
-function toggleChatHeaderPanel() {
-  const panel = document.getElementById("postBodyPanel");
+function openPostModal() {
+  const backdrop = document.getElementById("postModalBackdrop");
+  if (!backdrop) return;
+  backdrop.classList.remove("hidden");
   const btn = document.getElementById("headerLeft");
-  if (!panel || !btn) return;
-  const willOpen = panel.classList.contains("hidden");
-  panel.classList.toggle("hidden", !willOpen);
-  btn.setAttribute("aria-expanded", String(willOpen));
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  // Focus the close button so Esc / Enter work immediately.
+  const closeBtn = document.getElementById("postModalClose");
+  if (closeBtn) closeBtn.focus();
+}
+
+function closePostModal() {
+  const backdrop = document.getElementById("postModalBackdrop");
+  if (!backdrop) return;
+  backdrop.classList.add("hidden");
+  const btn = document.getElementById("headerLeft");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+// Kept name for compatibility with the existing click handler; just
+// opens the modal now.
+function toggleChatHeaderPanel() {
+  const backdrop = document.getElementById("postModalBackdrop");
+  if (!backdrop) return;
+  if (backdrop.classList.contains("hidden")) openPostModal();
+  else closePostModal();
 }
 
 function renderFooterStats() {
@@ -2414,6 +2451,25 @@ function bindEventHandlers() {
   if (headerLeft) {
     headerLeft.addEventListener("click", toggleChatHeaderPanel);
   }
+  // Post modal: close on ✕, backdrop click, or Esc.
+  const postModalClose = document.getElementById("postModalClose");
+  if (postModalClose) {
+    postModalClose.addEventListener("click", closePostModal);
+  }
+  const postModalBackdrop = document.getElementById("postModalBackdrop");
+  if (postModalBackdrop) {
+    postModalBackdrop.addEventListener("click", (e) => {
+      if (e.target === postModalBackdrop) closePostModal();
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const bd = document.getElementById("postModalBackdrop");
+    if (bd && !bd.classList.contains("hidden")) {
+      closePostModal();
+      e.stopPropagation();
+    }
+  });
 
   // Background can send us "focusMessage" when a notification is clicked.
   chrome.runtime.onMessage.addListener((msg, sender) => {

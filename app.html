@@ -102,9 +102,27 @@
           <span class="header-avatar-slot user-avatar-header" id="userAvatarSlot" title="You"></span>
         </div>
       </header>
-      <div id="postBodyPanel" class="post-body-panel hidden" role="region" aria-label="Full post body">
-        <div class="post-body-panel-meta" id="postBodyPanelMeta"></div>
-        <div class="post-body-panel-content" id="postBodyPanelContent"></div>
+      <div
+        id="postModalBackdrop"
+        class="post-modal-backdrop hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="postModalTitle"
+      >
+        <div class="post-modal" id="postModal">
+          <header class="post-modal-header">
+            <h2 class="post-modal-title" id="postModalTitle">Post</h2>
+            <button
+              type="button"
+              id="postModalClose"
+              class="post-modal-close"
+              title="Close (Esc)"
+              aria-label="Close"
+            >✕</button>
+          </header>
+          <div class="post-modal-meta" id="postModalMeta"></div>
+          <div class="post-modal-body" id="postModalBody"></div>
+        </div>
       </div>
 
       <main class="main">
