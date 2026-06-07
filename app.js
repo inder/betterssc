@@ -205,9 +205,23 @@ function startPollingFallback() {
   // First poll fires after one interval — initial load already covers t=0.
 }
 
+// "User is away" — fires alerts when EITHER the tab is hidden in its own
+// window OR the window/app is not focused. document.hidden alone misses
+// the case where you switched to another browser window or another app
+// (Slack, Terminal, etc.) — the tab is still the active one in its window
+// so document.hidden stays false. That was the v0.2-A live bug: alerts
+// never fired even after switching tabs because the BetterSSC tab was in
+// a different window than the one being focused.
+function isUserAway() {
+  return document.hidden || !document.hasFocus();
+}
+
 async function pollNewMessages() {
   if (_pollInflight) return;
-  if (document.hidden) return; // don't poll when tab is in background
+  // Keep polling even when the tab is hidden — otherwise we'd never
+  // see new messages while the user is away, which means no alerts.
+  // Chrome will throttle hidden-tab timers, but the polls still go
+  // through eventually (within ~minutes).
   const since = getNewestCommentISO();
   if (!since) return;
   _pollInflight = true;
@@ -683,7 +697,7 @@ function handleChatEvent(ev) {
           maybeAlertOnWatchedUser(c);
         }
         maybeAlertAllMessages([c]);
-        if (document.hidden) incrementUnreadWhileHidden(1);
+        if (isUserAway()) incrementUnreadWhileHidden(1);
       }
     }
     if (state.isAtBottom) {
@@ -1405,7 +1419,7 @@ function toggleNotifyAllMessages() {
 // fallback watched-user alert path.
 function maybeAlertOnReplyToMe(comment) {
   if (!comment) return false;
-  if (!document.hidden) return false;
+  if (!isUserAway()) return false;
   if (!state.user || state.user.id == null) return false;
   const myId = state.user.id;
   // Don't alert about my own replies.
@@ -1449,10 +1463,11 @@ function maybeAlertOnReplyToMe(comment) {
   return true;
 }
 
-// Called from pollNewMessages after the per-user-watched alerts. Fires a
-// single batched notification covering everything new this poll, using a
-// stable id per chat post so it REPLACES the previous batch instead of
-// stacking dozens of notifications during a busy chat.
+// Fires one OS notification per new message. Caller passes either a
+// single comment or an array. Each notification gets a stable id keyed
+// by the comment's own id so polling can't double-fire if it later sees
+// the same comment again, but every distinct comment stacks as its own
+// notification.
 function maybeAlertAllMessages(newlyAdded) {
   if (!state.notifyAllMessages) {
     console.log(
@@ -1460,39 +1475,33 @@ function maybeAlertAllMessages(newlyAdded) {
     );
     return;
   }
-  if (!document.hidden) {
+  if (!isUserAway()) {
     console.log(
-      "[BetterSSC notify-all] skip — tab is visible (alerts fire only when tab is hidden)"
+      "[BetterSSC notify-all] skip — tab is visible AND window has focus (alerts fire only when tab is hidden or window/app unfocused)"
     );
     return;
   }
-  if (!Array.isArray(newlyAdded) || !newlyAdded.length) return;
-  console.log(
-    `[BetterSSC notify-all] firing for ${newlyAdded.length} new message(s)`
-  );
+  const list = Array.isArray(newlyAdded) ? newlyAdded : [newlyAdded];
+  if (!list.length) return;
   const pubName =
     (state.publication && state.publication.name) || "Substack chat";
-  const last = newlyAdded[newlyAdded.length - 1];
-  const lastAuthor =
-    (last && last.author && last.author.name) || "Someone";
-  const lastBody = ((last && last.body) || "").slice(0, 140);
-  const title =
-    newlyAdded.length === 1
-      ? `New message in ${pubName}`
-      : `${newlyAdded.length} new messages in ${pubName}`;
-  const message =
-    newlyAdded.length === 1
-      ? `${lastAuthor}: ${lastBody}`
-      : `Latest — ${lastAuthor}: ${lastBody}`;
-  try {
-    chrome.runtime.sendMessage({
-      type: "notify",
-      title,
-      message,
-      mentionRef: last && last.id,
-      notificationId: `bssc-allmsg-${state.postUuid}`,
-    });
-  } catch (_) {}
+  for (const c of list) {
+    if (!c || !c.id) continue;
+    const author = (c.author && c.author.name) || "Someone";
+    const body = (c.body || "").slice(0, 140);
+    console.log(
+      `[BetterSSC notify-all] firing for ${c.id} — ${author}: ${body.slice(0, 60)}`
+    );
+    try {
+      chrome.runtime.sendMessage({
+        type: "notify",
+        title: `New message in ${pubName}`,
+        message: `${author}: ${body}`,
+        mentionRef: c.id,
+        notificationId: `bssc-allmsg-${c.id}`,
+      });
+    } catch (_) {}
+  }
 }
 
 function togglePinUser(userId) {
@@ -1522,7 +1531,7 @@ function persistMembersUiPrefs() {
 //   - the comment is from a watched user
 function maybeAlertOnWatchedUser(comment) {
   if (!comment) return;
-  if (!document.hidden) return; // only when user is away
+  if (!isUserAway()) return; // only when user is away
   const uid = comment.user_id;
   if (uid == null || !state.watchedUserIds.has(uid)) return;
   const name = (comment.author && comment.author.name) || "Someone";
@@ -1947,7 +1956,7 @@ function updateBaseTitle() {
 }
 
 function incrementUnreadWhileHidden(n) {
-  if (!document.hidden) return;
+  if (!isUserAway()) return;
   _unreadWhileHidden += n;
   document.title = `(${_unreadWhileHidden}) ${_baseTitle}`;
 }
