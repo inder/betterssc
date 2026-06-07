@@ -542,6 +542,7 @@ function flattenReplies(items) {
 // no name/handle/photo_url inline. v0.1.7 looks up display info from the
 // response-wide user-table the controller maintains.
 const _userTable = new Map(); // user_id → {id, name, handle, photo_url}
+const _avatarMissLogged = new Set(); // diagnostic: one log per user_id
 
 function registerUserObjects(arr) {
   if (!Array.isArray(arr)) return 0;
@@ -645,6 +646,24 @@ function ingestComment(c, { silent = false } = {}) {
   // pushes contribute to avatar healing in real time.
   if (unwrapped.author && (unwrapped.author.id != null || unwrapped.author.user_id != null)) {
     registerUserObjects([unwrapped.author]);
+    // Diagnostic: log the shape of any comment whose author still
+    // has no photo. Tells us whether Substack is sending the photo
+    // under a different field name OR not at all. Rate-limited to
+    // at most one log per user_id per session.
+    if (!unwrapped.author.photo_url) {
+      const a = unwrapped.author;
+      const id = a.id ?? a.user_id;
+      if (id != null && !_avatarMissLogged.has(id)) {
+        _avatarMissLogged.add(id);
+        console.log("[BetterSSC avatar-miss]", {
+          id,
+          name: a.name,
+          handle: a.handle,
+          keys: Object.keys(a),
+          sample: a,
+        });
+      }
+    }
   }
 
   const isNew = !state.comments.has(id);
