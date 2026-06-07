@@ -1085,37 +1085,42 @@ function renderMessageItem(c) {
   // can take.
   appendAttachments(wrap, c);
 
-  // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
-  // shape might be {name: {count, has_reacted}}. Handle both, and filter
-  // out zero-count entries (we were rendering "👍 0" pills).
-  if (c.reactions && typeof c.reactions === "object") {
-    const entries = Object.entries(c.reactions)
-      .map(([name, v]) => {
-        const count = typeof v === "number" ? v : (v && v.count) || 0;
-        return [name, count];
-      })
-      .filter(([, count]) => count > 0);
-    if (entries.length) {
-      const reactionsEl = document.createElement("div");
-      reactionsEl.className = "msg-reactions";
-      for (const [reactionType, count] of entries) {
-        const pill = document.createElement("span");
-        pill.className = "msg-reaction";
-        pill.title = `:${reactionType}: ×${count}`;
-        pill.appendChild(
-          document.createTextNode(reactionEmojiFor(reactionType))
-        );
-        const countEl = document.createElement("span");
-        countEl.className = "msg-reaction-count";
-        countEl.textContent = String(count);
-        pill.appendChild(countEl);
-        reactionsEl.appendChild(pill);
-      }
-      wrap.appendChild(reactionsEl);
-    }
-  }
+  const reactionsEl = buildReactionsEl(c);
+  if (reactionsEl) wrap.appendChild(reactionsEl);
 
   return wrap;
+}
+
+// Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
+// shape might be {name: {count, has_reacted}}. Handle both, and filter
+// out zero-count entries (we were rendering "👍 0" pills).
+// Extracted from renderMessageItem so sendReaction can surgically replace
+// just this element instead of calling renderAll() (which scroll-jumps).
+function buildReactionsEl(c) {
+  if (!c.reactions || typeof c.reactions !== "object") return null;
+  const entries = Object.entries(c.reactions)
+    .map(([name, v]) => {
+      const count = typeof v === "number" ? v : (v && v.count) || 0;
+      return [name, count];
+    })
+    .filter(([, count]) => count > 0);
+  if (!entries.length) return null;
+  const reactionsEl = document.createElement("div");
+  reactionsEl.className = "msg-reactions";
+  for (const [reactionType, count] of entries) {
+    const pill = document.createElement("span");
+    pill.className = "msg-reaction";
+    pill.title = `:${reactionType}: ×${count}`;
+    pill.appendChild(
+      document.createTextNode(reactionEmojiFor(reactionType))
+    );
+    const countEl = document.createElement("span");
+    countEl.className = "msg-reaction-count";
+    countEl.textContent = String(count);
+    pill.appendChild(countEl);
+    reactionsEl.appendChild(pill);
+  }
+  return reactionsEl;
 }
 
 // URLs that recently failed to load. Re-attempted after a TTL so a
@@ -3474,17 +3479,35 @@ async function sendReaction(comment, type) {
   // Optimistic bump.
   const prevReactions = comment.reactions;
   comment.reactions = updateReactionCount(prevReactions, type, +1);
-  renderAll();
+  // Surgical DOM update — replace only the .msg-reactions row on this
+  // message's node. Full renderAll() would replaceChildren the whole
+  // message list and yank scroll position when reacting mid-history.
+  updateReactionsDom(id, comment);
   try {
     await apiPostReaction(id, type);
   } catch (e) {
-    // Rollback.
+    // Rollback — same surgical path.
     comment.reactions = prevReactions;
-    renderAll();
+    updateReactionsDom(id, comment);
     showError(
       "Reaction failed: " + ((e && e.message) || "unknown error")
     );
   }
+}
+
+// Replace just the reactions row inside a single message's DOM node.
+// No-op if the node isn't currently rendered (filtered out, virtualized,
+// not yet ingested) — state is the source of truth; next renderAll picks
+// it up.
+function updateReactionsDom(id, comment) {
+  const node = document.querySelector(
+    `.msg-item[data-id="${cssEscape(String(id))}"]`
+  );
+  if (!node) return;
+  const existing = node.querySelector(":scope > .msg-reactions");
+  if (existing) existing.remove();
+  const fresh = buildReactionsEl(comment);
+  if (fresh) node.appendChild(fresh);
 }
 
 // Mount when the app is visible. If we're on the landing screen, #composer

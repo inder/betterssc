@@ -1,12 +1,12 @@
 {
-  "sha": "70a7366",
-  "branch": "worktree-agent-a3c0139517fa34608",
-  "ts": "2026-06-06T00:00:00Z",
-  "verdict": "fix-these",
-  "retro_required": "yes",
-  "retro_reasoning": "diff is 2600+ lines touching core rendering path, state architecture, and 3 new files; 2 should-fix issues found",
+  "sha": "65499ad275d3ce332faf2026a1737498e6c24646",
+  "branch": "main",
+  "ts": "2026-06-07T00:00:00Z",
+  "verdict": "ship-it",
+  "retro_required": "no",
+  "retro_reasoning": "Diff is under 120 lines, no critical findings, no schema or contract changes, pure refactor with no new features",
   "critical_count": 0,
-  "should_fix_count": 2,
-  "nit_count": 3,
-  "files_reviewed": 5
+  "should_fix_count": 0,
+  "nit_count": 1,
+  "files_reviewed": 1
 }
