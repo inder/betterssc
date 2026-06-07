@@ -1477,7 +1477,12 @@ function maybeAlertAllMessages(newlyAdded) {
   }
   if (!isUserAway()) {
     console.log(
-      "[BetterSSC notify-all] skip — tab is visible AND window has focus (alerts fire only when tab is hidden or window/app unfocused)"
+      "[BetterSSC notify-all] skip — tab is visible AND window has focus",
+      {
+        "document.hidden": document.hidden,
+        "document.visibilityState": document.visibilityState,
+        "document.hasFocus()": document.hasFocus(),
+      }
     );
     return;
   }
