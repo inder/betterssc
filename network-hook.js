@@ -12,7 +12,7 @@
   if (window.__bsscNetInstalled) return;
   window.__bsscNetInstalled = true;
 
-  const MAX_PER_BUCKET = 200;
+  const MAX_PER_BUCKET = 2000;
   const buf = {
     startedAtISO: new Date().toISOString(),
     fetches: [],
