@@ -1585,7 +1585,20 @@ function maybeAlertOnWatchedUser(comment) {
 // placeholder for "you" even after we've seen your photo in chat.
 function getResolvedSelf() {
   if (!state.user) return null;
-  const cached = state.user.id != null ? _userTable.get(state.user.id) : null;
+  let cached = state.user.id != null ? _userTable.get(state.user.id) : null;
+  // Name-match fallback — the analytics-config id (state.user.id) and
+  // comment.user_id can differ in some publications. Without this the
+  // top-right avatar shows a letter placeholder even though the same
+  // user's real photo is right there in the chat messages.
+  if ((!cached || !cached.photo_url) && state.user.name) {
+    const wantName = state.user.name.toLowerCase();
+    for (const entry of _userTable.values()) {
+      if (entry && entry.name && entry.name.toLowerCase() === wantName) {
+        cached = entry;
+        break;
+      }
+    }
+  }
   return {
     id: state.user.id,
     name: state.user.name || (cached && cached.name) || "You",
@@ -3106,8 +3119,30 @@ async function ensureReactionLibrary() {
   }
 }
 
+// Returns 6 reaction names, all guaranteed to render distinct glyphs.
+// Substack's library returns aliases (thumbs_up vs upvote) that map
+// to the same emoji — without per-glyph dedup at THIS layer, the
+// picker's own glyph dedup strips the alias and the row shrinks to 5.
 function suggestedReactions() {
-  return pickSuggestedReactions(state.composer._reactionLibrary, 6);
+  const raw = pickSuggestedReactions(state.composer._reactionLibrary, 12);
+  const out = [];
+  const seenGlyphs = new Set();
+  for (const type of raw) {
+    const glyph = composerReactionEmojiFor(type);
+    if (seenGlyphs.has(glyph)) continue;
+    seenGlyphs.add(glyph);
+    out.push(type);
+    if (out.length >= 6) return out;
+  }
+  // Pad from defaults if dedup left us short.
+  for (const type of DEFAULT_SUGGESTED_REACTIONS) {
+    const glyph = composerReactionEmojiFor(type);
+    if (seenGlyphs.has(glyph)) continue;
+    seenGlyphs.add(glyph);
+    out.push(type);
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 function decorateReactionToolbar(node, comment) {
