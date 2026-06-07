@@ -1221,6 +1221,12 @@ function renderAiMarkdownToHtml(raw) {
   });
   // Remaining newlines → <br>
   html = html.replace(/\n+/g, "<br>");
+  // Strip <br>s that hug block elements — they show up as empty lines
+  // between a section header and its bulleted list, or after a list
+  // before the next header. The <h3>/<h4>/<ul> already provide vertical
+  // rhythm via their own margins.
+  html = html.replace(/<br>\s*(?=<(?:h3|h4|ul)\b)/g, "");
+  html = html.replace(/(<\/(?:h3|h4|ul)>)\s*<br>/g, "$1");
   return html;
 }
 

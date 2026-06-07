@@ -1444,7 +1444,7 @@ button {
   background: var(--accent-bg-soft);
   border-left: 3px solid var(--accent);
   border-radius: 6px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   margin: 6px 0;
 }
 .ai-msg.ai-pending .ai-body {
@@ -1458,27 +1458,29 @@ button {
 
 .ai-body {
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--text-primary);
 }
+.ai-body > *:first-child { margin-top: 0; }
+.ai-body > *:last-child { margin-bottom: 0; }
 .ai-body h3.ai-h3 {
-  margin: 10px 0 6px 0;
+  margin: 8px 0 2px 0;
   font-size: 14px;
   font-weight: 700;
   color: var(--accent);
 }
 .ai-body h4.ai-h4 {
-  margin: 8px 0 4px 0;
+  margin: 6px 0 2px 0;
   font-size: 13px;
   font-weight: 700;
   color: var(--accent);
 }
 .ai-body ul.ai-ul {
-  margin: 4px 0 8px 0;
-  padding-left: 22px;
+  margin: 2px 0 4px 0;
+  padding-left: 20px;
 }
 .ai-body ul.ai-ul li {
-  margin: 2px 0;
+  margin: 1px 0;
 }
 .ai-body strong { color: var(--text-primary); }
 
@@ -1487,8 +1489,8 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 10px;
-  padding-top: 8px;
+  margin-top: 8px;
+  padding-top: 6px;
   border-top: 1px dashed var(--border);
   font-size: 11px;
   color: var(--text-muted);
