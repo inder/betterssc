@@ -1,12 +1,12 @@
 {
-  "sha": "2f19500",
-  "branch": "main",
+  "sha": "70a7366",
+  "branch": "worktree-agent-a3c0139517fa34608",
   "ts": "2026-06-06T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "25 commits, 1700+ line diff, new manifest permissions, multiple feature areas, and 2 should-fix findings including a user-visible filter correctness bug",
+  "retro_reasoning": "diff is 2600+ lines touching core rendering path, state architecture, and 3 new files; 2 should-fix issues found",
   "critical_count": 0,
   "should_fix_count": 2,
   "nit_count": 3,
-  "files_reviewed": 7
+  "files_reviewed": 5
 }
