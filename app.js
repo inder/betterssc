@@ -2534,12 +2534,44 @@ function scrollToBottom() {
   hideNewMessageJump();
 }
 
+// "Go to latest" — single source of truth used by both the bottom-jump
+// pill and the Shift+G keybind. With clearFilters:true (default for
+// keyboard / Latest-mode pill click), drops any active search + thread
+// filter so the user lands on the actual newest message rather than the
+// filtered-bottom (which can be visually confusing — "feed ends here?").
+// With clearFilters:false (pill click when pendingNewMessages > 0),
+// keeps the filter intact because those new messages are the reason
+// the pill is showing.
+function goToLatest({ clearFilters = true } = {}) {
+  if (clearFilters) {
+    const input = document.getElementById("searchInput");
+    if (input && input.value) {
+      input.value = "";
+      state.searchQuery = "";
+    }
+    if (state.threadFilter) {
+      closeThreadFilter();
+    } else if (state.searchQuery === "") {
+      // closeThreadFilter already calls applySearch + scrollToBottom; if
+      // only search was active, re-apply now to repaint the hidden rows.
+      applySearch();
+    }
+  }
+  scrollToBottom();
+}
+
+// The bottom jump pill is the user's only "scroll back to current" cue.
+// Show it WHENEVER they're not at bottom (replaces the old header "Latest"
+// button), and let the label reflect whatever's most useful right now:
+// "↓ N new messages" if polling added unread, otherwise plain "↓ Latest".
 function showNewMessageJump() {
   const jump = document.getElementById("newMessageJump");
+  if (!jump) return;
   jump.classList.remove("hidden");
-  jump.querySelector(
-    "button"
-  ).textContent = `↓ ${state.pendingNewMessages} new message${state.pendingNewMessages > 1 ? "s" : ""}`;
+  const n = state.pendingNewMessages;
+  jump.querySelector("button").textContent = n > 0
+    ? `↓ ${n} new message${n > 1 ? "s" : ""}`
+    : "↓ Latest";
 }
 
 function hideNewMessageJump() {
@@ -3135,13 +3167,24 @@ function bindEventHandlers() {
       const nearBottom =
         stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
       state.isAtBottom = nearBottom;
-      if (nearBottom) hideNewMessageJump();
+      if (nearBottom) {
+        hideNewMessageJump();
+      } else {
+        // Always show the bottom jump pill when scrolled up — it's the
+        // replacement for the old header "Latest" button. The label
+        // adapts via showNewMessageJump (Latest vs N new messages).
+        showNewMessageJump();
+      }
       if (stream.scrollTop < 200) loadOlder();
     }, 100)
   );
 
   document.getElementById("newMessageJump").addEventListener("click", () => {
-    scrollToBottom();
+    // "Latest" mode (no pending new messages) → real bottom of the feed,
+    // so we clear both search AND thread filter. Asymmetric with the
+    // "N new messages" mode where the filter is the WHOLE reason the
+    // pill is showing — keep that intact.
+    goToLatest({ clearFilters: state.pendingNewMessages === 0 });
   });
 
   const aiBtn = document.getElementById("aiInsightsBtn");
@@ -3247,7 +3290,7 @@ function bindEventHandlers() {
       jumpToStreamEdge("top");
     } else if (e.key === "G") {
       e.preventDefault();
-      jumpToStreamEdge("bottom");
+      goToLatest({ clearFilters: true });
     } else if (e.key === "PageUp") {
       e.preventDefault();
       pageScroll(-1.0);
@@ -3287,20 +3330,6 @@ function bindEventHandlers() {
           if (stored === "light" || stored === "dark") applyTheme(stored);
         });
     } catch (_) {}
-  }
-
-  // "Latest" button — jump to the most recent message at any time.
-  const latestBtn = document.getElementById("goLatest");
-  if (latestBtn) {
-    latestBtn.addEventListener("click", () => {
-      const input = document.getElementById("searchInput");
-      if (input && input.value) {
-        input.value = "";
-        state.searchQuery = "";
-        applySearch();
-      }
-      scrollToBottom();
-    });
   }
 
   // Manual refresh button — triggers an immediate poll. Spins briefly.
@@ -3365,6 +3394,7 @@ function bindEventHandlers() {
     if (!document.hidden) {
       resetUnreadWhileHidden();
       pollNewMessages();
+      if (state.postUuid) markViewed();
     }
   });
 
