@@ -655,13 +655,17 @@ function ingestComment(c, { silent = false } = {}) {
       const id = a.id ?? a.user_id;
       if (id != null && !_avatarMissLogged.has(id)) {
         _avatarMissLogged.add(id);
-        console.log("[BetterSSC avatar-miss]", {
-          id,
-          name: a.name,
-          handle: a.handle,
-          keys: Object.keys(a),
-          sample: a,
-        });
+        // Stringify inline so the values show in console without
+        // needing to expand each entry. Chrome collapses object args.
+        let json = "";
+        try {
+          json = JSON.stringify(a);
+        } catch (_) {
+          json = String(a);
+        }
+        console.log(
+          `[BetterSSC avatar-miss] id=${id} name=${a.name} handle=${a.handle} keys=[${Object.keys(a).join(",")}] full=${json}`
+        );
       }
     }
   }
