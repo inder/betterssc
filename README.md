@@ -53,11 +53,7 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 
 ### AI Insights (bring your own key)
 
-- Click the **✨ AI Insights** button in the header to get an AI-generated summary of whatever is currently visible in the feed (respects active search + thread filter).
-- First click prompts for an API key — pick OpenAI, Anthropic, or Google and paste your own key.
-- The insight appears as a special accent-tinted message in the feed authored by **"✨ BetterSSC AI"**, with a "Only visible to you · [provider] · N messages analyzed" footer. The message is local-only — it's never posted to Substack.
-- Dismiss any AI message with the Dismiss button. All AI messages clear on reload (in-memory only for now).
-- Key stays in `chrome.storage.local` on your device. The chat content you send goes directly from your browser to your chosen provider — no BetterSSC server, no proxy. See Privacy below.
+Click the **✨ AI** button in the header to summarize the visible chat. Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights](#ai-insights)** section below for the full feature: Concise / Elaborate regenerate, model + budget + cost tuning, custom prompts, privacy.
 
 ### Following specific people
 
@@ -85,6 +81,83 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 ### Live updates
 
 Polling once every 12 seconds, which is the same thing Substack's own native client does. The status pill in the header shows you what's live: 🟢 live poll or 🟢 ws on. WebSocket support is on the roadmap, polling handles things in the meantime.
+
+## AI Insights
+
+A one-click summarizer for whatever's currently visible in the chat. Built BYOK (Bring Your Own Key) so the privacy story stays clean — your messages don't pass through a BetterSSC server because there is no BetterSSC server.
+
+### What it does
+
+Click **✨ AI** in the header. The model reads the messages you're currently seeing (respecting your active search filter and thread filter) and emits a structured summary with these sections:
+
+- **Themes** — what's being discussed
+- **Key takeaways** — most important claims or conclusions
+- **Notable trades / ideas** — specific tickers, entries, theses (default lens is trading; editable)
+- **Open questions** — what's unresolved or being asked
+
+The summary appears as a special accent-tinted message authored by **"✨ BetterSSC AI"**, with a footer like `Only visible to you · anthropic · 342 messages analyzed`. It's local-only — nothing gets POSTed back to Substack, the message never appears for other people, and it isn't included in the polling cursor (so it doesn't break the live-update path).
+
+Dismiss any AI message with the Dismiss button. All AI messages clear on a reload (in-memory only for now).
+
+### Author-aware perspective
+
+When you narrow the chat to one person — via `@name`, `/from:<name>`, or `/me` — the summary automatically reframes every observation in third person from that person's viewpoint: *"In Jordan's view, …"*, *"Jordan thinks …"*. Without this the model tends to summarize "the chat is discussing X," which is wrong when the chat at that point IS just one person.
+
+This rule isn't editable — it's mechanical (driven by the search filter, not the prompt) and breaking it would generate output that looks like a bug.
+
+### Concise / Elaborate — regenerate at length
+
+Every AI insight ships with two buttons at the bottom:
+
+- **↓ Concise** — generates a new summary in 3-4 bullets total, headlines only, no preamble.
+- **↑ Elaborate** — generates a longer summary with direct quotes and 2-3 sentences per section.
+
+Each click produces a **new** insight appended to the bottom of the feed (the original stays). Compare lengths side-by-side, dismiss the ones you don't want.
+
+### The kebab ⋮ menu — three settings
+
+Top-right of the header, next to your avatar.
+
+#### 1. Tune AI model
+
+- **Provider · Model dropdown** — every (provider, model) combo where you have a configured API key, no others.
+- **Input context budget slider** — 6K to 200K characters. Defaults to 60K (~15K tokens, under 12% of every supported provider's context window). Bigger budget = more chat history reaches the model = more accurate summary, at higher latency and higher per-call cost.
+- **Live per-call cost estimate** — updates on every change. Uses each model's published per-1M-token pricing for both input + output (output capped at 1024 tokens; estimate assumes ~800).
+
+Default models are the cheap-fast tier for each provider:
+
+| Provider | Default model | Upgrade option |
+|---|---|---|
+| OpenAI | gpt-4o-mini | gpt-4o (~17× cost) |
+| Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 (~3× cost) |
+| Google | gemini-2.5-flash | gemini-2.5-pro (~17× cost) |
+
+Per-call cost at the 60K char default lands at roughly:
+
+| Provider | Cheap model | Capable model |
+|---|---|---|
+| OpenAI | ~$0.002 | ~$0.04 |
+| Anthropic | ~$0.015 | ~$0.05 |
+| Google | ~$0.001 | ~$0.02 |
+
+#### 2. Tune prompt
+
+Two editable textareas:
+
+- **Lens hint** — what kind of chat is this? The default is trading-flavored (financial / markets / trade ideas / tickers). If you use BetterSSC for a book club, a dev team, or anything else, swap this for the appropriate framing. The model uses it to know where to focus.
+- **Response format template** — the section block. Want a single-paragraph summary instead of bullet sections? Just one section instead of four? A haiku? Edit this.
+
+Each field has a per-field "Reset to default" button. The author-aware perspective rule above stays locked.
+
+#### 3. Reset all saved data
+
+Wipes everything BetterSSC has saved on your device: pinned/watched members, AI provider + API key, theme, member-sort, notify-all toggle, WebSocket-enabled flag. Confirmation dialog lists exactly what gets cleared. The page reloads to land cleanly at defaults.
+
+This does NOT touch anything on Substack's side — your actual chats stay where they are.
+
+### Privacy
+
+Already covered in the [Privacy](#privacy) section below, but the short version: your key lives in `chrome.storage.local` on this device, the chat content you choose to analyze goes directly from your browser to the provider's API (not through Substack and not through any BetterSSC server, because there is no BetterSSC server), and the whole feature is opt-in — until you click the ✨ AI button and configure a key, none of the AI endpoints are contacted.
 
 ## How it works under the hood
 
