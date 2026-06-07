@@ -1747,3 +1747,72 @@ button {
   border-color: var(--danger);
 }
 .ai-settings-btn-danger:hover { filter: brightness(0.92); }
+
+/* ----- Tune AI Model dialog ----- */
+.tune-model-modal { max-width: 520px; }
+.tune-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 14px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tune-label:first-child { margin-top: 0; }
+.tune-select {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.tune-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tune-slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.tune-readout {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 200px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tune-cost-box {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.tune-cost-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.tune-cost-row span:first-child { color: var(--text-secondary); }
+.tune-cost-total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-weight: 700;
+  color: var(--accent);
+}
+.tune-cost-total span:first-child { color: var(--accent); }
+.tune-cost-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}

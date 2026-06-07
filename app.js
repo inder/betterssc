@@ -33,7 +33,12 @@ import {
   incrementUnreadMentions,
 } from "./lib/notify.js";
 import { reactionEmojiFor } from "./lib/emojis.js";
-import { PROVIDERS, callProvider } from "./lib/ai-providers.js";
+import {
+  PROVIDERS,
+  callProvider,
+  MODEL_CATALOG,
+  getModelInfo,
+} from "./lib/ai-providers.js";
 import {
   formatMessagesForLLM,
   buildSystemPrompt,
@@ -1777,7 +1782,12 @@ function restoreWatchedUsers() {
       );
     // AI Insights config loads independently — don't gate the rail on it.
     chrome.storage.local.get(
-      ["bssc_ai_provider", "bssc_ai_keys"],
+      [
+        "bssc_ai_provider",
+        "bssc_ai_keys",
+        "bssc_ai_model",
+        "bssc_ai_budget_chars",
+      ],
       (res) => {
         if (!res) return;
         if (
@@ -1789,6 +1799,16 @@ function restoreWatchedUsers() {
         }
         if (res.bssc_ai_keys && typeof res.bssc_ai_keys === "object") {
           state.aiKeys = res.bssc_ai_keys;
+        }
+        if (typeof res.bssc_ai_model === "string" && res.bssc_ai_model) {
+          state.aiModel = res.bssc_ai_model;
+        }
+        if (
+          typeof res.bssc_ai_budget_chars === "number" &&
+          res.bssc_ai_budget_chars >= 1000 &&
+          res.bssc_ai_budget_chars <= 1_000_000
+        ) {
+          state.aiBudgetChars = res.bssc_ai_budget_chars;
         }
       }
     );
@@ -2282,7 +2302,13 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
   scrollToBottom();
 
   const visible = getVisibleCommentsForAi();
-  const { context, included, dropped } = formatMessagesForLLM(visible);
+  const budgetChars =
+    typeof state.aiBudgetChars === "number" && state.aiBudgetChars > 0
+      ? state.aiBudgetChars
+      : undefined;
+  const { context, included, dropped } = formatMessagesForLLM(visible, {
+    budget: budgetChars,
+  });
   const focusedAuthor = detectFocusedAuthorName();
   const systemPrompt = buildSystemPrompt(context, {
     lens: "trading",
@@ -2300,6 +2326,7 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
       ],
       apiKey,
       signal,
+      model: state.aiModel || undefined,
     });
     const row = state.comments.get(aiId);
     if (!row) return; // dismissed mid-flight
@@ -2572,12 +2599,224 @@ function closeKebabMenu() {
   document.removeEventListener("keydown", kebabEscape);
 }
 
-// Placeholders — replaced in the next two commits.
-function openTuneModelModal() {
-  showError("Tune AI model — coming next.");
-}
+// Placeholder — replaced in the next commit.
 function openTunePromptModal() {
   showError("Tune prompt — coming next.");
+}
+
+// ----- Tune AI Model dialog -----
+//
+// Lets the user:
+// - Pick which (provider, model) combo to use — dropdown only shows
+//   combos where a key is configured.
+// - Adjust the input-context budget in chars (6K–200K).
+// - See a live per-call cost estimate that updates on every change.
+//
+// Saves to chrome.storage.local: bssc_ai_provider, bssc_ai_model,
+// bssc_ai_budget_chars. Switching provider here ALSO updates
+// state.aiProvider since the active provider IS one of the user-keyed
+// ones (the dropdown wouldn't show it otherwise).
+
+const TUNE_BUDGET_MIN = 6000;
+const TUNE_BUDGET_MAX = 200_000;
+const TUNE_BUDGET_DEFAULT = 60_000;
+// Assumed output tokens per call — capped via provider buildRequest's
+// max_tokens: 1024. We use a slightly conservative ~800 average for the
+// estimate (most summaries don't hit the cap).
+const TUNE_OUTPUT_TOKENS_EST = 800;
+const TUNE_CHARS_PER_TOKEN = 4;
+
+function listAvailableProviderModels() {
+  const out = [];
+  for (const providerName of Object.keys(MODEL_CATALOG)) {
+    const key = state.aiKeys && state.aiKeys[providerName];
+    if (!key) continue;
+    for (const model of MODEL_CATALOG[providerName]) {
+      out.push({
+        providerName,
+        modelId: model.id,
+        displayName: `${providerName} · ${model.displayName}`,
+        info: model,
+      });
+    }
+  }
+  return out;
+}
+
+function estimateCostUsd({ inputChars, modelInfo }) {
+  if (!modelInfo) return null;
+  const inputTokens = inputChars / TUNE_CHARS_PER_TOKEN;
+  const outputTokens = TUNE_OUTPUT_TOKENS_EST;
+  const inputUsd = (inputTokens / 1_000_000) * modelInfo.inputPer1M;
+  const outputUsd = (outputTokens / 1_000_000) * modelInfo.outputPer1M;
+  return { inputUsd, outputUsd, totalUsd: inputUsd + outputUsd, inputTokens, outputTokens };
+}
+
+function formatUsd(n) {
+  if (n == null || isNaN(n)) return "—";
+  if (n < 0.001) return "<$0.001";
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  if (n < 1) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(2)}`;
+}
+
+function openTuneModelModal() {
+  const existing = document.getElementById("tuneModelBackdrop");
+  if (existing) existing.remove();
+
+  const combos = listAvailableProviderModels();
+  if (combos.length === 0) {
+    // No key on file — funnel the user into the first-time settings
+    // modal instead. They can come back to Tune AI Model afterward.
+    openAiSettingsModal();
+    return;
+  }
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "tuneModelBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Tune AI model");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal tune-model-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "Tune AI model";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeTuneModelModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  // Provider · Model dropdown
+  const modelLabel = document.createElement("label");
+  modelLabel.className = "tune-label";
+  modelLabel.textContent = "Provider & model";
+  body.appendChild(modelLabel);
+  const select = document.createElement("select");
+  select.className = "tune-select";
+  const currentProvider = state.aiProvider;
+  const currentModel = state.aiModel || (PROVIDERS[currentProvider] && PROVIDERS[currentProvider].model);
+  let initialIdx = 0;
+  combos.forEach((combo, idx) => {
+    const opt = document.createElement("option");
+    opt.value = `${combo.providerName}|${combo.modelId}`;
+    opt.textContent = combo.displayName;
+    select.appendChild(opt);
+    if (combo.providerName === currentProvider && combo.modelId === currentModel) {
+      initialIdx = idx;
+    }
+  });
+  select.selectedIndex = initialIdx;
+  body.appendChild(select);
+
+  // Budget slider
+  const budgetLabel = document.createElement("label");
+  budgetLabel.className = "tune-label";
+  budgetLabel.textContent = "Input context budget (chars)";
+  body.appendChild(budgetLabel);
+
+  const sliderRow = document.createElement("div");
+  sliderRow.className = "tune-slider-row";
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.min = String(TUNE_BUDGET_MIN);
+  slider.max = String(TUNE_BUDGET_MAX);
+  slider.step = "1000";
+  const initialBudget =
+    typeof state.aiBudgetChars === "number" ? state.aiBudgetChars : TUNE_BUDGET_DEFAULT;
+  slider.value = String(Math.max(TUNE_BUDGET_MIN, Math.min(TUNE_BUDGET_MAX, initialBudget)));
+  const budgetReadout = document.createElement("span");
+  budgetReadout.className = "tune-readout";
+  sliderRow.appendChild(slider);
+  sliderRow.appendChild(budgetReadout);
+  body.appendChild(sliderRow);
+
+  // Live cost estimate
+  const costBox = document.createElement("div");
+  costBox.className = "tune-cost-box";
+  body.appendChild(costBox);
+
+  function paintReadouts() {
+    const budget = parseInt(slider.value, 10);
+    const inputTokens = Math.round(budget / TUNE_CHARS_PER_TOKEN);
+    budgetReadout.textContent = `${budget.toLocaleString()} chars (~${inputTokens.toLocaleString()} tokens)`;
+    const combo = combos[select.selectedIndex];
+    const est = estimateCostUsd({ inputChars: budget, modelInfo: combo && combo.info });
+    if (!est) {
+      costBox.innerHTML = "<em>No pricing data for this model.</em>";
+      return;
+    }
+    costBox.innerHTML = `
+      <div class="tune-cost-row"><span>Input</span>
+        <span>${est.inputTokens.toLocaleString()} tokens · ${formatUsd(est.inputUsd)}</span></div>
+      <div class="tune-cost-row"><span>Output (est. ~${TUNE_OUTPUT_TOKENS_EST} tokens)</span>
+        <span>${formatUsd(est.outputUsd)}</span></div>
+      <div class="tune-cost-row tune-cost-total"><span>Per ✨ click</span>
+        <span>${formatUsd(est.totalUsd)}</span></div>
+      <div class="tune-cost-note">Estimate uses the provider's public per-million-token input + output pricing. Output is capped at 1024 tokens; most summaries land lower.</div>
+    `;
+  }
+  paintReadouts();
+  slider.addEventListener("input", paintReadouts);
+  select.addEventListener("change", paintReadouts);
+
+  // Footer
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeTuneModelModal);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "ai-settings-save";
+  save.textContent = "Save";
+  save.addEventListener("click", () => {
+    const combo = combos[select.selectedIndex];
+    const budget = parseInt(slider.value, 10);
+    if (!combo) return closeTuneModelModal();
+    state.aiProvider = combo.providerName;
+    state.aiModel = combo.modelId;
+    state.aiBudgetChars = budget;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_ai_provider: combo.providerName,
+          bssc_ai_model: combo.modelId,
+          bssc_ai_budget_chars: budget,
+        });
+    } catch (_) {}
+    closeTuneModelModal();
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(save);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeTuneModelModal();
+  });
+  document.body.appendChild(backdrop);
+}
+
+function closeTuneModelModal() {
+  const el = document.getElementById("tuneModelBackdrop");
+  if (el) el.remove();
 }
 
 function openResetConfirmModal() {

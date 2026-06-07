@@ -12,6 +12,8 @@ import {
   google,
   PROVIDERS,
   callProvider,
+  MODEL_CATALOG,
+  getModelInfo,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -366,5 +368,97 @@ describe("callProvider fetch paths", () => {
     });
     expect(res.error).toContain("google");
     expect(res.error).toContain("ECONNRESET");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL_CATALOG + getModelInfo
+// ---------------------------------------------------------------------------
+
+describe("MODEL_CATALOG", () => {
+  it("has at least one model per provider", () => {
+    expect(MODEL_CATALOG.openai.length).toBeGreaterThan(0);
+    expect(MODEL_CATALOG.anthropic.length).toBeGreaterThan(0);
+    expect(MODEL_CATALOG.google.length).toBeGreaterThan(0);
+  });
+  it("every model has id + displayName + numeric pricing", () => {
+    for (const list of Object.values(MODEL_CATALOG)) {
+      for (const m of list) {
+        expect(typeof m.id).toBe("string");
+        expect(m.id.length).toBeGreaterThan(0);
+        expect(typeof m.displayName).toBe("string");
+        expect(typeof m.inputPer1M).toBe("number");
+        expect(m.inputPer1M).toBeGreaterThan(0);
+        expect(typeof m.outputPer1M).toBe("number");
+        expect(m.outputPer1M).toBeGreaterThan(0);
+      }
+    }
+  });
+  it("default model id matches the first catalog entry for each provider", () => {
+    expect(MODEL_CATALOG.openai[0].id).toBe(openai.model);
+    expect(MODEL_CATALOG.anthropic[0].id).toBe(anthropic.model);
+    expect(MODEL_CATALOG.google[0].id).toBe(google.model);
+  });
+});
+
+describe("getModelInfo", () => {
+  it("returns the exact model when id matches", () => {
+    const info = getModelInfo("openai", "gpt-4o");
+    expect(info).not.toBeNull();
+    expect(info.id).toBe("gpt-4o");
+    expect(info.inputPer1M).toBeGreaterThan(0);
+  });
+  it("falls back to the first catalog entry on unknown id", () => {
+    const info = getModelInfo("openai", "no-such-model");
+    expect(info).not.toBeNull();
+    expect(info.id).toBe(MODEL_CATALOG.openai[0].id);
+  });
+  it("returns null on unknown provider", () => {
+    expect(getModelInfo("xai", "grok-9000")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// model override via params.model — verifies the new Tune AI Model wiring
+// ---------------------------------------------------------------------------
+
+describe("buildRequest with params.model override", () => {
+  it("openai uses params.model in the JSON body when provided", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      model: "gpt-4o",
+    });
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe("gpt-4o");
+  });
+  it("openai falls back to default model when params.model is absent", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe(openai.model);
+  });
+  it("anthropic uses params.model in the JSON body when provided", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      model: "claude-sonnet-4-6",
+    });
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe("claude-sonnet-4-6");
+  });
+  it("google uses params.model in the URL when provided", () => {
+    const { url } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      model: "gemini-2.5-pro",
+    });
+    expect(url).toContain("gemini-2.5-pro:generateContent");
   });
 });
