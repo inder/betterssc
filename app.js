@@ -2683,8 +2683,21 @@ function extractFreshComment(res, clientId, user) {
   const push = (x) => {
     if (!x) return;
     if (Array.isArray(x)) for (const it of x) push(it);
-    else if (x.comment) candidates.push(unwrapComment(x) || x.comment);
-    else if (x.body && x.id) candidates.push(x);
+    else if (x.comment) {
+      // Try the structured unwrap first. If it bails (because x.id is set
+      // and there's no `type` discriminator), fall back to a manual
+      // shallow-copy + attach x.user as author. Without this, the
+      // optimistic-pending row gets replaced by a comment with no
+      // author, which renders as "Unknown" — the user-reported bug.
+      const unwrapped = unwrapComment(x);
+      const c = unwrapped
+        ? unwrapped
+        : { ...x.comment, ...(x.user && !x.comment.author ? { author: x.user } : {}) };
+      // Even after unwrap, sometimes author still isn't attached (depends
+      // on whether unwrapComment's condition fired). Belt-and-suspenders.
+      if (c && !c.author && x.user) c.author = x.user;
+      candidates.push(c);
+    } else if (x.body && x.id) candidates.push(x);
   };
   // Try every shape we've seen in the wild.
   push(res.comment);
