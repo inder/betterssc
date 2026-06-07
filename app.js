@@ -2370,7 +2370,11 @@ function setAiButtonBusy(busy) {
   if (!btn) return;
   btn.disabled = busy;
   btn.classList.toggle("is-busy", busy);
-  btn.textContent = busy ? "✨ Thinking…" : "✨ AI Insights";
+  // Keep the compact label in both states — the header decongestion pass
+  // shortened "✨ AI Insights" → "✨ AI" but this function was overwriting
+  // back to the long label after every insight finished, growing the
+  // header again.
+  btn.textContent = busy ? "✨ Thinking…" : "✨ AI";
 }
 
 // ----- Settings modal -----
