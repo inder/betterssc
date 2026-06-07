@@ -472,17 +472,39 @@ function registerUserObjects(arr) {
   if (!Array.isArray(arr)) return 0;
   let n = 0;
   for (const u of arr) {
-    if (u && (u.id != null || u.user_id != null)) {
-      const id = u.id ?? u.user_id;
-      if (!_userTable.has(id)) {
-        _userTable.set(id, {
-          id,
-          name: u.name || u.handle || `User ${id}`,
-          handle: u.handle || null,
-          photo_url: u.photo_url || null,
-        });
-        n++;
+    if (!u) continue;
+    const id = u.id ?? u.user_id;
+    if (id == null) continue;
+    const existing = _userTable.get(id);
+    if (!existing) {
+      _userTable.set(id, {
+        id,
+        name: u.name || u.handle || `User ${id}`,
+        handle: u.handle || null,
+        photo_url: u.photo_url || null,
+      });
+      n++;
+    } else {
+      // Upgrade null fields when a later payload provides them. Avatars
+      // in particular tend to be missing from `recent_commenters` but
+      // present once we hit the user's own messages.
+      let upgraded = false;
+      if (!existing.photo_url && u.photo_url) {
+        existing.photo_url = u.photo_url;
+        upgraded = true;
       }
+      if (!existing.handle && u.handle) {
+        existing.handle = u.handle;
+        upgraded = true;
+      }
+      if (
+        u.name &&
+        (existing.name === `User ${id}` || !existing.name)
+      ) {
+        existing.name = u.name;
+        upgraded = true;
+      }
+      if (upgraded) n++;
     }
   }
   return n;
@@ -1002,10 +1024,21 @@ function makeAvatarPlaceholder(initial, cssClass) {
 
 function makeAvatar(author, cssClass) {
   const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
-  if (!author || !author.photo_url) {
+  // Fallback: if the comment's author lacks photo_url but _userTable has
+  // since learned the avatar (later payload upgrade), use that. Keeps
+  // already-rendered messages from being stuck on letter placeholders.
+  let photoUrl = author && author.photo_url;
+  if (!photoUrl && author && author.id != null) {
+    const cached = _userTable.get(author.id);
+    if (cached && cached.photo_url) {
+      photoUrl = cached.photo_url;
+      author.photo_url = photoUrl;
+    }
+  }
+  if (!photoUrl) {
     return makeAvatarPlaceholder(initial, cssClass);
   }
-  const url = rewriteImageUrl(author.photo_url);
+  const url = rewriteImageUrl(photoUrl);
   // Already-failed URLs go straight to placeholder — no more re-fetch storms.
   if (_failedImageUrls.has(url)) {
     return makeAvatarPlaceholder(initial, cssClass);
