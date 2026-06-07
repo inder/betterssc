@@ -19,7 +19,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.2.1)
+## What it does (v0.2.3)
 
 ### Sending
 
@@ -65,7 +65,7 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 - 📌 pin people to the top of the Active rail so you always see them first.
 - You're auto-pinned and auto-bell'd by default. Your own row sits at the top of the rail no matter the sort.
 - Sort the rail by most-active (default) or alphabetically.
-- The browser tab title shows an unread count while you're away: `(3) Za's Market Terminal · BetterSSC`.
+- The browser tab title shows an unread count while you're away: `(3) Your Chat Name · BetterSSC`.
 - Auto mark-viewed every 30 seconds, so your unread count in native Substack stays in sync.
 
 ### Getting around

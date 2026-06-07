@@ -2,6 +2,20 @@
 
 All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.3] — 2026-06-07
+
+### Added
+- **✨ AI Insights (bring your own key).** New header button summarizes whatever is currently visible in the feed (respects active search + thread filter). First click prompts for a provider (OpenAI / Anthropic / Google) and an API key — your key stays in `chrome.storage.local`, chat content goes directly from your browser to the provider, BetterSSC has no server in the path. The insight appears as a special local-only message authored by "✨ BetterSSC AI" with a "Only visible to you · provider · N messages analyzed" footer. Dismissable; reload clears.
+- **Mark-as-read on tab return.** When you switch back to the BetterSSC tab from another tab or app, BetterSSC fires an immediate mark-viewed to Substack instead of waiting up to 30s for the timer.
+
+### Changed
+- **Header decongested.** "✨ AI Insights" button label shortened to "✨ AI". The redundant "Latest ↓" button is gone from the header — its function moved to the bottom-feed pill (see Fixed below).
+- **Publication name truncates with ellipsis** at 240px so long titles can't push the right-side toolbar around.
+- **Shift+G** now clears active search + thread filter before scrolling to bottom (matches the bottom pill in Latest mode). Single source of truth via new `goToLatest({clearFilters})` helper.
+
+### Fixed
+- **Bottom "↓ Latest" / "↓ N new messages" pill is now actually visible** when you scroll up. Previous `position: absolute` anchored the pill to the bottom of the scrollable content — invisible exactly when needed. Switched to `position: sticky` so it pins to the bottom of the visible scroll viewport.
+
 ## [0.2.2] — 2026-06-07
 
 ### Added
