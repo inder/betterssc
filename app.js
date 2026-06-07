@@ -2088,7 +2088,9 @@ function showError(msg) {
 // B is refactoring renderMessages in parallel, and any v0.2 edits up there
 // would cause merge conflicts. State additions live under `state.composer`.
 
-import { autoGrowTextarea } from "./lib/compose.js";
+import { autoGrowTextarea, buildCommentBody } from "./lib/compose.js";
+import { postComment as apiPostComment } from "./lib/api.js";
+import { uuid as composerUuid } from "./lib/util.js";
 
 // Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
 // state path. Initialized lazily on first mount so a missing #composer (e.g.
@@ -2106,22 +2108,125 @@ function mountComposer() {
   const sendBtn = document.getElementById("composerSend");
   if (!input || !sendBtn) return;
 
-  // Enable / disable the Send button based on input contents.
+  // Enable / disable the Send button based on input contents + in-flight.
   const refreshSendBtn = () => {
     const txt = input.value || "";
-    sendBtn.disabled = txt.trim().length === 0;
+    const empty = txt.trim().length === 0;
+    sendBtn.disabled = empty || !!state.composer.pending;
   };
 
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
   // which matches lineHeight 22 * 4 = 88 + a bit of padding).
   input.addEventListener("input", () => {
     autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    // Typing dismisses the error state, restoring the "Send" affordance.
+    if (state.composer._lastError) {
+      clearComposerError();
+      sendBtn.textContent = "Send";
+    }
     refreshSendBtn();
+  });
+
+  // Enter sends, Shift+Enter inserts a newline. We DON'T preventDefault on
+  // Shift+Enter — the browser handles it natively.
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitComposer();
+    }
+  });
+
+  sendBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitComposer();
   });
 
   // Set initial height so the textarea starts at exactly one row.
   autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
   refreshSendBtn();
+
+  // Expose so submitComposer() can re-check after state changes.
+  state.composer._refreshSendBtn = refreshSendBtn;
+}
+
+async function submitComposer() {
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+  const text = (input.value || "").trim();
+  if (!text) return;
+  if (state.composer.pending) return; // already in flight
+  if (!state.postUuid) {
+    showComposerError("No chat post loaded — refresh and try again.");
+    return;
+  }
+
+  const { body, mentions } = buildCommentBody(input.value, state.composer.mentions);
+  const clientId = composerUuid();
+
+  // Loading state.
+  state.composer.pending = { id: clientId, text: input.value };
+  sendBtn.classList.add("is-sending");
+  sendBtn.classList.remove("is-error");
+  sendBtn.textContent = "Sending…";
+  sendBtn.disabled = true;
+  clearComposerError();
+
+  try {
+    await apiPostComment(state.postUuid, {
+      id: clientId,
+      body,
+      mentions,
+    });
+    // Clear composer on success.
+    input.value = "";
+    state.composer.mentions = {};
+    autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    // Poll forward so the new message shows up.
+    try {
+      await pollNewMessages();
+    } catch (_) {}
+  } catch (e) {
+    showComposerError(
+      "Send failed: " + (e && e.message ? e.message : "unknown error") +
+        " — click Retry to try again."
+    );
+    sendBtn.classList.add("is-error");
+    sendBtn.textContent = "Retry";
+    state.composer._lastError = true;
+  } finally {
+    state.composer.pending = null;
+    sendBtn.classList.remove("is-sending");
+    if (!state.composer._lastError) {
+      sendBtn.textContent = "Send";
+    }
+    if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+    // On error, the button should be clickable even with empty input so the
+    // user can retry. The text in the textarea is preserved (we didn't clear
+    // on failure), so refreshSendBtn naturally re-enables it.
+    if (state.composer._lastError) sendBtn.disabled = false;
+  }
+}
+
+function showComposerError(msg) {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  let err = document.getElementById("composerError");
+  if (!err) {
+    err = document.createElement("div");
+    err.id = "composerError";
+    err.className = "composer-error";
+    composer.appendChild(err);
+  }
+  err.textContent = msg;
+}
+
+function clearComposerError() {
+  const err = document.getElementById("composerError");
+  if (err) err.remove();
+  state.composer._lastError = false;
+  const sendBtn = document.getElementById("composerSend");
+  if (sendBtn) sendBtn.classList.remove("is-error");
 }
 
 // Mount when the app is visible. If we're on the landing screen, #composer
