@@ -153,15 +153,15 @@ button {
   height: 100vh;
 }
 
-/* HEADER */
+/* HEADER — single dense row, app-UI rules: calm surface, minimal chrome */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 12px;
+  min-height: 52px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  box-shadow: var(--shadow);
   z-index: 10;
 }
 .header-left {
@@ -175,7 +175,7 @@ button {
   border: 0;
   padding: 6px 8px;
   margin-right: 12px;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   color: inherit;
   text-align: left;
@@ -192,8 +192,8 @@ button {
 }
 .header-avatar-slot img,
 .header-avatar-slot .msg-avatar-placeholder {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   object-fit: cover;
 }
@@ -202,14 +202,17 @@ button {
   width: 28px;
   height: 28px;
 }
+/* Inline title: pub name (bold) followed by post snippet (muted) on
+   the SAME line — no more 2-row header. */
 .header-left-text {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 .post-body-caret {
-  margin-left: 6px;
   color: var(--text-secondary);
   transition: transform 180ms ease, color 120ms ease;
   flex-shrink: 0;
@@ -220,63 +223,64 @@ button {
   transform: rotate(180deg);
   color: var(--accent);
 }
-/* Smaller font for the header-context placeholder avatars so the
-   letter fits the 32 / 28 px circle (default placeholder font is 16px,
-   sized for 40px message avatars). */
+.header-avatar-slot .msg-avatar-placeholder { font-size: 12px; }
+/* Soft 1px ring instead of duplicating the border — keeps avatars
+   defined without screaming. */
+.header-avatar-slot img,
 .header-avatar-slot .msg-avatar-placeholder {
-  font-size: 13px;
   box-shadow: 0 0 0 1px var(--border);
 }
-.header-avatar-slot img { box-shadow: 0 0 0 1px var(--border); }
 .post-body-panel {
   background: var(--bg-secondary);
-  border-bottom: 2px solid var(--accent);
-  padding: 24px 32px;
-  min-height: 120px;
-  max-height: 60vh;
+  border-bottom: 1px solid var(--border);
+  padding: 18px 24px 22px;
+  max-height: 50vh;
   overflow-y: auto;
-  box-shadow: var(--shadow);
 }
+/* Meta sits inline above the body — no card divider. */
 .post-body-panel-meta {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
 }
 .post-body-panel-meta strong {
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
 }
 .post-body-panel-content {
   white-space: pre-wrap;
   word-wrap: break-word;
   color: var(--text-primary);
   font-size: 15px;
-  line-height: 1.65;
-  max-width: 760px;
+  line-height: 1.6;
+  max-width: 720px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 .pub-name {
   font-weight: 700;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
 }
 .post-title {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 480px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.post-title::before {
+  content: "·";
+  color: var(--text-muted);
+  margin-right: 8px;
 }
 .header-right { display: flex; align-items: center; gap: 12px; }
 .search-wrap { position: relative; }
@@ -453,17 +457,17 @@ button {
 }
 
 .messages {
-  padding: 16px 16px 24px;
+  padding: 12px 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
 }
 
-/* MESSAGE GROUP */
+/* MESSAGE GROUP — Discord-style tightness */
 .msg-group {
   display: flex;
   gap: 12px;
-  padding: 8px 8px 4px;
+  padding: 4px 8px;
   border-radius: 4px;
   transition: background 0.1s ease;
 }
@@ -485,10 +489,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  color: var(--text-primary);
-  background: var(--accent);
-  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  font-size: 14px;
 }
 .msg-body { flex: 1; min-width: 0; }
 .msg-header {
