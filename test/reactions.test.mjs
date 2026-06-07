@@ -96,7 +96,8 @@ describe("pickSuggestedReactions", () => {
     const lib = {
       suggestedReactionTypes: ["pile_of_poo", "skull", "fire"],
     };
-    expect(pickSuggestedReactions(lib)).toEqual([
+    // n=3 → exactly the library's 3.
+    expect(pickSuggestedReactions(lib, 3)).toEqual([
       "pile_of_poo",
       "skull",
       "fire",
@@ -111,7 +112,7 @@ describe("pickSuggestedReactions", () => {
         { name: "fire" },
       ],
     };
-    expect(pickSuggestedReactions(lib)).toEqual([
+    expect(pickSuggestedReactions(lib, 3)).toEqual([
       "pile_of_poo",
       "skull",
       "fire",
@@ -120,7 +121,31 @@ describe("pickSuggestedReactions", () => {
 
   it("falls back to frequently_used if suggestedReactionTypes is empty", () => {
     const lib = { suggestedReactionTypes: [], frequently_used: ["rocket"] };
-    expect(pickSuggestedReactions(lib)).toEqual(["rocket"]);
+    expect(pickSuggestedReactions(lib, 1)).toEqual(["rocket"]);
+  });
+
+  it("pads with defaults when the live library is shorter than N (v0.2-A)", () => {
+    // Live library returns 3 frequently_used; picker should still show 6
+    // by padding with defaults that aren't already in the live list.
+    const lib = {
+      frequently_used: ["pile_of_poo", "skull", "fire"],
+    };
+    const result = pickSuggestedReactions(lib, 6);
+    expect(result.length).toBe(6);
+    expect(result.slice(0, 3)).toEqual(["pile_of_poo", "skull", "fire"]);
+    // The remaining 3 come from defaults, with `fire` deduped out.
+    expect(result.slice(3)).toEqual(
+      DEFAULT_SUGGESTED_REACTIONS.filter((r) => r !== "fire").slice(0, 3)
+    );
+  });
+
+  it("dedupes when the library duplicates a default", () => {
+    const lib = { frequently_used: ["thumbs_up"] };
+    const result = pickSuggestedReactions(lib, 6);
+    expect(result.length).toBe(6);
+    expect(result[0]).toBe("thumbs_up");
+    // thumbs_up should appear exactly once.
+    expect(result.filter((r) => r === "thumbs_up").length).toBe(1);
   });
 
   it("caps the result at N", () => {
