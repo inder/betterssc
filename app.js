@@ -157,6 +157,7 @@ async function init() {
     } catch (_) {
       console.log("[BetterSSC identity]", state.user);
     }
+    ensureSelfDefaults();
   } catch (_) {}
   // If we got id+name but no photo_url AND we know the handle, hit
   // the public profile endpoint. Skip when handle is missing: Substack's
@@ -1421,6 +1422,28 @@ function renderMembers() {
   pinned.sort(cmp);
   rest.sort(cmp);
 
+  // Hoist self to the top of the pinned section, always. Even if other
+  // pinned users out-rank self by message count or alphabetical sort, self
+  // sits first. If self hasn't posted yet (not in state.authors), build a
+  // synthetic row from getResolvedSelf so the user still sees their own row.
+  const selfId = state.user && state.user.id;
+  if (selfId != null) {
+    const selfIdx = pinned.findIndex((a) => a.profile.id === selfId);
+    if (selfIdx > 0) {
+      const [selfRow] = pinned.splice(selfIdx, 1);
+      pinned.unshift(selfRow);
+    } else if (selfIdx === -1) {
+      const resolved = getResolvedSelf();
+      if (resolved) {
+        pinned.unshift({
+          profile: resolved,
+          lastSeenAt: 0,
+          messageCount: 0,
+        });
+      }
+    }
+  }
+
   // Update header with the sort toggle (rebuild each render so the
   // active option stays in sync).
   renderMembersHeader();
@@ -1481,7 +1504,9 @@ function buildMemberRow(a, isPinned) {
     name.textContent = a.profile.name || "Unknown";
     const last = document.createElement("div");
     last.className = "member-last";
-    last.textContent = formatRelativeTime(new Date(a.lastSeenAt).toISOString());
+    last.textContent = a.lastSeenAt
+      ? formatRelativeTime(new Date(a.lastSeenAt).toISOString())
+      : "";
   info.appendChild(name);
   info.appendChild(last);
 
@@ -1574,10 +1599,39 @@ function restoreWatchedUsers() {
             }
             state.notifyAllMessages = !!res.bssc_notify_all;
           }
+          ensureSelfDefaults();
           renderMembers();
           renderNotifyAllButton();
         }
       );
+  } catch (_) {}
+}
+
+// Self is always pinned + watched by default. Runs from both the storage
+// restore callback AND the identity load completion — whichever finishes
+// second is the one that actually adds self (the other is a no-op).
+// Idempotent: if self is already in both sets, nothing is written.
+// Not a hard lock — if the user unpins/unwatches themselves explicitly,
+// next session re-adds. "Always" without removing the escape hatch.
+function ensureSelfDefaults() {
+  if (!state.user || state.user.id == null) return;
+  let changed = false;
+  if (!state.pinnedUserIds.has(state.user.id)) {
+    state.pinnedUserIds.add(state.user.id);
+    changed = true;
+  }
+  if (!state.watchedUserIds.has(state.user.id)) {
+    state.watchedUserIds.add(state.user.id);
+    changed = true;
+  }
+  if (!changed) return;
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_pinned_users: Array.from(state.pinnedUserIds),
+        bssc_watched_users: Array.from(state.watchedUserIds),
+      });
   } catch (_) {}
 }
 

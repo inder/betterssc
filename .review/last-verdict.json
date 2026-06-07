@@ -1,12 +1,12 @@
 {
-  "sha": "65499ad275d3ce332faf2026a1737498e6c24646",
+  "sha": "65499ad",
   "branch": "main",
   "ts": "2026-06-07T00:00:00Z",
-  "verdict": "ship-it",
+  "verdict": "fix-these",
   "retro_required": "no",
-  "retro_reasoning": "Diff is under 120 lines, no critical findings, no schema or contract changes, pure refactor with no new features",
+  "retro_reasoning": "Diff is under 100 lines, no schema/contract changes, one should-fix finding (cosmetic display glitch), no critical issues",
   "critical_count": 0,
-  "should_fix_count": 0,
+  "should_fix_count": 1,
   "nit_count": 1,
   "files_reviewed": 1
 }
