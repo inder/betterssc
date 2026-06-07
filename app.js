@@ -2081,8 +2081,13 @@ function applySearch() {
     : `no ${matcher.kind} · Esc to clear`;
   document.getElementById("searchCount").textContent = label;
   if (hits.length) {
-    state.searchActiveIdx = 0;
-    focusSearchHit(0);
+    // Default-land on the NEWEST match (last in chronological order).
+    // Chat usage almost always wants "show me the latest thing matching
+    // this filter" — the most-recent boz message, the latest link, etc.
+    // n/N still cycle from here; wrap is fine.
+    const lastIdx = hits.length - 1;
+    state.searchActiveIdx = lastIdx;
+    focusSearchHit(lastIdx);
   }
 }
 
