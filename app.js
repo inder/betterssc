@@ -346,6 +346,7 @@ async function loadInitial() {
     }
 
     state.post = (res.post && res.post.communityPost) || null;
+    // First render with what we have now.
     renderChatHeader();
     // v0.1.11: unwrap replies BEFORE reading created_at — REST replies are
     // wrapped (`{comment: {...}, user: {...}}`), so the outer object's
@@ -369,6 +370,10 @@ async function loadInitial() {
       );
     }
     renderAll();
+    // Re-render the header now that comments have populated _userTable
+    // — the user's own photo_url usually lands via a comment from them,
+    // and the post author's avatar may also have been upgraded.
+    renderChatHeader();
     scrollToBottom();
   } catch (e) {
     console.error("[BetterSSC] loadInitial failed:", e);
@@ -1574,6 +1579,33 @@ function maybeAlertOnWatchedUser(comment) {
 // avatar in the top-right slot, and the post body in the collapsible
 // panel. Called once on initial load + when state.user / state.post
 // arrive; the click handler on .header-left toggles panel visibility.
+// Merge state.user with _userTable so we pick up the photo_url that
+// arrived via comment ingest. fetchUserIdentity only returns {id, name}
+// — without this merge the header would always show a letter
+// placeholder for "you" even after we've seen your photo in chat.
+function getResolvedSelf() {
+  if (!state.user) return null;
+  const cached = state.user.id != null ? _userTable.get(state.user.id) : null;
+  return {
+    id: state.user.id,
+    name: state.user.name || (cached && cached.name) || "You",
+    handle: state.user.handle || (cached && cached.handle) || null,
+    photo_url:
+      state.user.photo_url || (cached && cached.photo_url) || null,
+  };
+}
+
+function extractPostBody(post) {
+  if (!post) return "";
+  return (
+    post.body ||
+    post.body_text ||
+    post.body_markdown ||
+    post.body_html ||
+    ""
+  );
+}
+
 function renderChatHeader() {
   const pubNameEl = document.getElementById("pubName");
   const postTitleEl = document.getElementById("postTitle");
@@ -1587,10 +1619,10 @@ function renderChatHeader() {
     (state.publication &&
       (state.publication.author || state.publication.user)) ||
     null;
+  const fullBody = extractPostBody(state.post);
   if (postTitleEl) {
     const titlePrefix = postAuthor && postAuthor.name ? `${postAuthor.name} · ` : "";
-    const snippet =
-      (state.post && state.post.body && state.post.body.slice(0, 80)) || "";
+    const snippet = fullBody.slice(0, 80);
     postTitleEl.textContent = `${titlePrefix}${snippet}`.trim() || "Open chat";
   }
   const authorSlot = document.getElementById("postAuthorAvatar");
@@ -1607,12 +1639,10 @@ function renderChatHeader() {
   const userSlot = document.getElementById("userAvatarSlot");
   if (userSlot) {
     userSlot.innerHTML = "";
-    if (state.user) {
-      userSlot.appendChild(makeAvatar(state.user, "msg-avatar"));
-      userSlot.setAttribute(
-        "title",
-        state.user.name || state.user.handle || "You"
-      );
+    const self = getResolvedSelf();
+    if (self) {
+      userSlot.appendChild(makeAvatar(self, "msg-avatar"));
+      userSlot.setAttribute("title", self.name || "You");
     }
   }
   // Body panel: render once, then the toggle just flips .hidden.
@@ -1636,7 +1666,7 @@ function renderChatHeader() {
     }
   }
   if (content) {
-    content.textContent = (state.post && state.post.body) || "";
+    content.textContent = fullBody || "(this chat doesn't have a post body)";
   }
 }
 
