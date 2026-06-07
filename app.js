@@ -2099,6 +2099,9 @@ import {
   updateReactionCount,
   pickSuggestedReactions,
   DEFAULT_SUGGESTED_REACTIONS,
+  setReplyTarget,
+  clearReplyTarget,
+  buildReplyFields,
 } from "./lib/compose.js";
 import {
   postComment as apiPostComment,
@@ -2168,6 +2171,53 @@ function mountComposer() {
 
   // Expose so submitComposer() can re-check after state changes.
   state.composer._refreshSendBtn = refreshSendBtn;
+
+  // Commit 6: reply bar × button.
+  const replyClose = document.getElementById("composerReplyClose");
+  if (replyClose) {
+    replyClose.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearReplyTarget(state.composer);
+      renderComposerReplyBar();
+    });
+  }
+
+  // Make sure the reply bar starts hidden (state may carry over on hot reload).
+  renderComposerReplyBar();
+}
+
+// Renders the "Replying to X" bar above the textarea based on
+// state.composer.replyingTo.
+function renderComposerReplyBar() {
+  const bar = document.getElementById("composerReply");
+  const label = document.getElementById("composerReplyLabel");
+  if (!bar || !label) return;
+  const target = state.composer && state.composer.replyingTo;
+  if (!target) {
+    bar.classList.add("hidden");
+    label.textContent = "";
+    return;
+  }
+  bar.classList.remove("hidden");
+  const preview =
+    target.body && target.body.length
+      ? ` — "${target.body.length > 60 ? target.body.slice(0, 57) + "…" : target.body}"`
+      : "";
+  label.textContent = "Replying to " + target.authorName + preview;
+  // Move focus to the textarea so the user can start typing immediately.
+  const input = document.getElementById("composerInput");
+  if (input) {
+    try {
+      input.focus();
+    } catch (_) {}
+  }
+}
+
+// Called from the message hover toolbar's "Reply" button.
+function startReplyTo(comment) {
+  if (!comment) return;
+  setReplyTarget(state.composer, comment);
+  renderComposerReplyBar();
 }
 
 // ============================================================
@@ -2370,10 +2420,25 @@ async function submitComposer() {
   const sendingMentions = { ...state.composer.mentions };
   const { body, mentions } = buildCommentBody(rawText, sendingMentions);
   const clientId = composerUuid();
+  // Commit 6: attach reply parent / quote if the user clicked Reply.
+  const replyFields = buildReplyFields(state.composer);
+  const replyingToSnapshot = state.composer.replyingTo
+    ? { ...state.composer.replyingTo }
+    : null;
 
   // OPTIMISTIC: insert into the store and render IMMEDIATELY so the user
   // sees their message land without the 12s poll delay.
   const pending = buildPendingComment(clientId, state.user, body, mentions);
+  // If this is a reply, attach the quote shape so the renderMessageItem
+  // path renders the quoted block immediately on the optimistic row.
+  if (replyingToSnapshot) {
+    pending.parent_id = replyingToSnapshot.id;
+    pending.quote = {
+      id: replyingToSnapshot.id,
+      body: replyingToSnapshot.body || "",
+      author: replyingToSnapshot.author || null,
+    };
+  }
   state.comments.set(clientId, pending);
   insertInOrder(pending);
   renderAll();
@@ -2384,6 +2449,10 @@ async function submitComposer() {
   // text is preserved on the failed comment itself (via pending.body).
   input.value = "";
   state.composer.mentions = {};
+  // Clear the reply target on optimistic insert; the failed-retry path
+  // re-attaches it from the pending comment's parent_id/quote.
+  clearReplyTarget(state.composer);
+  renderComposerReplyBar();
   autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
 
   // Loading state on the button.
@@ -2399,6 +2468,7 @@ async function submitComposer() {
       id: clientId,
       body,
       mentions,
+      ...replyFields,
     });
     // Try to reconcile from the response itself. If we can find the freshly
     // created comment in the post payload, splice it into the stream right
@@ -2551,11 +2621,17 @@ async function retryFailedMessage(clientId) {
   c._pending = true;
   c._error = null;
   renderAll();
+  // Preserve the reply context that was captured when the message was first
+  // optimistically inserted (commit 6).
+  const retryReply = {};
+  if (c.parent_id) retryReply.parentId = c.parent_id;
+  if (c.quote) retryReply.quote = c.quote;
   try {
     const res = await apiPostComment(state.postUuid, {
       id: clientId,
       body: c.body,
       mentions: c.mentions || {},
+      ...retryReply,
     });
     const freshly = extractFreshComment(res, clientId, state.user);
     if (freshly) {
@@ -2671,6 +2747,19 @@ function decorateReactionToolbar(node, comment) {
     toggleEmojiPicker(node, comment);
   });
   toolbar.appendChild(addBtn);
+  // Commit 6: Reply button.
+  const replyBtn = document.createElement("button");
+  replyBtn.type = "button";
+  replyBtn.className = "msg-toolbar-btn";
+  replyBtn.title = "Reply";
+  replyBtn.setAttribute("aria-label", "Reply");
+  replyBtn.textContent = "↩";
+  replyBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startReplyTo(comment);
+  });
+  toolbar.appendChild(replyBtn);
   node.appendChild(toolbar);
 }
 
