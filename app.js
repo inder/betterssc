@@ -154,13 +154,19 @@ async function init() {
     state.user = await fetchUserIdentity();
     console.log("[BetterSSC identity]", state.user);
   } catch (_) {}
-  // If we got id+name but no photo_url, the analytics-config object on
-  // some publications doesn't expose the avatar. Hit the public profile
-  // endpoint as a second pass so the top-right avatar fills in.
-  if (state.user && state.user.id != null && !state.user.photo_url) {
+  // If we got id+name but no photo_url AND we know the handle, hit
+  // the public profile endpoint. Skip when handle is missing: Substack's
+  // path requires <id>-<handle> and substituting "self" returns 404.
+  // (We catch the photo via state.comments scan in getResolvedSelf
+  //  once the user has any message in the loaded window.)
+  if (
+    state.user &&
+    state.user.id != null &&
+    state.user.handle &&
+    !state.user.photo_url
+  ) {
     try {
-      const handle = state.user.handle || "self";
-      const profile = await fetchUserProfile(state.user.id, handle);
+      const profile = await fetchUserProfile(state.user.id, state.user.handle);
       const userObj = profile && (profile.user || profile);
       const photo =
         userObj &&
@@ -171,7 +177,6 @@ async function init() {
           null);
       if (photo) {
         state.user.photo_url = photo;
-        if (!state.user.handle && userObj.handle) state.user.handle = userObj.handle;
         console.log("[BetterSSC identity] profile photo resolved");
       }
     } catch (e) {
@@ -831,6 +836,11 @@ function renderAll() {
   renderMessages();
   renderMembers();
   renderFooterStats();
+  // Re-render the header so the top-right user avatar can pick up the
+  // user's own photo once it lands via a new comment (state.user.photo_url
+  // is null when analytics-config doesn't carry it; getResolvedSelf scans
+  // state.comments to find it).
+  renderChatHeader();
   if (state.searchQuery || state.threadFilter) applySearch();
 }
 
@@ -1640,10 +1650,8 @@ function maybeAlertOnWatchedUser(comment) {
 function getResolvedSelf() {
   if (!state.user) return null;
   let cached = state.user.id != null ? _userTable.get(state.user.id) : null;
-  // Name-match fallback — the analytics-config id (state.user.id) and
-  // comment.user_id can differ in some publications. Without this the
-  // top-right avatar shows a letter placeholder even though the same
-  // user's real photo is right there in the chat messages.
+  // Name-match fallback — the analytics-config id and comment.user_id
+  // can differ in some publications.
   if ((!cached || !cached.photo_url) && state.user.name) {
     const wantName = state.user.name.toLowerCase();
     for (const entry of _userTable.values()) {
@@ -1653,12 +1661,35 @@ function getResolvedSelf() {
       }
     }
   }
+  // Last resort: scan state.comments for any message by us. Message
+  // rendering proves Inder's photo is somewhere in the ingested data
+  // (chat avatars show correctly); ingestComment just doesn't always
+  // push it into _userTable. Walking comments at render time is cheap
+  // and fixes the case where my own messages haven't been registered
+  // as "user objects" but their author payload carries the photo.
+  let foundPhoto = cached && cached.photo_url;
+  if (!foundPhoto) {
+    const myId = state.user.id;
+    const wantName = (state.user.name || "").toLowerCase();
+    for (const c of state.comments.values()) {
+      const a = c && c.author;
+      if (!a || !a.photo_url) continue;
+      const matchById = myId != null && a.id === myId;
+      const matchByName =
+        !matchById && wantName && a.name && a.name.toLowerCase() === wantName;
+      if (matchById || matchByName) {
+        foundPhoto = a.photo_url;
+        if (!cached) cached = { name: a.name, handle: a.handle };
+        break;
+      }
+    }
+  }
   return {
     id: state.user.id,
     name: state.user.name || (cached && cached.name) || "You",
     handle: state.user.handle || (cached && cached.handle) || null,
     photo_url:
-      state.user.photo_url || (cached && cached.photo_url) || null,
+      state.user.photo_url || foundPhoto || (cached && cached.photo_url) || null,
   };
 }
 
