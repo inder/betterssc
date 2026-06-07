@@ -31,10 +31,21 @@
     <!-- APP — main chat client -->
     <div id="app" class="app hidden">
       <header class="header">
-        <div class="header-left">
-          <div class="pub-name" id="pubName">Loading…</div>
-          <div class="post-title" id="postTitle"></div>
-        </div>
+        <button
+          type="button"
+          id="headerLeft"
+          class="header-left"
+          title="Show full post"
+          aria-label="Show full post"
+          aria-expanded="false"
+        >
+          <span class="header-avatar-slot" id="postAuthorAvatar"></span>
+          <span class="header-left-text">
+            <span class="pub-name" id="pubName">Loading…</span>
+            <span class="post-title" id="postTitle"></span>
+          </span>
+          <span class="post-body-caret" id="postBodyCaret">▾</span>
+        </button>
         <div class="header-right">
           <div class="search-wrap">
             <input
@@ -76,8 +87,13 @@
             <span class="dot dot-idle"></span>
             <span class="ws-label">idle</span>
           </div>
+          <span class="header-avatar-slot user-avatar-header" id="userAvatarSlot" title="You"></span>
         </div>
       </header>
+      <div id="postBodyPanel" class="post-body-panel hidden" role="region" aria-label="Full post body">
+        <div class="post-body-panel-meta" id="postBodyPanelMeta"></div>
+        <div class="post-body-panel-content" id="postBodyPanelContent"></div>
+      </div>
 
       <main class="main">
         <section class="stream" id="stream">

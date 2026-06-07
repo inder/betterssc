@@ -159,10 +159,10 @@ async function init() {
     state.publication = pubRes && pubRes.pub;
   } catch (_) {}
 
-  // Reflect into the header.
-  document.getElementById("pubName").textContent =
-    (state.publication && state.publication.name) ||
-    `Publication ${state.publicationId}`;
+  // Reflect into the header (renderChatHeader handles pub avatar +
+  // user avatar + collapsible body panel; loadInitial calls it again
+  // once state.post is populated).
+  renderChatHeader();
   document.getElementById(
     "openNativeChat"
   ).href = `https://substack.com/chat/${state.publicationId}/post/${state.postUuid}`;
@@ -345,10 +345,8 @@ async function loadInitial() {
       }
     }
 
-    document.getElementById("postTitle").textContent =
-      (res.post && res.post.communityPost && res.post.communityPost.body
-        ? res.post.communityPost.body.slice(0, 80)
-        : "");
+    state.post = (res.post && res.post.communityPost) || null;
+    renderChatHeader();
     // v0.1.11: unwrap replies BEFORE reading created_at — REST replies are
     // wrapped (`{comment: {...}, user: {...}}`), so the outer object's
     // `created_at` is undefined and our pagination cursor was never set.
@@ -1551,6 +1549,85 @@ function maybeAlertOnWatchedUser(comment) {
   } catch (_) {}
 }
 
+// Renders the post-author avatar next to the pub name, the user's own
+// avatar in the top-right slot, and the post body in the collapsible
+// panel. Called once on initial load + when state.user / state.post
+// arrive; the click handler on .header-left toggles panel visibility.
+function renderChatHeader() {
+  const pubNameEl = document.getElementById("pubName");
+  const postTitleEl = document.getElementById("postTitle");
+  if (pubNameEl) {
+    pubNameEl.textContent =
+      (state.publication && state.publication.name) ||
+      `Publication ${state.publicationId}`;
+  }
+  const postAuthor =
+    (state.post && (state.post.user || state.post.author)) ||
+    (state.publication &&
+      (state.publication.author || state.publication.user)) ||
+    null;
+  if (postTitleEl) {
+    const titlePrefix = postAuthor && postAuthor.name ? `${postAuthor.name} · ` : "";
+    const snippet =
+      (state.post && state.post.body && state.post.body.slice(0, 80)) || "";
+    postTitleEl.textContent = `${titlePrefix}${snippet}`.trim() || "Open chat";
+  }
+  const authorSlot = document.getElementById("postAuthorAvatar");
+  if (authorSlot) {
+    authorSlot.innerHTML = "";
+    if (postAuthor) {
+      authorSlot.appendChild(makeAvatar(postAuthor, "msg-avatar"));
+      authorSlot.setAttribute(
+        "title",
+        postAuthor.name || postAuthor.handle || ""
+      );
+    }
+  }
+  const userSlot = document.getElementById("userAvatarSlot");
+  if (userSlot) {
+    userSlot.innerHTML = "";
+    if (state.user) {
+      userSlot.appendChild(makeAvatar(state.user, "msg-avatar"));
+      userSlot.setAttribute(
+        "title",
+        state.user.name || state.user.handle || "You"
+      );
+    }
+  }
+  // Body panel: render once, then the toggle just flips .hidden.
+  const meta = document.getElementById("postBodyPanelMeta");
+  const content = document.getElementById("postBodyPanelContent");
+  if (meta) {
+    meta.innerHTML = "";
+    if (postAuthor && postAuthor.name) {
+      const strong = document.createElement("strong");
+      strong.textContent = postAuthor.name;
+      meta.appendChild(strong);
+    }
+    if (state.post && state.post.date) {
+      const span = document.createElement("span");
+      try {
+        span.textContent = new Date(state.post.date).toLocaleString();
+      } catch (_) {
+        span.textContent = state.post.date;
+      }
+      meta.appendChild(span);
+    }
+  }
+  if (content) {
+    content.textContent = (state.post && state.post.body) || "";
+  }
+}
+
+function toggleChatHeaderPanel() {
+  const panel = document.getElementById("postBodyPanel");
+  const btn = document.getElementById("headerLeft");
+  if (!panel || !btn) return;
+  const willOpen = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !willOpen);
+  btn.setAttribute("aria-expanded", String(willOpen));
+}
+
 function renderFooterStats() {
   // v0.1.26: live-mechanism string moved into the header status badge
   // (more prominent, with a colored dot). Footer now just shows counts.
@@ -2265,6 +2342,13 @@ function bindEventHandlers() {
   if (notifyAllBtn) {
     notifyAllBtn.addEventListener("click", toggleNotifyAllMessages);
     renderNotifyAllButton();
+  }
+
+  // Click anywhere on the header-left (pub avatar + name) expands the
+  // full post body in a collapsible panel below the header.
+  const headerLeft = document.getElementById("headerLeft");
+  if (headerLeft) {
+    headerLeft.addEventListener("click", toggleChatHeaderPanel);
   }
 
   // Background can send us "focusMessage" when a notification is clicked.

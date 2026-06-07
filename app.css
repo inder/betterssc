@@ -164,7 +164,83 @@ button {
   box-shadow: var(--shadow);
   z-index: 10;
 }
-.header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.header-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  background: transparent;
+  border: 0;
+  padding: 6px 8px;
+  margin-right: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  transition: background-color 120ms ease;
+}
+.header-left:hover { background: var(--bg-hover); }
+.header-left:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.header-avatar-slot {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-avatar-slot img,
+.header-avatar-slot .msg-avatar-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.user-avatar-header img,
+.user-avatar-header .msg-avatar-placeholder {
+  width: 28px;
+  height: 28px;
+}
+.header-left-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.post-body-caret {
+  margin-left: 4px;
+  color: var(--text-muted);
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+.header-left[aria-expanded="true"] .post-body-caret {
+  transform: rotate(180deg);
+}
+.post-body-panel {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 20px;
+  max-height: 50vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+.post-body-panel-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.post-body-panel-meta strong { color: var(--text-secondary); font-weight: 600; }
+.post-body-panel-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+}
 .pub-name {
   font-weight: 700;
   font-size: 15px;
