@@ -8,6 +8,8 @@ import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  DEFAULT_LENS_HINT,
+  DEFAULT_FORMAT_TEMPLATE,
 } from "../lib/ai-context.js";
 
 // ---------------------------------------------------------------------------
@@ -262,22 +264,55 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain(ctx);
   });
 
-  it("uses 'trading' lens by default", () => {
+  it("uses the trading-flavored lens hint by default", () => {
     const prompt = buildSystemPrompt(ctx);
-    // Trading lens hint is specific and unmistakable.
+    expect(prompt).toContain(DEFAULT_LENS_HINT);
     expect(prompt).toContain(
       "financial / markets / trading group chat"
     );
   });
 
-  it("produces a different prompt when lens is overridden", () => {
-    const trading = buildSystemPrompt(ctx, { lens: "trading" });
-    const neutral = buildSystemPrompt(ctx, { lens: "neutral" });
-    expect(neutral).not.toBe(trading);
-    expect(neutral).toContain("Read the conversation neutrally");
-    expect(neutral).not.toContain(
+  it("produces a different prompt when lensHint is overridden", () => {
+    const defaultPrompt = buildSystemPrompt(ctx);
+    const custom = buildSystemPrompt(ctx, {
+      lensHint: "This is a book club discussing 19th-century Russian novels.",
+    });
+    expect(custom).not.toBe(defaultPrompt);
+    expect(custom).toContain("19th-century Russian novels");
+    expect(custom).not.toContain(
       "financial / markets / trading group chat"
     );
+  });
+
+  it("uses the default format template by default", () => {
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).toContain(DEFAULT_FORMAT_TEMPLATE);
+  });
+
+  it("produces a different prompt when formatTemplate is overridden", () => {
+    const custom = buildSystemPrompt(ctx, {
+      formatTemplate:
+        "Reply in a single haiku. Nothing else. No preamble, no analysis.",
+    });
+    expect(custom).toContain("single haiku");
+    expect(custom).not.toContain("Themes");
+    expect(custom).not.toContain("Notable trades");
+  });
+
+  it("falls back to defaults when lensHint or formatTemplate is empty / whitespace", () => {
+    const a = buildSystemPrompt(ctx, { lensHint: "   ", formatTemplate: "" });
+    const b = buildSystemPrompt(ctx);
+    expect(a).toBe(b);
+  });
+
+  it("focused-author perspective hint is independent of lensHint", () => {
+    const prompt = buildSystemPrompt(ctx, {
+      lensHint: "Book club chat about Tolstoy.",
+      focusedAuthor: "Anna",
+    });
+    expect(prompt).toContain("Book club");
+    expect(prompt).toContain("third person");
+    expect(prompt).toMatch(/anna/i);
   });
 
   it("includes the focused-author perspective hint when focusedAuthor is set", () => {

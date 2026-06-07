@@ -1816,3 +1816,51 @@ button {
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* ----- Tune Prompt dialog ----- */
+.tune-prompt-modal { max-width: 620px; }
+.tune-prompt-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+.tune-prompt-label-row .tune-label {
+  margin: 0;
+}
+.tune-prompt-reset {
+  font-size: 11px;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 2px 6px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.tune-prompt-reset:hover {
+  text-decoration: underline;
+}
+.tune-prompt-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.tune-prompt-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.tune-prompt-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}

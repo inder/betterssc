@@ -43,6 +43,8 @@ import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  DEFAULT_LENS_HINT,
+  DEFAULT_FORMAT_TEMPLATE,
 } from "./lib/ai-context.js";
 
 // ============================================================
@@ -1787,6 +1789,8 @@ function restoreWatchedUsers() {
         "bssc_ai_keys",
         "bssc_ai_model",
         "bssc_ai_budget_chars",
+        "bssc_ai_lens_hint",
+        "bssc_ai_format_template",
       ],
       (res) => {
         if (!res) return;
@@ -1809,6 +1813,12 @@ function restoreWatchedUsers() {
           res.bssc_ai_budget_chars <= 1_000_000
         ) {
           state.aiBudgetChars = res.bssc_ai_budget_chars;
+        }
+        if (typeof res.bssc_ai_lens_hint === "string") {
+          state.aiLensHint = res.bssc_ai_lens_hint;
+        }
+        if (typeof res.bssc_ai_format_template === "string") {
+          state.aiFormatTemplate = res.bssc_ai_format_template;
         }
       }
     );
@@ -2311,7 +2321,8 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
   });
   const focusedAuthor = detectFocusedAuthorName();
   const systemPrompt = buildSystemPrompt(context, {
-    lens: "trading",
+    lensHint: state.aiLensHint || undefined,
+    formatTemplate: state.aiFormatTemplate || undefined,
     focusedAuthor,
   });
 
@@ -2599,9 +2610,148 @@ function closeKebabMenu() {
   document.removeEventListener("keydown", kebabEscape);
 }
 
-// Placeholder — replaced in the next commit.
+// ----- Tune Prompt dialog -----
+//
+// Two editable textareas:
+// 1. Lens hint — describes what KIND of chat we're reading (default
+//    trading-flavored, but Za Terminal isn't every BetterSSC user's
+//    use case, so this is exposed).
+// 2. Response format template — the "Format your response with these
+//    sections" block. Editable.
+//
+// The focused-author perspective hint stays locked — it's mechanical
+// (driven by the search filter) and breaking it would generate output
+// that looks like a bug.
+
 function openTunePromptModal() {
-  showError("Tune prompt — coming next.");
+  const existing = document.getElementById("tunePromptBackdrop");
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "tunePromptBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Tune prompt");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal tune-prompt-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "Tune prompt";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeTunePromptModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const intro = document.createElement("p");
+  intro.className = "ai-settings-note";
+  intro.innerHTML =
+    "Customize how the LLM frames its summary. The author-perspective " +
+    "rule (third-person when you filter to one user) isn't editable " +
+    "here — it's driven by the search filter, not the prompt.";
+  body.appendChild(intro);
+
+  // Lens hint
+  function makeField({ labelText, helpText, currentValue, defaultValue, rows }) {
+    const labelRow = document.createElement("div");
+    labelRow.className = "tune-prompt-label-row";
+    const labelEl = document.createElement("label");
+    labelEl.className = "tune-label";
+    labelEl.textContent = labelText;
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.className = "tune-prompt-reset";
+    resetBtn.textContent = "Reset to default";
+    labelRow.appendChild(labelEl);
+    labelRow.appendChild(resetBtn);
+    body.appendChild(labelRow);
+    const help = document.createElement("div");
+    help.className = "tune-prompt-help";
+    help.textContent = helpText;
+    body.appendChild(help);
+    const textarea = document.createElement("textarea");
+    textarea.className = "tune-prompt-textarea";
+    textarea.rows = rows;
+    textarea.value = currentValue || defaultValue;
+    body.appendChild(textarea);
+    resetBtn.addEventListener("click", () => {
+      textarea.value = defaultValue;
+    });
+    return textarea;
+  }
+
+  const lensTextarea = makeField({
+    labelText: "Lens hint",
+    helpText:
+      "Tells the LLM what kind of chat this is. The default is trading-flavored — change it if you use BetterSSC for a different community.",
+    currentValue: state.aiLensHint,
+    defaultValue: DEFAULT_LENS_HINT,
+    rows: 3,
+  });
+
+  const formatTextarea = makeField({
+    labelText: "Response format template",
+    helpText:
+      "Tells the LLM what sections to emit. Each line that starts with '- **Name** — …' becomes a heading in the rendered summary.",
+    currentValue: state.aiFormatTemplate,
+    defaultValue: DEFAULT_FORMAT_TEMPLATE,
+    rows: 7,
+  });
+
+  // Footer
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeTunePromptModal);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "ai-settings-save";
+  save.textContent = "Save";
+  save.addEventListener("click", () => {
+    const lens = lensTextarea.value.trim();
+    const fmt = formatTextarea.value.trim();
+    // Empty string is treated as "use the default" — store undefined.
+    state.aiLensHint = lens || null;
+    state.aiFormatTemplate = fmt || null;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_ai_lens_hint: lens,
+          bssc_ai_format_template: fmt,
+        });
+    } catch (_) {}
+    closeTunePromptModal();
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(save);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeTunePromptModal();
+  });
+  document.body.appendChild(backdrop);
+}
+
+function closeTunePromptModal() {
+  const el = document.getElementById("tunePromptBackdrop");
+  if (el) el.remove();
 }
 
 // ----- Tune AI Model dialog -----
