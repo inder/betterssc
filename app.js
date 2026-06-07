@@ -258,6 +258,14 @@ async function pollNewMessages() {
   _pollInflight = true;
   try {
     const res = await fetchCommentsAfter(state.postUuid, since);
+    // Feed any user objects from the new payload into _userTable so
+    // photo upgrades land + already-rendered placeholder avatars get
+    // repainted on the next tick.
+    if (res) {
+      if (Array.isArray(res.users)) registerUserObjects(res.users);
+      if (Array.isArray(res.recent_commenters))
+        registerUserObjects(res.recent_commenters);
+    }
     // Flatten threaded replies so in-thread comments come through.
     const replies = flattenReplies(res && res.replies);
     if (!replies.length) return;
@@ -432,6 +440,13 @@ async function loadOlder() {
   const prevScrollTop = document.getElementById("stream").scrollTop;
   try {
     const res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
+    // Older-history payload also carries user objects — feed them in
+    // so scrolling up repaints stuck placeholder avatars too.
+    if (res) {
+      if (Array.isArray(res.users)) registerUserObjects(res.users);
+      if (Array.isArray(res.recent_commenters))
+        registerUserObjects(res.recent_commenters);
+    }
     // Same unwrap + flatten fixes as loadInitial.
     const unwrappedReplies = flattenReplies(res.replies || [])
       .map((r) => unwrapComment(r) || r)
@@ -623,6 +638,13 @@ function ingestComment(c, { silent = false } = {}) {
   // what render code (and the WS event shape) expects.
   if (!unwrapped.author) {
     unwrapped.author = syntheticAuthor(unwrapped);
+  }
+  // Feed the comment's author into _userTable so its photo_url (when
+  // present) triggers upgrade + repaint of placeholder avatars. The
+  // WS chat:new-comment events come through this path too, so live
+  // pushes contribute to avatar healing in real time.
+  if (unwrapped.author && (unwrapped.author.id != null || unwrapped.author.user_id != null)) {
+    registerUserObjects([unwrapped.author]);
   }
 
   const isNew = !state.comments.has(id);
