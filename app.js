@@ -668,8 +668,24 @@ function handleChatEvent(ev) {
   if (ev.type === "chat:new-comment" && ev.comment) {
     // Only ingest if for our current post.
     if (ev.comment.post_id !== state.postUuid) return;
+    const wasNew = !state.comments.has(ev.comment.id);
     ingestComment(ev.comment, { silent: false });
     renderAll();
+    // Mirror the polling-path alert fan-out so notifications fire when
+    // WS is the live mechanism. Previously only @mention alerts fired
+    // here (via ingestComment → maybeNotifyMention); reply-to-me,
+    // watched-user, and notify-all-messages alerts were silently
+    // skipped whenever WS was connected.
+    if (wasNew) {
+      const c = state.comments.get(ev.comment.id);
+      if (c) {
+        if (!maybeAlertOnReplyToMe(c)) {
+          maybeAlertOnWatchedUser(c);
+        }
+        maybeAlertAllMessages([c]);
+        if (document.hidden) incrementUnreadWhileHidden(1);
+      }
+    }
     if (state.isAtBottom) {
       scrollToBottom();
     } else {
@@ -1438,9 +1454,22 @@ function maybeAlertOnReplyToMe(comment) {
 // stable id per chat post so it REPLACES the previous batch instead of
 // stacking dozens of notifications during a busy chat.
 function maybeAlertAllMessages(newlyAdded) {
-  if (!state.notifyAllMessages) return;
-  if (!document.hidden) return;
+  if (!state.notifyAllMessages) {
+    console.debug(
+      "[BetterSSC notify-all] skip — toggle is off (click 🔔 in header)"
+    );
+    return;
+  }
+  if (!document.hidden) {
+    console.debug(
+      "[BetterSSC notify-all] skip — tab is visible (alerts fire only when tab is hidden)"
+    );
+    return;
+  }
   if (!Array.isArray(newlyAdded) || !newlyAdded.length) return;
+  console.debug(
+    `[BetterSSC notify-all] firing for ${newlyAdded.length} new message(s)`
+  );
   const pubName =
     (state.publication && state.publication.name) || "Substack chat";
   const last = newlyAdded[newlyAdded.length - 1];
@@ -2982,13 +3011,20 @@ async function toggleEmojiPicker(node, comment) {
 
   const picker = document.createElement("div");
   picker.className = "emoji-picker";
+  // Dedupe by emoji glyph — Substack's library returns aliases like
+  // `thumbs_up` AND `upvote` that both render 👍, which surfaced as a
+  // duplicate button in the picker.
   const types = suggestedReactions();
+  const seenGlyphs = new Set();
   for (const type of types) {
+    const glyph = composerReactionEmojiFor(type);
+    if (seenGlyphs.has(glyph)) continue;
+    seenGlyphs.add(glyph);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "emoji-picker-btn";
     btn.title = `:${type}:`;
-    btn.textContent = composerReactionEmojiFor(type);
+    btn.textContent = glyph;
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
