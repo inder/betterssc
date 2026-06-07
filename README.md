@@ -132,13 +132,15 @@ Default models are the cheap-fast tier for each provider:
 | Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 (~3× cost) |
 | Google | gemini-2.5-flash | gemini-2.5-pro (~17× cost) |
 
-Per-call cost at the 60K char default lands at roughly:
+Per-call cost at the 60K char default (~15K input tokens + ~800 output tokens) computes to:
 
 | Provider | Cheap model | Capable model |
 |---|---|---|
-| OpenAI | ~$0.002 | ~$0.04 |
-| Anthropic | ~$0.015 | ~$0.05 |
-| Google | ~$0.001 | ~$0.02 |
+| OpenAI | ~$0.003 | ~$0.046 |
+| Anthropic | ~$0.019 | ~$0.057 |
+| Google | ~$0.001 | ~$0.027 |
+
+These are static estimates against each provider's published per-million-token rates at the time of writing. The dialog shows the live computed number on every slider tweak — trust the dialog, not this table, if pricing has moved.
 
 #### 2. Tune prompt
 

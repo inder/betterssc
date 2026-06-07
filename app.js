@@ -3012,6 +3012,7 @@ function openResetConfirmModal() {
   const things = [
     "📌 Pinned members and 🔔 watch / alert preferences",
     "✨ AI provider settings and API key (you'll re-paste it next time)",
+    "Tuned AI model, context-budget slider, and custom prompt",
     "Theme (light / dark), member-rail sort, notify-all toggle",
     "WebSocket-enabled flag",
   ];
