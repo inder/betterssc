@@ -43,9 +43,9 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 - Slash commands (the leading `/` is optional, the `:` is what makes them unambiguous):
   - `/from:<name>` show one person's messages
   - `/me` your own messages
-  - `/has:link` messages containing a URL
-  - `/has:image` messages with an image attachment
-  - `/has:reaction` messages with at least one reaction
+  - `/has:link` (or `/has:links`, `/has:url`, `/has:urls`) messages containing a URL
+  - `/has:image` (or `/has:images`, `/has:img`, `/has:pic`, `/has:picture`, etc.) messages with an image attachment
+  - `/has:reaction` (or `/has:reactions`, `/has:emoji`, `/has:emojis`) messages with at least one reaction
   - `/since:3` everything from the last 3 days
   - `/help` the full reference
 - 💬 thread badge on any message that has replies (quote-replies count too). Click it to focus the stream on just that conversation.

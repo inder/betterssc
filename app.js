@@ -2121,13 +2121,22 @@ function parseSearchQuery(raw) {
     };
   }
 
-  if (cmd === "has:link") {
+  if (cmd === "has:link" || cmd === "has:links" || cmd === "has:url" || cmd === "has:urls") {
     return {
       kind: "with link",
       test: (c) => /https?:\/\//i.test(c.body || ""),
     };
   }
-  if (cmd === "has:image" || cmd === "has:img") {
+  if (
+    cmd === "has:image" ||
+    cmd === "has:images" ||
+    cmd === "has:img" ||
+    cmd === "has:imgs" ||
+    cmd === "has:pic" ||
+    cmd === "has:pics" ||
+    cmd === "has:picture" ||
+    cmd === "has:pictures"
+  ) {
     return {
       kind: "with image",
       test: (c) =>
@@ -2137,7 +2146,7 @@ function parseSearchQuery(raw) {
         hasAttachment(c.attachments),
     };
   }
-  if (cmd === "has:reaction") {
+  if (cmd === "has:reaction" || cmd === "has:reactions" || cmd === "has:emoji" || cmd === "has:emojis") {
     return {
       kind: "with reaction",
       test: (c) =>
@@ -2204,9 +2213,9 @@ function showHelpOverlay() {
       <dt>@elon</dt><dd>Show messages from authors whose name starts with "elon"</dd>
       <dt>/from:elon</dt><dd>Same as above</dd>
       <dt>/me</dt><dd>Show your own messages</dd>
-      <dt>/has:link</dt><dd>Messages containing a URL</dd>
-      <dt>/has:image</dt><dd>Messages with an image attachment</dd>
-      <dt>/has:reaction</dt><dd>Messages that have ≥1 reaction</dd>
+      <dt>/has:link(s)</dt><dd>Messages containing a URL</dd>
+      <dt>/has:image(s)</dt><dd>Messages with an image attachment (also /has:pic, /has:picture)</dd>
+      <dt>/has:reaction(s)</dt><dd>Messages that have ≥1 reaction (also /has:emoji)</dd>
       <dt>/since:3</dt><dd>Messages from the last 3 days</dd>
       <dt>/since:2026-06-01</dt><dd>Messages on or after a date</dd>
       <dt>/help</dt><dd>This screen</dd>
@@ -2562,6 +2571,17 @@ function bindEventHandlers() {
       applySearch();
     }, 120)
   );
+  // Enter while focused in the search box commits the filter and drops
+  // focus back to the feed so j/k vi nav works without the user having
+  // to click out. preventDefault stops any default form-submit / newline.
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      state.searchQuery = searchInput.value || "";
+      applySearch();
+      searchInput.blur();
+    }
+  });
 
   document.addEventListener("keydown", (e) => {
     const inInput =
