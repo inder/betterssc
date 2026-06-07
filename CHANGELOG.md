@@ -5,7 +5,7 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 ## [Unreleased]
 
 ### Changed
-- **AI Insights context budget bumped from 6K chars → 60K chars** (~1.5K tokens → ~15K tokens). The previous 6K limit dropped 1342 of 1381 messages in dense chats; 60K fits realistic full-chat summaries while staying under 12% of every supported provider's context window. Keeps latency clickable (~5-8s) and per-call cost negligible (gpt-4o-mini ~$0.004, claude-haiku ~$0.030, gemini-flash ~$0.011).
+- **AI Insights context budget bumped from 6K chars → 60K chars** (~1.5K tokens → ~15K tokens). The previous 6K limit dropped 1342 of 1381 messages in dense chats; 60K fits realistic full-chat summaries while staying under 12% of every supported provider's context window. Keeps latency clickable (~5-8s) and per-call input cost negligible (gpt-4o-mini ~$0.002, claude-haiku ~$0.015, gemini-flash ~$0.001).
 
 ## [0.2.3] — 2026-06-07
 
