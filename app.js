@@ -1980,16 +1980,23 @@ function openTickerModal(symbol) {
     document.documentElement.getAttribute("data-theme") === "dark"
       ? "dark"
       : "light";
+  // hide_side_toolbar:false brings in the drawing-tools rail on the left
+  // (horizontal line, trend line, brush, fib, rectangle, etc.). The free
+  // embed widget doesn't let us pick individual tools — toolbar is
+  // all-or-nothing. Drawings are local to the iframe session and don't
+  // persist across modal reopens (TradingView's free embed doesn't sync
+  // them to your account).
   const config = {
     symbol,
     interval: "D",
-    hide_side_toolbar: true,
+    hide_side_toolbar: false,
     allow_symbol_change: true,
     theme,
     style: "1",
     locale: "en",
     autosize: true,
     save_image: false,
+    withdateranges: true,
   };
   const url =
     "https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#" +

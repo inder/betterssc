@@ -1272,8 +1272,8 @@ button {
 .ticker-modal {
   background: var(--bg-primary, #fff);
   border-radius: 10px;
-  width: min(900px, 100%);
-  height: min(640px, 90vh);
+  width: min(1080px, 100%);
+  height: min(720px, 92vh);
   display: flex;
   flex-direction: column;
   overflow: hidden;
