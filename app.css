@@ -209,14 +209,25 @@ button {
   min-width: 0;
 }
 .post-body-caret {
-  margin-left: 4px;
-  color: var(--text-muted);
-  transition: transform 150ms ease;
+  margin-left: 6px;
+  color: var(--text-secondary);
+  transition: transform 180ms ease, color 120ms ease;
   flex-shrink: 0;
+  display: inline-block;
 }
+.header-left:hover .post-body-caret { color: var(--accent); }
 .header-left[aria-expanded="true"] .post-body-caret {
   transform: rotate(180deg);
+  color: var(--accent);
 }
+/* Smaller font for the header-context placeholder avatars so the
+   letter fits the 32 / 28 px circle (default placeholder font is 16px,
+   sized for 40px message avatars). */
+.header-avatar-slot .msg-avatar-placeholder {
+  font-size: 13px;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.header-avatar-slot img { box-shadow: 0 0 0 1px var(--border); }
 .post-body-panel {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
