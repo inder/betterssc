@@ -2345,6 +2345,11 @@ function showHelpOverlay() {
       <dt>/since:2026-06-01</dt><dd>Messages on or after a date</dd>
       <dt>/help</dt><dd>This screen</dd>
     </dl>
+    <h2 style="margin-top:18px">Stock & crypto tickers</h2>
+    <dl>
+      <dt>$NASA</dt><dd>Click any $TICKER symbol to open a free TradingView chart with drawing tools</dd>
+      <dt>$BRK.B</dt><dd>Single-letter share classes supported. $5 / $100 dollar amounts are skipped</dd>
+    </dl>
     <h2 style="margin-top:18px">Keyboard</h2>
     <dl>
       <dt>/</dt><dd>Focus search</dd>

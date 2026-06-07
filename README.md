@@ -34,6 +34,7 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 - Two-pane Discord-style layout. Real names, real avatars, real emoji reactions (no more `:flexed_biceps:` showing up as text).
 - When someone quotes another message, the quoted block is a clickable accent-color card. Click it to jump to the original and watch it flash amber so you can find it.
 - Inline images, click for a full-screen lightbox. If an image fails to load it falls back to a "📎 image (click to open)" link.
+- **Click any `$TICKER` to open a free TradingView chart.** Detects $NASA, $DXYZ, $BRK.B style symbols in messages and renders them as accent-pill links. Click opens a modal with the daily chart and drawing tools (horizontal line, trend line, fib, etc.). $5 / $100 dollar amounts are skipped.
 - Light theme by default, dark theme one click away. Choice is remembered across reloads.
 
 ### Finding stuff
