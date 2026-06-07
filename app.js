@@ -3170,9 +3170,6 @@ function bindEventHandlers() {
       if (nearBottom) {
         hideNewMessageJump();
       } else {
-        // Always show the bottom jump pill when scrolled up — it's the
-        // replacement for the old header "Latest" button. The label
-        // adapts via showNewMessageJump (Latest vs N new messages).
         showNewMessageJump();
       }
       if (stream.scrollTop < 200) loadOlder();

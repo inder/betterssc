@@ -801,11 +801,21 @@ button {
 }
 
 .new-message-jump {
-  position: absolute;
+  /* Sticky so it floats at the bottom of the visible scroll viewport
+     even when the user has scrolled up past the natural end-of-feed.
+     position: absolute anchored to the scrolling content (the prior
+     setup) put the pill at the bottom of the message list, which is
+     below the viewport whenever the user has scrolled up — invisible
+     exactly when it's most needed. */
+  position: sticky;
   bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+  align-self: center;
   z-index: 5;
+  margin-top: auto;
+  pointer-events: none;
+}
+.new-message-jump button {
+  pointer-events: auto;
 }
 .new-message-jump button {
   background: var(--accent);
