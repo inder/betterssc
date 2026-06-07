@@ -1,12 +1,12 @@
 {
-  "sha": "78227f613c8b7e2abad6db162d16401a85eda5f4",
+  "sha": "499ecf4",
   "branch": "main",
-  "ts": "2026-06-07T18:43:25Z",
-  "verdict": "ship-it",
-  "retro_required": "no",
-  "retro_reasoning": "Diff is under 100 lines of behavior change, no schema or contract changes, no critical findings, two narrow polish items with clean logic.",
+  "ts": "2026-06-07T13:33:45Z",
+  "verdict": "fix-these",
+  "retro_required": "yes",
+  "retro_reasoning": "Diff is well over 200 lines of new feature code, touches AI provider contracts and storage keys, and has 2 should-fix findings including a README cost table that is 20-30% off from computed values",
   "critical_count": 0,
-  "should_fix_count": 0,
-  "nit_count": 2,
-  "files_reviewed": 2
+  "should_fix_count": 2,
+  "nit_count": 3,
+  "files_reviewed": 5
 }
