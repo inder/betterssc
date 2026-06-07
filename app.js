@@ -2078,3 +2078,56 @@ function showError(msg) {
   document.body.prepend(banner);
   setTimeout(() => banner.remove(), 8000);
 }
+
+// ============================================================
+// COMPOSER (v0.2 write side)
+// ============================================================
+//
+// Everything below this line is the v0.2 write-side wiring. It is appended
+// to the END of app.js (not interleaved with v0.1 paths) on purpose: Track
+// B is refactoring renderMessages in parallel, and any v0.2 edits up there
+// would cause merge conflicts. State additions live under `state.composer`.
+
+import { autoGrowTextarea } from "./lib/compose.js";
+
+// Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
+// state path. Initialized lazily on first mount so a missing #composer (e.g.
+// the landing screen) is a no-op.
+state.composer = state.composer || {
+  pending: null,         // outgoing send in flight (commit 2)
+  mentions: {},          // @name → { user_id, text } map for the buffer
+  replyingTo: null,      // {id, authorName, body} when replying (commit 6)
+};
+
+function mountComposer() {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+
+  // Enable / disable the Send button based on input contents.
+  const refreshSendBtn = () => {
+    const txt = input.value || "";
+    sendBtn.disabled = txt.trim().length === 0;
+  };
+
+  // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
+  // which matches lineHeight 22 * 4 = 88 + a bit of padding).
+  input.addEventListener("input", () => {
+    autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    refreshSendBtn();
+  });
+
+  // Set initial height so the textarea starts at exactly one row.
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  refreshSendBtn();
+}
+
+// Mount when the app is visible. If we're on the landing screen, #composer
+// doesn't exist and mountComposer is a no-op. If we're in the app, calling
+// it here happens AFTER bindEventHandlers — fine, the composer's own
+// listeners are scoped to its own elements.
+if (typeof appEl !== "undefined" && appEl && !appEl.classList.contains("hidden")) {
+  mountComposer();
+}
