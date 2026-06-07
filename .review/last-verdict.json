@@ -1,12 +1,12 @@
 {
-  "sha": "uncommitted",
+  "sha": "65499adbe8a5a10b267c573f43db22085c2b3ad3",
   "branch": "main",
   "ts": "2026-06-07T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "no",
-  "retro_reasoning": "Diff is ~185 lines of behavior code, no schema or contract changes, one should-fix finding (BRK.BB partial match gap) and one nit",
+  "retro_reasoning": "Diff is under 100 lines, no schema/contract changes, one should-fix finding with no critical issues",
   "critical_count": 0,
   "should_fix_count": 1,
-  "nit_count": 2,
-  "files_reviewed": 4
+  "nit_count": 1,
+  "files_reviewed": 2
 }

@@ -114,6 +114,8 @@ const state = {
   memberSort: "active", // "active" (most messages) or "name"
   threadFilter: null, // { parentId } when user clicked a 💬 thread icon
   notifyAllMessages: false, // header bell toggle — alert on every new msg
+  consecutivePollFailures: 0, // resets to 0 on success; banner shows at >=2
+  proxyDisconnected: false,
 };
 
 // ============================================================
@@ -263,6 +265,15 @@ async function pollNewMessages() {
   _pollInflight = true;
   try {
     const res = await fetchCommentsAfter(state.postUuid, since);
+    // Successful poll → reset failure counter + clear "can't reach
+    // Substack" banner if it was up. Done BEFORE the rest of the
+    // ingest path so a downstream render exception doesn't strand
+    // the banner.
+    if (state.consecutivePollFailures > 0 || state.proxyDisconnected) {
+      state.consecutivePollFailures = 0;
+      state.proxyDisconnected = false;
+      renderProxyBanner();
+    }
     // Feed any user objects from the new payload into _userTable so
     // photo upgrades land + already-rendered placeholder avatars get
     // repainted on the next tick.
@@ -308,6 +319,14 @@ async function pollNewMessages() {
     }
   } catch (e) {
     console.warn("[BetterSSC POLL] failed:", e && e.message);
+    state.consecutivePollFailures += 1;
+    // Two consecutive failures (~24s) is enough signal that the
+    // substack proxy tab is gone or unreachable. Show the banner so
+    // the user knows what's wrong instead of silently failing.
+    if (state.consecutivePollFailures >= 2 && !state.proxyDisconnected) {
+      state.proxyDisconnected = true;
+      renderProxyBanner();
+    }
   } finally {
     _pollInflight = false;
   }
@@ -884,6 +903,7 @@ function renderAll() {
   // is null when analytics-config doesn't carry it; getResolvedSelf scans
   // state.comments to find it).
   renderChatHeader();
+  renderProxyBanner();
   if (state.searchQuery || state.threadFilter) applySearch();
 }
 
@@ -2404,6 +2424,32 @@ function applyThreadFilter() {
       group.classList.add("search-hit");
     }
   });
+}
+
+// Shows/hides the "can't reach Substack" banner. Mounted into #stream
+// so it sits above the messages (and scrolls with them, intentionally —
+// most users will be at bottom when this appears). Idempotent.
+function renderProxyBanner() {
+  const existing = document.getElementById("proxyBanner");
+  if (!state.proxyDisconnected) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+  const banner = document.createElement("div");
+  banner.id = "proxyBanner";
+  banner.className = "proxy-banner";
+  const icon = document.createElement("span");
+  icon.className = "proxy-banner-icon";
+  icon.textContent = "⚠";
+  const text = document.createElement("span");
+  text.className = "proxy-banner-text";
+  text.textContent =
+    "Can't reach Substack — open or refresh a substack.com tab to reconnect.";
+  banner.appendChild(icon);
+  banner.appendChild(text);
+  const stream = document.getElementById("stream");
+  if (stream) stream.prepend(banner);
 }
 
 function renderThreadBanner() {
