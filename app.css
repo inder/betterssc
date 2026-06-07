@@ -801,6 +801,57 @@ button {
   font-weight: 600;
 }
 
+/* Empty-state shown when an applied search/filter has zero matches.
+   Without this, the feed went blank and looked broken — the only signal
+   was the "no <kind> · Esc to clear" text in the search count slot,
+   which is easy to miss. */
+.search-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 32px 24px;
+  padding: 20px 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.search-empty-icon {
+  font-size: 24px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.search-empty-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+.search-empty-text strong {
+  font-weight: 600;
+}
+.search-empty-text code {
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+.search-empty-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.search-empty-hint kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
 .new-message-jump {
   /* Sticky so it floats at the bottom of the visible scroll viewport
      even when the user has scrolled up past the natural end-of-feed.

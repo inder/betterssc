@@ -2635,6 +2635,7 @@ function applySearch() {
     applyThreadFilter();
     if (!q) {
       // No search query — just keep the thread filter intact.
+      hideSearchEmpty();
       return;
     }
   }
@@ -2642,6 +2643,7 @@ function applySearch() {
   if (!q) {
     document.getElementById("searchCount").textContent = "";
     state.searchHits = [];
+    hideSearchEmpty();
     return;
   }
 
@@ -2709,6 +2711,7 @@ function applySearch() {
     : `no ${matcher.kind} · Esc to clear`;
   document.getElementById("searchCount").textContent = label;
   if (hits.length) {
+    hideSearchEmpty();
     // Default-land on the NEWEST match (last in chronological order).
     // Chat usage almost always wants "show me the latest thing matching
     // this filter" — the most-recent boz message, the latest link, etc.
@@ -2716,7 +2719,22 @@ function applySearch() {
     const lastIdx = hits.length - 1;
     state.searchActiveIdx = lastIdx;
     focusSearchHit(lastIdx);
+  } else {
+    showSearchEmpty(raw);
   }
+}
+
+function showSearchEmpty(query) {
+  const panel = document.getElementById("searchEmpty");
+  if (!panel) return;
+  const q = document.getElementById("searchEmptyQuery");
+  if (q) q.textContent = query;
+  panel.classList.remove("hidden");
+}
+
+function hideSearchEmpty() {
+  const panel = document.getElementById("searchEmpty");
+  if (panel) panel.classList.add("hidden");
 }
 
 // Parse the search input into a {kind, test, help?} object.
