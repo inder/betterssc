@@ -90,18 +90,48 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "notify") {
     // If the sender passes a stable notificationId, reuse it — Chrome
     // will REPLACE the existing notification of that id instead of
-    // stacking. Used by the "notify on every new message" toggle so a
-    // chatty publication doesn't spam dozens of OS notifications.
+    // stacking.
     const id =
       msg.notificationId ||
       `bssc-${Date.now()}-${Math.floor(performance.now() * 1000) % 1000000}`;
-    chrome.notifications.create(id, {
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icon128.png"),
-      title: msg.title || "BetterSSC",
-      message: msg.message || "",
-      priority: 2,
+    console.log("[BetterSSC SW] notify request", {
+      id,
+      title: msg.title,
+      message: (msg.message || "").slice(0, 80),
     });
+    // First check the OS-level permission. If macOS or Chrome are blocking
+    // notifications, getPermissionLevel returns "denied" and create() will
+    // silently no-op. Log it so the user can see WHY no notification appears.
+    chrome.notifications.getPermissionLevel((level) => {
+      console.log("[BetterSSC SW] permission level:", level);
+      if (level !== "granted") {
+        console.warn(
+          "[BetterSSC SW] notification BLOCKED by OS or Chrome — " +
+            "check macOS System Settings → Notifications → Google Chrome, " +
+            "and chrome://settings/content/notifications"
+        );
+      }
+    });
+    chrome.notifications.create(
+      id,
+      {
+        type: "basic",
+        iconUrl: chrome.runtime.getURL("icon128.png"),
+        title: msg.title || "BetterSSC",
+        message: msg.message || "",
+        priority: 2,
+      },
+      (createdId) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "[BetterSSC SW] notifications.create error:",
+            chrome.runtime.lastError.message
+          );
+        } else {
+          console.log("[BetterSSC SW] notification CREATED:", createdId);
+        }
+      }
+    );
     NOTIFICATION_REFS.set(id, {
       appTabId: sender && sender.tab && sender.tab.id,
       mentionRef: msg.mentionRef || null,
