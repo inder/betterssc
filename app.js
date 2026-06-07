@@ -14,6 +14,7 @@ import {
   fetchRealtimeToken,
   detectChatChannels,
   postChatViewed,
+  fetchUserProfile,
 } from "./lib/api.js";
 import { SubstackRealtime } from "./lib/ws.js";
 import {
@@ -151,7 +152,32 @@ async function init() {
   // Fallback: try to read from a known route once we hit the API.
   try {
     state.user = await fetchUserIdentity();
+    console.log("[BetterSSC identity]", state.user);
   } catch (_) {}
+  // If we got id+name but no photo_url, the analytics-config object on
+  // some publications doesn't expose the avatar. Hit the public profile
+  // endpoint as a second pass so the top-right avatar fills in.
+  if (state.user && state.user.id != null && !state.user.photo_url) {
+    try {
+      const handle = state.user.handle || "self";
+      const profile = await fetchUserProfile(state.user.id, handle);
+      const userObj = profile && (profile.user || profile);
+      const photo =
+        userObj &&
+        (userObj.photo_url ||
+          userObj.photoUrl ||
+          userObj.profile_image_url ||
+          userObj.avatar_url ||
+          null);
+      if (photo) {
+        state.user.photo_url = photo;
+        if (!state.user.handle && userObj.handle) state.user.handle = userObj.handle;
+        console.log("[BetterSSC identity] profile photo resolved");
+      }
+    } catch (e) {
+      console.warn("[BetterSSC identity] profile fetch failed:", e && e.message);
+    }
+  }
 
   // Load the publication header for chrome.
   try {
@@ -1040,9 +1066,26 @@ function renderMessageItem(c) {
   return wrap;
 }
 
-// Cache of image URLs we already know are 403/dead. Prevents the 12s poll
-// cycle from re-firing failed requests forever. v0.1.19.
-const _failedImageUrls = new Set();
+// URLs that recently failed to load. Re-attempted after a TTL so a
+// transient throttle (Substack CDN occasionally 403s on burst), a
+// dropped connection, or a one-time decode error doesn't permanently
+// doom an avatar for the entire session. Originally a permanent Set
+// — that's why users with one bad fetch were stuck as letter
+// placeholders forever even after _userTable upgraded their photo_url.
+const _failedImageUrls = new Map(); // url → Date.now() of failure
+const FAILED_URL_TTL_MS = 60_000;
+function isUrlFailed(url) {
+  const t = _failedImageUrls.get(url);
+  if (t == null) return false;
+  if (Date.now() - t > FAILED_URL_TTL_MS) {
+    _failedImageUrls.delete(url);
+    return false;
+  }
+  return true;
+}
+function markUrlFailed(url) {
+  _failedImageUrls.set(url, Date.now());
+}
 
 // v0.2.1: cache an <img> template per avatar URL so re-renders during
 // polling don't keep creating fresh <img> nodes that each kick off a
@@ -1093,8 +1136,10 @@ function makeAvatar(author, cssClass) {
     return makeAvatarPlaceholder(initial, cssClass);
   }
   const url = rewriteImageUrl(photoUrl);
-  // Already-failed URLs go straight to placeholder — no more re-fetch storms.
-  if (_failedImageUrls.has(url)) {
+  // Recently-failed URLs go straight to placeholder — but with a TTL,
+  // not a permanent ban, so a one-time CDN throttle doesn't doom the
+  // avatar forever.
+  if (isUrlFailed(url)) {
     return makeAvatarPlaceholder(initial, cssClass);
   }
   // Per-URL template: build once, then every caller gets a fresh clone
@@ -1110,11 +1155,8 @@ function makeAvatar(author, cssClass) {
   const img = template.cloneNode(true);
   img.className = cssClass;
   img.alt = author.name || "";
-  // One error listener per clone — but on failure we mark the URL dead
-  // for all future calls AND drop the template so we don't keep cloning
-  // a busted src.
   img.addEventListener("error", () => {
-    _failedImageUrls.add(url);
+    markUrlFailed(url);
     _avatarTemplates.delete(url);
     img.replaceWith(makeAvatarPlaceholder(initial, cssClass));
   });
@@ -1179,7 +1221,7 @@ function appendAttachments(wrap, c) {
         a.textContent = "📎 image (click to open in new tab)";
         return a;
       };
-      if (_failedImageUrls.has(finalUrl)) {
+      if (isUrlFailed(finalUrl)) {
         container.appendChild(fallbackLink());
         continue;
       }
@@ -1194,7 +1236,7 @@ function appendAttachments(wrap, c) {
         openLightbox(finalUrl);
       });
       img.addEventListener("error", () => {
-        _failedImageUrls.add(finalUrl);
+        markUrlFailed(finalUrl);
         img.replaceWith(fallbackLink());
       });
       container.appendChild(img);
