@@ -359,12 +359,13 @@ button {
 .ws-status {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 8px;
+  border-radius: 50%;
   background: var(--bg-tertiary);
+  cursor: help;
+}
+.ws-status:hover {
+  background: var(--bg-hover);
 }
 .theme-toggle {
   width: 32px;

@@ -877,8 +877,15 @@ function setWsStatus(s) {
       break;
   }
   el.querySelector(".dot").className = `dot dot-${dotState}`;
-  el.querySelector(".ws-label").textContent = label;
-  el.title = title;
+  // The label text used to render next to the dot in the header but
+  // was removed in v0.2.4 to reclaim header width. The full status
+  // still lands in the title attribute so hovering the dot reveals
+  // the current mechanism (matches the ws-second-capitulation memory:
+  // mechanism + indicator must move together — the title attribute
+  // IS the indicator now).
+  const labelEl = el.querySelector(".ws-label");
+  if (labelEl) labelEl.textContent = label;
+  el.title = `${title} · ${label}`;
 }
 
 // ============================================================
