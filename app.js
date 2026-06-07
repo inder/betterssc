@@ -2233,3 +2233,766 @@ function showError(msg) {
   document.body.prepend(banner);
   setTimeout(() => banner.remove(), 8000);
 }
+
+// ============================================================
+// COMPOSER (v0.2 write side)
+// ============================================================
+//
+// Everything below this line is the v0.2 write-side wiring. It is appended
+// to the END of app.js (not interleaved with v0.1 paths) on purpose: Track
+// B is refactoring renderMessages in parallel, and any v0.2 edits up there
+// would cause merge conflicts. State additions live under `state.composer`.
+
+import {
+  autoGrowTextarea,
+  buildCommentBody,
+  buildPendingComment,
+  reconcilePending,
+  markPendingFailed,
+  findActiveMentionToken,
+  replaceMentionToken,
+  updateReactionCount,
+  pickSuggestedReactions,
+  DEFAULT_SUGGESTED_REACTIONS,
+  setReplyTarget,
+  clearReplyTarget,
+  buildReplyFields,
+} from "./lib/compose.js";
+import {
+  postComment as apiPostComment,
+  fetchMentionSuggestions as apiFetchMentions,
+  postReaction as apiPostReaction,
+  fetchReactionsLibrary as apiFetchReactionsLibrary,
+} from "./lib/api.js";
+import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
+import { reactionEmojiFor as composerReactionEmojiFor } from "./lib/emojis.js";
+
+// Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
+// state path. Initialized lazily on first mount so a missing #composer (e.g.
+// the landing screen) is a no-op.
+state.composer = state.composer || {
+  pending: null,         // outgoing send in flight (commit 2)
+  mentions: {},          // @name → { user_id, text } map for the buffer
+  replyingTo: null,      // {id, authorName, body} when replying (commit 6)
+};
+
+function mountComposer() {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+
+  // Enable / disable the Send button based on input contents + in-flight.
+  const refreshSendBtn = () => {
+    const txt = input.value || "";
+    const empty = txt.trim().length === 0;
+    sendBtn.disabled = empty || !!state.composer.pending;
+  };
+
+  // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
+  // which matches lineHeight 22 * 4 = 88 + a bit of padding).
+  input.addEventListener("input", () => {
+    autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    // Typing dismisses the error state, restoring the "Send" affordance.
+    if (state.composer._lastError) {
+      clearComposerError();
+      sendBtn.textContent = "Send";
+    }
+    refreshSendBtn();
+    // Commit 4: mention autocomplete trigger.
+    onMentionInput(input);
+  });
+
+  // Enter sends, Shift+Enter inserts a newline. We DON'T preventDefault on
+  // Shift+Enter — the browser handles it natively. Arrow keys + Enter +
+  // Esc are intercepted when the mention dropdown is active.
+  input.addEventListener("keydown", (e) => {
+    if (handleMentionKeydown(e, input)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitComposer();
+    }
+  });
+
+  sendBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitComposer();
+  });
+
+  // Set initial height so the textarea starts at exactly one row.
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  refreshSendBtn();
+
+  // Expose so submitComposer() can re-check after state changes.
+  state.composer._refreshSendBtn = refreshSendBtn;
+
+  // Commit 6: reply bar × button.
+  const replyClose = document.getElementById("composerReplyClose");
+  if (replyClose) {
+    replyClose.addEventListener("click", (e) => {
+      e.preventDefault();
+      clearReplyTarget(state.composer);
+      renderComposerReplyBar();
+    });
+  }
+
+  // Make sure the reply bar starts hidden (state may carry over on hot reload).
+  renderComposerReplyBar();
+}
+
+// Renders the "Replying to X" bar above the textarea based on
+// state.composer.replyingTo.
+function renderComposerReplyBar() {
+  const bar = document.getElementById("composerReply");
+  const label = document.getElementById("composerReplyLabel");
+  if (!bar || !label) return;
+  const target = state.composer && state.composer.replyingTo;
+  if (!target) {
+    bar.classList.add("hidden");
+    label.textContent = "";
+    return;
+  }
+  bar.classList.remove("hidden");
+  const preview =
+    target.body && target.body.length
+      ? ` — "${target.body.length > 60 ? target.body.slice(0, 57) + "…" : target.body}"`
+      : "";
+  label.textContent = "Replying to " + target.authorName + preview;
+  // Move focus to the textarea so the user can start typing immediately.
+  const input = document.getElementById("composerInput");
+  if (input) {
+    try {
+      input.focus();
+    } catch (_) {}
+  }
+}
+
+// Called from the message hover toolbar's "Reply" button.
+function startReplyTo(comment) {
+  if (!comment) return;
+  setReplyTarget(state.composer, comment);
+  renderComposerReplyBar();
+}
+
+// ============================================================
+// MENTION AUTOCOMPLETE (commit 4)
+// ============================================================
+//
+// Composer-scoped mention dropdown. Driven by findActiveMentionToken on
+// every input event — when the user's caret is inside a `@<query>` token
+// we debounce-fetch suggestions from /api/v1/community/mention and render
+// them in #composerMention. Arrow keys + Enter pick one; Esc closes.
+
+state.composer._mention = state.composer._mention || {
+  open: false,
+  token: null,       // active token { query, start, end }
+  results: [],
+  activeIdx: 0,
+  lastQuery: null,
+};
+
+const _fetchMentionsDebounced = composerDebounce(async (query, input) => {
+  const m = state.composer._mention;
+  if (!m.open) return;
+  // Stale-query guard — only render the response if the user is still on
+  // the same query they were when we fired.
+  m.lastQuery = query;
+  try {
+    const res = await apiFetchMentions(
+      state.publicationId,
+      state.postUuid,
+      query
+    );
+    if (m.lastQuery !== query || !m.open) return;
+    const results = (res && res.results) || [];
+    m.results = results;
+    m.activeIdx = 0;
+    renderMentionDropdown(input);
+  } catch (e) {
+    if (m.lastQuery !== query || !m.open) return;
+    m.results = [];
+    renderMentionDropdown(input);
+  }
+}, 300);
+
+function onMentionInput(input) {
+  const m = state.composer._mention;
+  const value = input.value || "";
+  const cursor = input.selectionStart;
+  const token = findActiveMentionToken(value, cursor);
+  if (!token) {
+    closeMentionDropdown();
+    return;
+  }
+  m.open = true;
+  m.token = token;
+  // Show the dropdown immediately (with a "typing…" hint while we debounce)
+  // so the user has visual feedback they're in a mention context.
+  if (!m.results.length) renderMentionDropdown(input);
+  _fetchMentionsDebounced(token.query, input);
+}
+
+function renderMentionDropdown(input) {
+  const m = state.composer._mention;
+  const dropdown = document.getElementById("composerMention");
+  if (!dropdown) return;
+  if (!m.open) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+    return;
+  }
+  dropdown.classList.remove("hidden");
+  dropdown.replaceChildren();
+  if (!m.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "composer-mention-empty";
+    empty.textContent = m.lastQuery == null ? "Loading…" : "No matches.";
+    dropdown.appendChild(empty);
+    return;
+  }
+  m.results.forEach((u, idx) => {
+    const item = document.createElement("div");
+    item.className = "composer-mention-item";
+    if (idx === m.activeIdx) item.classList.add("is-active");
+    item.setAttribute("role", "option");
+    item.dataset.idx = String(idx);
+    const av = document.createElement("img");
+    av.className = "composer-mention-avatar";
+    av.alt = "";
+    av.referrerPolicy = "no-referrer";
+    if (u.photo_url) av.src = u.photo_url;
+    item.appendChild(av);
+    const name = document.createElement("span");
+    name.className = "composer-mention-name";
+    name.textContent = u.name || u.handle || `User ${u.user_id}`;
+    item.appendChild(name);
+    if (u.handle && u.handle !== u.name) {
+      const handle = document.createElement("span");
+      handle.className = "composer-mention-handle";
+      handle.textContent = "@" + u.handle;
+      item.appendChild(handle);
+    }
+    item.addEventListener("mousedown", (e) => {
+      // mousedown so the textarea doesn't lose focus before we re-insert.
+      e.preventDefault();
+      selectMentionFromDropdown(input, idx);
+    });
+    dropdown.appendChild(item);
+  });
+}
+
+function handleMentionKeydown(e, input) {
+  const m = state.composer._mention;
+  if (!m.open) return false;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeMentionDropdown();
+    return true;
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (m.results.length) {
+      m.activeIdx = (m.activeIdx + 1) % m.results.length;
+      renderMentionDropdown(input);
+    }
+    return true;
+  }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (m.results.length) {
+      m.activeIdx =
+        (m.activeIdx - 1 + m.results.length) % m.results.length;
+      renderMentionDropdown(input);
+    }
+    return true;
+  }
+  if ((e.key === "Enter" || e.key === "Tab") && m.results.length) {
+    e.preventDefault();
+    selectMentionFromDropdown(input, m.activeIdx);
+    return true;
+  }
+  return false;
+}
+
+function selectMentionFromDropdown(input, idx) {
+  const m = state.composer._mention;
+  const user = m.results[idx];
+  if (!user || !m.token) {
+    closeMentionDropdown();
+    return;
+  }
+  const displayName = user.name || user.handle || `User ${user.user_id}`;
+  const { text, cursor } = replaceMentionToken(
+    input.value || "",
+    m.token,
+    displayName
+  );
+  input.value = text;
+  // Track the mention so buildCommentBody can convert it into a ${N} slot
+  // at send time. Key is the literal token we inserted (`@<name>`).
+  state.composer.mentions["@" + displayName] = {
+    user_id: user.user_id,
+    text: "@" + displayName,
+  };
+  closeMentionDropdown();
+  // Restore the caret position to just after the inserted token + space.
+  try {
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+  } catch (_) {}
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+}
+
+function closeMentionDropdown() {
+  const m = state.composer._mention;
+  m.open = false;
+  m.token = null;
+  m.results = [];
+  m.activeIdx = 0;
+  m.lastQuery = null;
+  const dropdown = document.getElementById("composerMention");
+  if (dropdown) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+  }
+}
+
+async function submitComposer() {
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+  const text = (input.value || "").trim();
+  if (!text) return;
+  if (state.composer.pending) return; // already in flight
+  if (!state.postUuid) {
+    showComposerError("No chat post loaded — refresh and try again.");
+    return;
+  }
+
+  const rawText = input.value;
+  const sendingMentions = { ...state.composer.mentions };
+  const { body, mentions } = buildCommentBody(rawText, sendingMentions);
+  const clientId = composerUuid();
+  // Commit 6: attach reply parent / quote if the user clicked Reply.
+  const replyFields = buildReplyFields(state.composer);
+  const replyingToSnapshot = state.composer.replyingTo
+    ? { ...state.composer.replyingTo }
+    : null;
+
+  // OPTIMISTIC: insert into the store and render IMMEDIATELY so the user
+  // sees their message land without the 12s poll delay.
+  const pending = buildPendingComment(clientId, state.user, body, mentions);
+  // If this is a reply, attach the quote shape so the renderMessageItem
+  // path renders the quoted block immediately on the optimistic row.
+  if (replyingToSnapshot) {
+    pending.parent_id = replyingToSnapshot.id;
+    pending.quote = {
+      id: replyingToSnapshot.id,
+      body: replyingToSnapshot.body || "",
+      author: replyingToSnapshot.author || null,
+    };
+  }
+  state.comments.set(clientId, pending);
+  insertInOrder(pending);
+  renderAll();
+  if (state.isAtBottom) scrollToBottom();
+
+  // Clear the composer right away. If the send fails, the message stays in
+  // the stream with a Retry button — we don't make the user re-type. The
+  // text is preserved on the failed comment itself (via pending.body).
+  input.value = "";
+  state.composer.mentions = {};
+  // Clear the reply target on optimistic insert; the failed-retry path
+  // re-attaches it from the pending comment's parent_id/quote.
+  clearReplyTarget(state.composer);
+  renderComposerReplyBar();
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+
+  // Loading state on the button.
+  state.composer.pending = { id: clientId, text: rawText };
+  sendBtn.classList.add("is-sending");
+  sendBtn.classList.remove("is-error");
+  sendBtn.textContent = "Sending…";
+  sendBtn.disabled = true;
+  clearComposerError();
+
+  try {
+    const res = await apiPostComment(state.postUuid, {
+      id: clientId,
+      body,
+      mentions,
+      ...replyFields,
+    });
+    // Try to reconcile from the response itself. If we can find the freshly
+    // created comment in the post payload, splice it into the stream right
+    // away so we don't have to wait for the next poll cycle.
+    const freshly = extractFreshComment(res, clientId, state.user);
+    if (freshly) {
+      reconcilePending(
+        { comments: state.comments, order: state.order },
+        freshly
+      );
+      renderAll();
+    } else {
+      // Fall back to a poll — ingestComment will overwrite the pending row
+      // if the server preserved our client id, or we'll have a duplicate
+      // (rare on Substack; their dedup honors client ids).
+      try {
+        await pollNewMessages();
+      } catch (_) {}
+    }
+  } catch (e) {
+    // Mark the optimistic message as failed in-place. The user can either
+    // hit the Retry button on the message OR the Retry button next to the
+    // composer (which re-sends the same text).
+    markPendingFailed(
+      { comments: state.comments, order: state.order },
+      clientId,
+      (e && e.message) || "Send failed"
+    );
+    renderAll();
+    showComposerError(
+      "Send failed: " + (e && e.message ? e.message : "unknown error") +
+        " — click the message to retry."
+    );
+    state.composer._lastError = true;
+    state.composer._lastFailedId = clientId;
+  } finally {
+    state.composer.pending = null;
+    sendBtn.classList.remove("is-sending");
+    if (!state.composer._lastError) {
+      sendBtn.textContent = "Send";
+    } else {
+      sendBtn.classList.add("is-error");
+      sendBtn.textContent = "Retry";
+    }
+    if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+    if (state.composer._lastError) sendBtn.disabled = false;
+  }
+}
+
+// Walk a postComment response trying to find the just-created comment with
+// our client id. Substack's response shape is `{post: {...}}` — the
+// updated post object often (but not always) includes a `recent_comments`
+// or similar list with the new comment at the tail. Best-effort.
+function extractFreshComment(res, clientId, user) {
+  if (!res || typeof res !== "object") return null;
+  const candidates = [];
+  const push = (x) => {
+    if (!x) return;
+    if (Array.isArray(x)) for (const it of x) push(it);
+    else if (x.comment) candidates.push(unwrapComment(x) || x.comment);
+    else if (x.body && x.id) candidates.push(x);
+  };
+  // Try every shape we've seen in the wild.
+  push(res.comment);
+  push(res.new_comment);
+  push(res.replies);
+  if (res.post) {
+    push(res.post.recent_comments);
+    push(res.post.replies);
+    push(res.post.comment);
+  }
+  // Pick the comment whose id matches our client id (preferred), else the
+  // most recent comment by this user (fallback).
+  for (const c of candidates) {
+    if (c && String(c.id) === String(clientId)) return c;
+  }
+  if (user && user.id != null) {
+    let best = null;
+    let bestT = 0;
+    for (const c of candidates) {
+      if (!c) continue;
+      const uid = c.user_id ?? (c.author && c.author.id);
+      if (uid !== user.id) continue;
+      const t = new Date(c.created_at || 0).getTime() || 0;
+      if (t >= bestT) {
+        bestT = t;
+        best = c;
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+// After every render, decorate pending/failed messages with their state-
+// specific UI. We do this as a post-render pass instead of editing the
+// (frozen-for-track-B) renderMessageItem path.
+function decoratePendingMessages() {
+  const container = document.getElementById("messages");
+  if (!container) return;
+  // Pending / failed UI.
+  for (const id of state.order) {
+    const c = state.comments.get(id);
+    if (!c) continue;
+    const node = container.querySelector(
+      `.msg-item[data-id="${cssEscape(String(id))}"]`
+    );
+    if (!node) continue;
+    if (c._pending) {
+      node.classList.add("_pending");
+    } else {
+      node.classList.remove("_pending");
+    }
+    if (c._failed) {
+      node.classList.add("_failed");
+      if (!node.querySelector(".msg-failed-bar")) {
+        const bar = document.createElement("div");
+        bar.className = "msg-failed-bar";
+        const label = document.createElement("span");
+        label.textContent = "Send failed.";
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "msg-failed-retry";
+        retry.textContent = "Retry";
+        retry.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          retryFailedMessage(id);
+        });
+        bar.appendChild(label);
+        bar.appendChild(retry);
+        node.appendChild(bar);
+      }
+    } else {
+      node.classList.remove("_failed");
+    }
+    // Commit 5: reaction toolbar (skip on pending/failed rows — can't react
+    // to something that hasn't landed yet).
+    if (!c._pending && !c._failed) {
+      decorateReactionToolbar(node, c);
+    }
+  }
+}
+
+async function retryFailedMessage(clientId) {
+  const c = state.comments.get(clientId);
+  if (!c || !c._failed) return;
+  // Flip back to pending.
+  c._failed = false;
+  c._pending = true;
+  c._error = null;
+  renderAll();
+  // Preserve the reply context that was captured when the message was first
+  // optimistically inserted (commit 6).
+  const retryReply = {};
+  if (c.parent_id) retryReply.parentId = c.parent_id;
+  if (c.quote) retryReply.quote = c.quote;
+  try {
+    const res = await apiPostComment(state.postUuid, {
+      id: clientId,
+      body: c.body,
+      mentions: c.mentions || {},
+      ...retryReply,
+    });
+    const freshly = extractFreshComment(res, clientId, state.user);
+    if (freshly) {
+      reconcilePending(
+        { comments: state.comments, order: state.order },
+        freshly
+      );
+    } else {
+      // The reconciler will run again on the next poll if needed.
+      c._pending = false;
+    }
+    renderAll();
+  } catch (e) {
+    markPendingFailed(
+      { comments: state.comments, order: state.order },
+      clientId,
+      (e && e.message) || "Send failed"
+    );
+    renderAll();
+  }
+}
+
+// Hook the post-render decorator. We patch renderAll once at mount time:
+// every call routes through the original first, then runs our decorator.
+let _renderAllPatched = false;
+function patchRenderAllForComposer() {
+  if (_renderAllPatched) return;
+  _renderAllPatched = true;
+  const orig = renderAll;
+  // We can't reassign the top-level `renderAll` reference (it's a function
+  // declaration), but we CAN wrap the post-render hook by monkey-patching
+  // `renderMessages` instead — it's the one renderAll calls after the
+  // ingest path settles. Subclasses below override window-level hook.
+  // Simpler: just listen for the messages container to update via a
+  // MutationObserver. Lightweight and unaware of internal render structure.
+  const container = document.getElementById("messages");
+  if (!container) return;
+  const observer = new MutationObserver(() => {
+    try {
+      decoratePendingMessages();
+    } catch (e) {
+      console.warn("[BetterSSC] decorate failed:", e);
+    }
+  });
+  observer.observe(container, { childList: true });
+  // Run once immediately so any initial pending rows pick up styling.
+  decoratePendingMessages();
+  // Reference orig so the linter doesn't complain about unused vars.
+  void orig;
+}
+
+function showComposerError(msg) {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  let err = document.getElementById("composerError");
+  if (!err) {
+    err = document.createElement("div");
+    err.id = "composerError";
+    err.className = "composer-error";
+    composer.appendChild(err);
+  }
+  err.textContent = msg;
+}
+
+function clearComposerError() {
+  const err = document.getElementById("composerError");
+  if (err) err.remove();
+  state.composer._lastError = false;
+  const sendBtn = document.getElementById("composerSend");
+  if (sendBtn) sendBtn.classList.remove("is-error");
+}
+
+// ============================================================
+// REACTIONS (commit 5)
+// ============================================================
+//
+// Hover toolbar with a "+" button → opens an emoji picker (top 6). Clicking
+// an emoji optimistically bumps the count + calls api.postReaction. On
+// error we roll back. Decorator runs on every render via the MutationObserver
+// in patchRenderAllForComposer.
+
+state.composer._reactionLibrary = null; // populated lazily
+
+async function ensureReactionLibrary() {
+  if (state.composer._reactionLibrary) return state.composer._reactionLibrary;
+  try {
+    const lib = await apiFetchReactionsLibrary();
+    state.composer._reactionLibrary = lib;
+    return lib;
+  } catch (_) {
+    state.composer._reactionLibrary = {};
+    return {};
+  }
+}
+
+function suggestedReactions() {
+  return pickSuggestedReactions(state.composer._reactionLibrary, 6);
+}
+
+function decorateReactionToolbar(node, comment) {
+  if (node.querySelector(".msg-toolbar")) return; // already decorated
+  const toolbar = document.createElement("div");
+  toolbar.className = "msg-toolbar";
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "msg-toolbar-btn";
+  addBtn.title = "Add reaction";
+  addBtn.setAttribute("aria-label", "Add reaction");
+  addBtn.textContent = "+";
+  addBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleEmojiPicker(node, comment);
+  });
+  toolbar.appendChild(addBtn);
+  // Commit 6: Reply button.
+  const replyBtn = document.createElement("button");
+  replyBtn.type = "button";
+  replyBtn.className = "msg-toolbar-btn";
+  replyBtn.title = "Reply";
+  replyBtn.setAttribute("aria-label", "Reply");
+  replyBtn.textContent = "↩";
+  replyBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    startReplyTo(comment);
+  });
+  toolbar.appendChild(replyBtn);
+  node.appendChild(toolbar);
+}
+
+async function toggleEmojiPicker(node, comment) {
+  // Close any other open picker first.
+  document.querySelectorAll(".emoji-picker").forEach((p) => p.remove());
+  document.querySelectorAll(".msg-item.has-picker").forEach((m) =>
+    m.classList.remove("has-picker")
+  );
+  // If this row already had one, we just closed it — done.
+  if (node._hasPicker) {
+    node._hasPicker = false;
+    return;
+  }
+  // Make sure the library is loaded so suggestedReactions returns the live
+  // set (if available). Don't await — show defaults immediately and let the
+  // next click hit the live list.
+  ensureReactionLibrary();
+
+  const picker = document.createElement("div");
+  picker.className = "emoji-picker";
+  const types = suggestedReactions();
+  for (const type of types) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "emoji-picker-btn";
+    btn.title = `:${type}:`;
+    btn.textContent = composerReactionEmojiFor(type);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      picker.remove();
+      node.classList.remove("has-picker");
+      node._hasPicker = false;
+      sendReaction(comment, type);
+    });
+    picker.appendChild(btn);
+  }
+  node.appendChild(picker);
+  node.classList.add("has-picker");
+  node._hasPicker = true;
+  // Click-outside to close.
+  const onDocClick = (e) => {
+    if (!picker.contains(e.target) && !node.contains(e.target)) {
+      picker.remove();
+      node.classList.remove("has-picker");
+      node._hasPicker = false;
+      document.removeEventListener("click", onDocClick, true);
+    }
+  };
+  // Defer so the current click doesn't immediately close.
+  setTimeout(() => document.addEventListener("click", onDocClick, true), 0);
+}
+
+async function sendReaction(comment, type) {
+  if (!comment || !type) return;
+  const id = comment.id;
+  // Optimistic bump.
+  const prevReactions = comment.reactions;
+  comment.reactions = updateReactionCount(prevReactions, type, +1);
+  renderAll();
+  try {
+    await apiPostReaction(id, type);
+  } catch (e) {
+    // Rollback.
+    comment.reactions = prevReactions;
+    renderAll();
+    showError(
+      "Reaction failed: " + ((e && e.message) || "unknown error")
+    );
+  }
+}
+
+// Mount when the app is visible. If we're on the landing screen, #composer
+// doesn't exist and mountComposer is a no-op. If we're in the app, calling
+// it here happens AFTER bindEventHandlers — fine, the composer's own
+// listeners are scoped to its own elements.
+if (typeof appEl !== "undefined" && appEl && !appEl.classList.contains("hidden")) {
+  mountComposer();
+  patchRenderAllForComposer();
+}

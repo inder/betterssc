@@ -96,13 +96,47 @@
         </aside>
       </main>
 
+      <div class="composer" id="composer">
+        <div class="composer-reply hidden" id="composerReply">
+          <span class="composer-reply-label" id="composerReplyLabel"></span>
+          <button
+            type="button"
+            class="composer-reply-close"
+            id="composerReplyClose"
+            title="Cancel reply"
+            aria-label="Cancel reply"
+          >×</button>
+        </div>
+        <div class="composer-row">
+          <textarea
+            id="composerInput"
+            class="composer-input"
+            rows="1"
+            placeholder="Send a message"
+            autocomplete="off"
+            spellcheck="true"
+          ></textarea>
+          <button
+            type="button"
+            id="composerSend"
+            class="composer-send"
+            disabled
+            aria-label="Send message"
+          >Send</button>
+        </div>
+        <div class="composer-mention hidden" id="composerMention" role="listbox"></div>
+      </div>
+
       <footer class="footer">
-        <span class="footer-note">
-          v0.1 · Read-only. To send messages, use
-          <a id="openNativeChat" href="#" target="_blank" rel="noopener"
-            >Substack's native chat</a
-          >.
-        </span>
+        <span class="footer-note" id="footerNote"></span>
+        <a
+          id="openNativeChat"
+          class="footer-link hidden"
+          href="#"
+          target="_blank"
+          rel="noopener"
+          >Open in Substack</a
+        >
         <span class="footer-stats" id="footerStats"></span>
       </footer>
     </div>
