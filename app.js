@@ -1581,23 +1581,11 @@ function maybeAlertOnWatchedUser(comment) {
 // arrive; the click handler on .header-left toggles panel visibility.
 // Merge state.user with _userTable so we pick up the photo_url that
 // arrived via comment ingest. fetchUserIdentity only returns {id, name}
-// from window._analyticsConfig — without this merge the header would
-// always show a letter placeholder for "you" even after we've seen
-// your photo in chat. Falls back to name-matching across the user
-// table when id lookup misses (the analytics-config id and the
-// comment.user_id can be different shapes in some publications).
+// — without this merge the header would always show a letter
+// placeholder for "you" even after we've seen your photo in chat.
 function getResolvedSelf() {
   if (!state.user) return null;
-  let cached = state.user.id != null ? _userTable.get(state.user.id) : null;
-  if ((!cached || !cached.photo_url) && state.user.name) {
-    const wantName = state.user.name.toLowerCase();
-    for (const entry of _userTable.values()) {
-      if (entry && entry.name && entry.name.toLowerCase() === wantName) {
-        cached = entry;
-        break;
-      }
-    }
-  }
+  const cached = state.user.id != null ? _userTable.get(state.user.id) : null;
   return {
     id: state.user.id,
     name: state.user.name || (cached && cached.name) || "You",
@@ -1633,11 +1621,9 @@ function renderChatHeader() {
     null;
   const fullBody = extractPostBody(state.post);
   if (postTitleEl) {
-    // Avatar already conveys the author — don't duplicate "Za · " here.
-    // CSS ::before draws the inline "·" separator between pub-name and
-    // this snippet so the header reads as one line.
-    const snippet = fullBody.slice(0, 120).replace(/\s+/g, " ").trim();
-    postTitleEl.textContent = snippet || "Open chat";
+    const titlePrefix = postAuthor && postAuthor.name ? `${postAuthor.name} · ` : "";
+    const snippet = fullBody.slice(0, 80);
+    postTitleEl.textContent = `${titlePrefix}${snippet}`.trim() || "Open chat";
   }
   const authorSlot = document.getElementById("postAuthorAvatar");
   if (authorSlot) {
@@ -3120,33 +3106,8 @@ async function ensureReactionLibrary() {
   }
 }
 
-// Returns 6 reaction names, all guaranteed to render distinct glyphs.
-// Substack's library returns aliases (thumbs_up vs upvote) that map
-// to the same emoji — without per-glyph dedup at THIS layer, the
-// picker's own glyph dedup strips the alias and the row shrinks to 5.
 function suggestedReactions() {
-  // Ask for more than we need so we have room to drop aliases.
-  const raw = pickSuggestedReactions(state.composer._reactionLibrary, 12);
-  const out = [];
-  const seenGlyphs = new Set();
-  for (const type of raw) {
-    const glyph = composerReactionEmojiFor(type);
-    if (seenGlyphs.has(glyph)) continue;
-    seenGlyphs.add(glyph);
-    out.push(type);
-    if (out.length >= 6) return out;
-  }
-  // If the (deduped) live library + defaults still didn't hit 6,
-  // walk DEFAULT_SUGGESTED_REACTIONS directly so we always emit a
-  // full row.
-  for (const type of DEFAULT_SUGGESTED_REACTIONS) {
-    const glyph = composerReactionEmojiFor(type);
-    if (seenGlyphs.has(glyph)) continue;
-    seenGlyphs.add(glyph);
-    out.push(type);
-    if (out.length >= 6) break;
-  }
-  return out;
+  return pickSuggestedReactions(state.composer._reactionLibrary, 6);
 }
 
 function decorateReactionToolbar(node, comment) {
