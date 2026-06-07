@@ -1,0 +1,17 @@
+{
+  "name": "betterssc",
+  "version": "0.1.33",
+  "description": "Discord-style Chrome extension for Substack Chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^2.1.5",
+    "happy-dom": "^15.11.6",
+    "vitest": "^2.1.5"
+  }
+}

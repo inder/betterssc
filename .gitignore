@@ -11,3 +11,7 @@ dist/
 # Build artifacts
 *.zip
 *.crx
+
+# Test
+coverage/
+.vitest-cache/
