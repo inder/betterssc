@@ -43,6 +43,81 @@ describe("linkifyText", () => {
     expect(parts[1]).toEqual({ type: "link", value: "https://example.com" });
     expect(parts[2]).toEqual({ type: "text", value: " for info" });
   });
+
+  it("detects $TICKER symbols and uppercases the symbol field", () => {
+    const parts = linkifyText("buying $NASA today");
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toEqual({ type: "text", value: "buying " });
+    expect(parts[1]).toEqual({
+      type: "ticker",
+      value: "$NASA",
+      symbol: "NASA",
+    });
+    expect(parts[2]).toEqual({ type: "text", value: " today" });
+  });
+
+  it("uppercases lowercase ticker writing", () => {
+    const parts = linkifyText("watching $dxyz");
+    expect(parts[1]).toEqual({
+      type: "ticker",
+      value: "$dxyz",
+      symbol: "DXYZ",
+    });
+  });
+
+  it("supports share-class tickers like $BRK.B", () => {
+    const parts = linkifyText("hold $BRK.B forever");
+    expect(parts[1]).toEqual({
+      type: "ticker",
+      value: "$BRK.B",
+      symbol: "BRK.B",
+    });
+  });
+
+  it("does NOT match dollar amounts like $5 or $100", () => {
+    expect(linkifyText("paid $5 today")).toEqual([
+      { type: "text", value: "paid $5 today" },
+    ]);
+    expect(linkifyText("$100k raise")).toEqual([
+      { type: "text", value: "$100k raise" },
+    ]);
+  });
+
+  it("does NOT match tickers preceded by a letter or digit", () => {
+    expect(linkifyText("email$NASA bad")).toEqual([
+      { type: "text", value: "email$NASA bad" },
+    ]);
+  });
+
+  it("handles multiple tickers and a URL together", () => {
+    const parts = linkifyText(
+      "$NASA + $DXYZ chart: https://tradingview.com/chart"
+    );
+    const types = parts.map((p) => p.type);
+    expect(types).toEqual(["ticker", "text", "ticker", "text", "link"]);
+    expect(parts[0].symbol).toBe("NASA");
+    expect(parts[2].symbol).toBe("DXYZ");
+  });
+
+  it("strips trailing punctuation from tickers", () => {
+    const parts = linkifyText("loaded up on $NASA.");
+    expect(parts[1]).toEqual({
+      type: "ticker",
+      value: "$NASA",
+      symbol: "NASA",
+    });
+    expect(parts[2]).toEqual({ type: "text", value: "." });
+  });
+
+  it("only matches single-letter share classes ($BRK.BB degrades to $BRK)", () => {
+    const parts = linkifyText("hold $BRK.BB now");
+    expect(parts[1]).toEqual({
+      type: "ticker",
+      value: "$BRK",
+      symbol: "BRK",
+    });
+    expect(parts[2]).toEqual({ type: "text", value: ".BB now" });
+  });
 });
 
 describe("groupByAuthor", () => {

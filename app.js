@@ -1073,6 +1073,14 @@ function renderMessageItem(c) {
           a.rel = "noopener noreferrer";
           a.textContent = part.value;
           wrap.appendChild(a);
+        } else if (part.type === "ticker") {
+          const a = document.createElement("a");
+          a.className = "msg-ticker";
+          a.href = "#";
+          a.dataset.symbol = part.symbol;
+          a.textContent = part.value;
+          a.title = `View ${part.symbol} on TradingView`;
+          wrap.appendChild(a);
         } else {
           wrap.appendChild(document.createTextNode(part.value));
         }
@@ -1956,6 +1964,96 @@ function closePostModal() {
   if (btn) btn.setAttribute("aria-expanded", "false");
 }
 
+// ============================================================
+// TICKER MODAL (click $NASA / $DXYZ → TradingView chart)
+// ============================================================
+//
+// Each $TICKER token in a message renders as a .msg-ticker anchor. A
+// delegated listener on #messages handles clicks. The modal embeds
+// TradingView's free advanced-chart widget via iframe — no script tag,
+// no API key, no auth. Theme follows the current BetterSSC theme.
+
+function openTickerModal(symbol) {
+  if (!symbol) return;
+  closeTickerModal(); // dismiss any existing modal first
+  const theme =
+    document.documentElement.getAttribute("data-theme") === "dark"
+      ? "dark"
+      : "light";
+  const config = {
+    symbol,
+    interval: "D",
+    hide_side_toolbar: true,
+    allow_symbol_change: true,
+    theme,
+    style: "1",
+    locale: "en",
+    autosize: true,
+    save_image: false,
+  };
+  const url =
+    "https://s.tradingview.com/embed-widget/advanced-chart/?locale=en#" +
+    encodeURIComponent(JSON.stringify(config));
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "tickerModalBackdrop";
+  backdrop.className = "ticker-modal-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "$" + symbol + " chart");
+
+  const modal = document.createElement("div");
+  modal.className = "ticker-modal";
+
+  const header = document.createElement("div");
+  header.className = "ticker-modal-header";
+  const symEl = document.createElement("span");
+  symEl.className = "ticker-modal-symbol";
+  symEl.textContent = "$" + symbol;
+  const openExternal = document.createElement("a");
+  openExternal.className = "ticker-modal-external";
+  openExternal.href = "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(symbol);
+  openExternal.target = "_blank";
+  openExternal.rel = "noopener noreferrer";
+  openExternal.textContent = "open on TradingView ↗";
+  openExternal.title = "Open full chart on TradingView";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ticker-modal-close";
+  closeBtn.textContent = "✕";
+  closeBtn.title = "Close (Esc)";
+  closeBtn.addEventListener("click", closeTickerModal);
+  header.appendChild(symEl);
+  header.appendChild(openExternal);
+  header.appendChild(closeBtn);
+
+  const iframe = document.createElement("iframe");
+  iframe.className = "ticker-modal-iframe";
+  iframe.src = url;
+  iframe.setAttribute("frameborder", "0");
+  iframe.setAttribute("scrolling", "no");
+  iframe.setAttribute(
+    "sandbox",
+    "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+  );
+
+  modal.appendChild(header);
+  modal.appendChild(iframe);
+  backdrop.appendChild(modal);
+
+  // Click outside the modal closes it.
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeTickerModal();
+  });
+
+  document.body.appendChild(backdrop);
+  closeBtn.focus();
+}
+
+function closeTickerModal() {
+  const el = document.getElementById("tickerModalBackdrop");
+  if (el) el.remove();
+}
+
 // Kept name for compatibility with the existing click handler; just
 // opens the modal now.
 function toggleChatHeaderPanel() {
@@ -2563,6 +2661,20 @@ function bindEventHandlers() {
     scrollToBottom();
   });
 
+  // Delegated click handler for $TICKER links in messages — opens the
+  // TradingView modal. Delegation means we don't have to re-bind on
+  // every render.
+  const messagesEl = document.getElementById("messages");
+  if (messagesEl) {
+    messagesEl.addEventListener("click", (e) => {
+      const ticker = e.target.closest && e.target.closest(".msg-ticker");
+      if (!ticker) return;
+      e.preventDefault();
+      const symbol = ticker.dataset.symbol;
+      if (symbol) openTickerModal(symbol);
+    });
+  }
+
   const searchInput = document.getElementById("searchInput");
   searchInput.addEventListener(
     "input",
@@ -2592,6 +2704,11 @@ function bindEventHandlers() {
     // Escape — clear active overlays, then thread filter, then search.
     // v0.1.27: works from anywhere, not just when focused in the search box.
     if (e.key === "Escape") {
+      const tickerModal = document.getElementById("tickerModalBackdrop");
+      if (tickerModal) {
+        closeTickerModal();
+        return;
+      }
       const overlay = document.querySelector(".help-overlay, .lightbox");
       if (overlay) {
         overlay.remove();

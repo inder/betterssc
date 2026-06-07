@@ -2,11 +2,11 @@
   "sha": "uncommitted",
   "branch": "main",
   "ts": "2026-06-07T00:00:00Z",
-  "verdict": "ship-it",
+  "verdict": "fix-these",
   "retro_required": "no",
-  "retro_reasoning": "9-line diff, no critical findings, no schema or contract changes, single behavior tweak",
+  "retro_reasoning": "Diff is ~185 lines of behavior code, no schema or contract changes, one should-fix finding (BRK.BB partial match gap) and one nit",
   "critical_count": 0,
-  "should_fix_count": 0,
-  "nit_count": 1,
-  "files_reviewed": 1
+  "should_fix_count": 1,
+  "nit_count": 2,
+  "files_reviewed": 4
 }
