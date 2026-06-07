@@ -279,6 +279,25 @@ describe("buildSystemPrompt", () => {
       "financial / markets / trading group chat"
     );
   });
+
+  it("includes the focused-author perspective hint when focusedAuthor is set", () => {
+    const prompt = buildSystemPrompt(ctx, { focusedAuthor: "Jordan" });
+    // Case-insensitive: prompt should reference Jordan's viewpoint via
+    // one of the canonical phrasings.
+    expect(prompt).toMatch(/in jordan's view|jordan thinks/i);
+    // And it should explicitly call out the third-person framing.
+    expect(prompt).toContain("third person");
+  });
+
+  it("omits the perspective hint when focusedAuthor is missing", () => {
+    const prompt = buildSystemPrompt(ctx);
+    expect(prompt).not.toContain("third person");
+  });
+
+  it("trims focusedAuthor and treats empty string as missing", () => {
+    const prompt = buildSystemPrompt(ctx, { focusedAuthor: "   " });
+    expect(prompt).not.toContain("third person");
+  });
 });
 
 // ---------------------------------------------------------------------------

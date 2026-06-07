@@ -2165,6 +2165,32 @@ function getVisibleCommentsForAi() {
   });
 }
 
+// When the user has narrowed the chat to a single person via @<name>,
+// /from:<name>, or /me, return that person's display name. Used by
+// runAiInsights to tell the LLM to phrase the summary in third person
+// from that person's viewpoint ("In Jordan's view, ..."). Returns null
+// when the filter isn't author-scoped or there's no filter at all.
+function detectFocusedAuthorName() {
+  const raw = (state.searchQuery || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("@")) {
+    const name = raw.slice(1).trim();
+    return name || null;
+  }
+  const lower = raw.toLowerCase();
+  const cmd = lower.startsWith("/") ? lower.slice(1) : lower;
+  if (cmd === "me") {
+    return (state.user && state.user.name) || null;
+  }
+  if (cmd.startsWith("from:")) {
+    // Preserve the user's original casing for display.
+    const fromIdx = lower.indexOf("from:");
+    const name = raw.slice(fromIdx + 5).trim();
+    return name || null;
+  }
+  return null;
+}
+
 async function handleAiInsightsClick() {
   if (state.aiBusy) return;
   const provider = state.aiProvider;
@@ -2199,7 +2225,11 @@ async function runAiInsights(providerName, apiKey) {
 
   const visible = getVisibleCommentsForAi();
   const { context, included, dropped } = formatMessagesForLLM(visible);
-  const systemPrompt = buildSystemPrompt(context, { lens: "trading" });
+  const focusedAuthor = detectFocusedAuthorName();
+  const systemPrompt = buildSystemPrompt(context, {
+    lens: "trading",
+    focusedAuthor,
+  });
 
   try {
     // 30s timeout — provider hangs would otherwise lock aiBusy forever
@@ -2648,6 +2678,15 @@ function applySearch() {
     const ids = Array.from(group.querySelectorAll("[data-id]")).map(
       (n) => n.dataset.id
     );
+    // AI Insights messages bypass every filter. They're local-only,
+    // user-requested, and synthesized FROM the current filtered view,
+    // so hiding them after the fact would make the user click AI
+    // Insights and see nothing. Detect by the `ai_` id prefix.
+    const containsAi = ids.some((id) => id && id.startsWith("ai_"));
+    if (containsAi) {
+      group.classList.add("search-hit");
+      return;
+    }
     const groupHasHit = ids.some((id) => hitIds.has(id));
     const inThread =
       !threadMemberIds || ids.some((id) => threadMemberIds.has(id));
@@ -2879,6 +2918,13 @@ function applyThreadFilter() {
     const ids = Array.from(group.querySelectorAll("[data-id]")).map(
       (n) => n.dataset.id
     );
+    // AI Insights messages bypass the thread filter for the same reason
+    // they bypass the search filter — user-requested, local-only.
+    const containsAi = ids.some((id) => id && id.startsWith("ai_"));
+    if (containsAi) {
+      group.classList.add("search-hit");
+      return;
+    }
     const inThread = ids.some((id) => idsInThread.has(id));
     if (!inThread) {
       group.classList.add("search-hidden");

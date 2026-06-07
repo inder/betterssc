@@ -1,12 +1,12 @@
 {
-  "sha": "65499ad",
+  "sha": "78227f613c8b7e2abad6db162d16401a85eda5f4",
   "branch": "main",
-  "ts": "2026-06-07T00:00:00Z",
-  "verdict": "fix-these",
+  "ts": "2026-06-07T18:43:25Z",
+  "verdict": "ship-it",
   "retro_required": "no",
-  "retro_reasoning": "Diff is under 100 lines of behavior change, no schema or API contract changes, one should-fix finding but no critical findings",
+  "retro_reasoning": "Diff is under 100 lines of behavior change, no schema or contract changes, no critical findings, two narrow polish items with clean logic.",
   "critical_count": 0,
-  "should_fix_count": 1,
+  "should_fix_count": 0,
   "nit_count": 2,
-  "files_reviewed": 3
+  "files_reviewed": 2
 }
