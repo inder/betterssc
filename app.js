@@ -2094,9 +2094,14 @@ import {
   buildPendingComment,
   reconcilePending,
   markPendingFailed,
+  findActiveMentionToken,
+  replaceMentionToken,
 } from "./lib/compose.js";
-import { postComment as apiPostComment } from "./lib/api.js";
-import { uuid as composerUuid } from "./lib/util.js";
+import {
+  postComment as apiPostComment,
+  fetchMentionSuggestions as apiFetchMentions,
+} from "./lib/api.js";
+import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
 
 // Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
 // state path. Initialized lazily on first mount so a missing #composer (e.g.
@@ -2131,11 +2136,15 @@ function mountComposer() {
       sendBtn.textContent = "Send";
     }
     refreshSendBtn();
+    // Commit 4: mention autocomplete trigger.
+    onMentionInput(input);
   });
 
   // Enter sends, Shift+Enter inserts a newline. We DON'T preventDefault on
-  // Shift+Enter — the browser handles it natively.
+  // Shift+Enter — the browser handles it natively. Arrow keys + Enter +
+  // Esc are intercepted when the mention dropdown is active.
   input.addEventListener("keydown", (e) => {
+    if (handleMentionKeydown(e, input)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submitComposer();
@@ -2153,6 +2162,190 @@ function mountComposer() {
 
   // Expose so submitComposer() can re-check after state changes.
   state.composer._refreshSendBtn = refreshSendBtn;
+}
+
+// ============================================================
+// MENTION AUTOCOMPLETE (commit 4)
+// ============================================================
+//
+// Composer-scoped mention dropdown. Driven by findActiveMentionToken on
+// every input event — when the user's caret is inside a `@<query>` token
+// we debounce-fetch suggestions from /api/v1/community/mention and render
+// them in #composerMention. Arrow keys + Enter pick one; Esc closes.
+
+state.composer._mention = state.composer._mention || {
+  open: false,
+  token: null,       // active token { query, start, end }
+  results: [],
+  activeIdx: 0,
+  lastQuery: null,
+};
+
+const _fetchMentionsDebounced = composerDebounce(async (query, input) => {
+  const m = state.composer._mention;
+  if (!m.open) return;
+  // Stale-query guard — only render the response if the user is still on
+  // the same query they were when we fired.
+  m.lastQuery = query;
+  try {
+    const res = await apiFetchMentions(
+      state.publicationId,
+      state.postUuid,
+      query
+    );
+    if (m.lastQuery !== query || !m.open) return;
+    const results = (res && res.results) || [];
+    m.results = results;
+    m.activeIdx = 0;
+    renderMentionDropdown(input);
+  } catch (e) {
+    if (m.lastQuery !== query || !m.open) return;
+    m.results = [];
+    renderMentionDropdown(input);
+  }
+}, 300);
+
+function onMentionInput(input) {
+  const m = state.composer._mention;
+  const value = input.value || "";
+  const cursor = input.selectionStart;
+  const token = findActiveMentionToken(value, cursor);
+  if (!token) {
+    closeMentionDropdown();
+    return;
+  }
+  m.open = true;
+  m.token = token;
+  // Show the dropdown immediately (with a "typing…" hint while we debounce)
+  // so the user has visual feedback they're in a mention context.
+  if (!m.results.length) renderMentionDropdown(input);
+  _fetchMentionsDebounced(token.query, input);
+}
+
+function renderMentionDropdown(input) {
+  const m = state.composer._mention;
+  const dropdown = document.getElementById("composerMention");
+  if (!dropdown) return;
+  if (!m.open) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+    return;
+  }
+  dropdown.classList.remove("hidden");
+  dropdown.replaceChildren();
+  if (!m.results.length) {
+    const empty = document.createElement("div");
+    empty.className = "composer-mention-empty";
+    empty.textContent = m.lastQuery == null ? "Loading…" : "No matches.";
+    dropdown.appendChild(empty);
+    return;
+  }
+  m.results.forEach((u, idx) => {
+    const item = document.createElement("div");
+    item.className = "composer-mention-item";
+    if (idx === m.activeIdx) item.classList.add("is-active");
+    item.setAttribute("role", "option");
+    item.dataset.idx = String(idx);
+    const av = document.createElement("img");
+    av.className = "composer-mention-avatar";
+    av.alt = "";
+    av.referrerPolicy = "no-referrer";
+    if (u.photo_url) av.src = u.photo_url;
+    item.appendChild(av);
+    const name = document.createElement("span");
+    name.className = "composer-mention-name";
+    name.textContent = u.name || u.handle || `User ${u.user_id}`;
+    item.appendChild(name);
+    if (u.handle && u.handle !== u.name) {
+      const handle = document.createElement("span");
+      handle.className = "composer-mention-handle";
+      handle.textContent = "@" + u.handle;
+      item.appendChild(handle);
+    }
+    item.addEventListener("mousedown", (e) => {
+      // mousedown so the textarea doesn't lose focus before we re-insert.
+      e.preventDefault();
+      selectMentionFromDropdown(input, idx);
+    });
+    dropdown.appendChild(item);
+  });
+}
+
+function handleMentionKeydown(e, input) {
+  const m = state.composer._mention;
+  if (!m.open) return false;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    closeMentionDropdown();
+    return true;
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (m.results.length) {
+      m.activeIdx = (m.activeIdx + 1) % m.results.length;
+      renderMentionDropdown(input);
+    }
+    return true;
+  }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (m.results.length) {
+      m.activeIdx =
+        (m.activeIdx - 1 + m.results.length) % m.results.length;
+      renderMentionDropdown(input);
+    }
+    return true;
+  }
+  if ((e.key === "Enter" || e.key === "Tab") && m.results.length) {
+    e.preventDefault();
+    selectMentionFromDropdown(input, m.activeIdx);
+    return true;
+  }
+  return false;
+}
+
+function selectMentionFromDropdown(input, idx) {
+  const m = state.composer._mention;
+  const user = m.results[idx];
+  if (!user || !m.token) {
+    closeMentionDropdown();
+    return;
+  }
+  const displayName = user.name || user.handle || `User ${user.user_id}`;
+  const { text, cursor } = replaceMentionToken(
+    input.value || "",
+    m.token,
+    displayName
+  );
+  input.value = text;
+  // Track the mention so buildCommentBody can convert it into a ${N} slot
+  // at send time. Key is the literal token we inserted (`@<name>`).
+  state.composer.mentions["@" + displayName] = {
+    user_id: user.user_id,
+    text: "@" + displayName,
+  };
+  closeMentionDropdown();
+  // Restore the caret position to just after the inserted token + space.
+  try {
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+  } catch (_) {}
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+}
+
+function closeMentionDropdown() {
+  const m = state.composer._mention;
+  m.open = false;
+  m.token = null;
+  m.results = [];
+  m.activeIdx = 0;
+  m.lastQuery = null;
+  const dropdown = document.getElementById("composerMention");
+  if (dropdown) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+  }
 }
 
 async function submitComposer() {

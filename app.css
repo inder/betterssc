@@ -917,6 +917,50 @@ button {
 }
 .composer-reply-close:hover { color: var(--text-primary); }
 
+/* MENTION DROPDOWN (commit 4) */
+.composer-mention {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 100%;
+  margin-bottom: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.composer-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.composer-mention-item:hover,
+.composer-mention-item.is-active {
+  background: var(--bg-hover);
+}
+.composer-mention-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg-accent);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.composer-mention-name { font-weight: 500; }
+.composer-mention-handle { color: var(--text-muted); font-size: 12px; }
+.composer-mention-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* PENDING / FAILED MESSAGE STATES (commit 3) */
 .msg-item._pending { opacity: 0.55; }
 .msg-item._pending::after {
