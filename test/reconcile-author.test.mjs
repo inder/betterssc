@@ -58,6 +58,35 @@ describe("reconcilePending preserves author when incoming lacks it", () => {
     expect(final.author.name).toBe("Inder Sabharwal");
   });
 
+  it("preserves pending.quote when incoming lacks quote (reply visual)", () => {
+    const store = makeStore();
+    const me = { id: 9024475, name: "Inder Sabharwal" };
+    const pending = buildPendingComment("client-q", me, "easy read", {});
+    pending.quote = {
+      id: "orig-1",
+      body: "the original message",
+      author: { id: 7, name: "Boz" },
+    };
+    pending.parent_id = "orig-1";
+    store.comments.set(pending.id, pending);
+    store.order.push(pending.id);
+
+    // Server echoes the message back without any quote info (we stopped
+    // sending parent_id/quote on the wire in v0.2-write).
+    const incoming = {
+      id: "client-q",
+      body: "easy read",
+      user_id: 9024475,
+      created_at: "2026-06-06T18:00:00Z",
+    };
+    reconcilePending(store, incoming);
+    const final = store.comments.get("client-q");
+    expect(final.quote).toBeDefined();
+    expect(final.quote.id).toBe("orig-1");
+    expect(final.quote.body).toBe("the original message");
+    expect(final.parent_id).toBe("orig-1");
+  });
+
   it("incoming's author wins when both pending and incoming have one", () => {
     const store = makeStore();
     const me = { id: 9024475, name: "Inder Sabharwal" };

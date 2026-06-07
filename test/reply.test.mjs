@@ -80,30 +80,27 @@ describe("clearReplyTarget", () => {
 });
 
 describe("buildReplyFields", () => {
+  // v0.2-write live test revealed that ANY reply metadata on the wire
+  // (parent_id and/or quote) either gets rejected silently by Substack or
+  // is stored in a way that doesn't render in native chat. The native
+  // client capture we have for a quote-reply shows the wire as just
+  // {id, body, mentions} — no reply metadata at all. So buildReplyFields
+  // now always returns {} regardless of replyingTo state. The composer's
+  // optimistic pending row still carries pending.quote so the quoted
+  // block renders locally in BetterSSC; reconcilePending preserves it
+  // through polling.
   it("returns empty object when no reply target", () => {
     expect(buildReplyFields({ replyingTo: null })).toEqual({});
   });
 
-  it("attaches parentId AND quote with nested comment shape", () => {
+  it("returns empty object EVEN when a reply target is set (v0.2-write)", () => {
     const composer = makeComposer();
     setReplyTarget(composer, {
       id: 42,
       body: "the original",
       author: { id: 7, name: "Boz" },
     });
-    const fields = buildReplyFields(composer);
-    expect(fields.parentId).toBe(42);
-    expect(fields.quote).toBeTruthy();
-    expect(fields.quote.comment.id).toBe(42);
-    expect(fields.quote.comment.body).toBe("the original");
-    expect(fields.quote.comment.author).toEqual({ id: 7, name: "Boz" });
-  });
-
-  it("preserves an empty body in the quote (don't omit field on empty)", () => {
-    const composer = makeComposer();
-    setReplyTarget(composer, { id: 5, body: "", author: { name: "Alice" } });
-    const fields = buildReplyFields(composer);
-    expect(fields.quote.comment.body).toBe("");
+    expect(buildReplyFields(composer)).toEqual({});
   });
 
   it("returns empty object when composer is null (guard)", () => {
@@ -112,7 +109,7 @@ describe("buildReplyFields", () => {
 });
 
 describe("end-to-end — set reply, build send payload, clear", () => {
-  it("mirrors the submitComposer flow: set reply → build → clear", () => {
+  it("mirrors the submitComposer flow: set reply → build (empty wire) → clear", () => {
     const composer = { replyingTo: null };
     // 1. User clicks Reply on a message.
     setReplyTarget(composer, {
@@ -122,18 +119,9 @@ describe("end-to-end — set reply, build send payload, clear", () => {
     });
     expect(composer.replyingTo.authorName).toBe("Carol");
 
-    // 2. Composer assembles the wire fields when the user hits Send.
-    const fields = buildReplyFields(composer);
-    expect(fields).toEqual({
-      parentId: 100,
-      quote: {
-        comment: {
-          id: 100,
-          body: "what do you think?",
-          author: { id: 9, name: "Carol" },
-        },
-      },
-    });
+    // 2. Wire fields stay empty — the optimistic pending carries quote
+    //    locally; the server gets just {id, body, mentions}.
+    expect(buildReplyFields(composer)).toEqual({});
 
     // 3. After send, the composer clears the reply target.
     clearReplyTarget(composer);
