@@ -1166,16 +1166,49 @@ function renderAiMessageItem(c) {
   bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
   wrap.appendChild(bodyEl);
 
+  // Regenerate row: only on finished, non-error messages. Clicks
+  // generate a NEW insight at the bottom of the feed (don't replace
+  // this one) so the user can compare lengths.
+  if (!c._aiPending && !c._aiError) {
+    const actions = document.createElement("div");
+    actions.className = "ai-actions";
+    const conciseBtn = document.createElement("button");
+    conciseBtn.type = "button";
+    conciseBtn.className = "ai-action-btn";
+    conciseBtn.textContent = "↓ Concise";
+    conciseBtn.title = "Generate a tighter version (3-4 bullets total)";
+    conciseBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      regenerateAiInsight("concise");
+    });
+    const elaborateBtn = document.createElement("button");
+    elaborateBtn.type = "button";
+    elaborateBtn.className = "ai-action-btn";
+    elaborateBtn.textContent = "↑ Elaborate";
+    elaborateBtn.title = "Generate a longer version (quotes + caveats)";
+    elaborateBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      regenerateAiInsight("elaborate");
+    });
+    actions.appendChild(conciseBtn);
+    actions.appendChild(elaborateBtn);
+    wrap.appendChild(actions);
+  }
+
   const footer = document.createElement("div");
   footer.className = "ai-footer";
   const meta = document.createElement("span");
   meta.className = "ai-footer-meta";
   const providerLabel = c._aiProvider ? ` · ${c._aiProvider}` : "";
+  const variantLabel =
+    c._aiVariant && c._aiVariant !== "normal" ? ` · ${c._aiVariant}` : "";
   const ctxInfo = c._aiContextInfo
     ? ` · ${c._aiContextInfo.included} message${c._aiContextInfo.included === 1 ? "" : "s"}`
       + (c._aiContextInfo.dropped ? ` (oldest ${c._aiContextInfo.dropped} truncated)` : "")
     : "";
-  meta.textContent = `Only visible to you${providerLabel}${ctxInfo}`;
+  meta.textContent = `Only visible to you${providerLabel}${variantLabel}${ctxInfo}`;
   footer.appendChild(meta);
   const dismiss = document.createElement("button");
   dismiss.type = "button";
@@ -2212,10 +2245,22 @@ async function handleAiInsightsClick() {
     openAiSettingsModal();
     return;
   }
-  await runAiInsights(provider, key);
+  await runAiInsights(provider, key, { variant: "normal" });
 }
 
-async function runAiInsights(providerName, apiKey) {
+async function regenerateAiInsight(variant) {
+  if (state.aiBusy) return;
+  const provider = state.aiProvider;
+  const key = provider ? state.aiKeys[provider] : null;
+  if (!provider || !key) {
+    openAiSettingsModal();
+    return;
+  }
+  await runAiInsights(provider, key, { variant });
+}
+
+async function runAiInsights(providerName, apiKey, opts = {}) {
+  const variant = opts.variant || "normal";
   const providerObj = PROVIDERS[providerName];
   if (!providerObj) {
     showError("AI Insights: unknown provider");
@@ -2251,7 +2296,7 @@ async function runAiInsights(providerName, apiKey) {
     const result = await callProvider(providerObj, {
       systemPrompt,
       conversation: [
-        { role: "user", content: buildPreviewUserMessage() },
+        { role: "user", content: buildPreviewUserMessage({ variant }) },
       ],
       apiKey,
       signal,
@@ -2260,6 +2305,7 @@ async function runAiInsights(providerName, apiKey) {
     if (!row) return; // dismissed mid-flight
     row._aiPending = false;
     row._aiContextInfo = { included, dropped };
+    row._aiVariant = variant;
     if (result.error) {
       row._aiError = true;
       row.body = `**Error:** ${result.error}`;

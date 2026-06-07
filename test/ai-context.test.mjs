@@ -310,4 +310,29 @@ describe("buildPreviewUserMessage", () => {
     expect(typeof msg).toBe("string");
     expect(msg.length).toBeGreaterThan(0);
   });
+  it("defaults to the base prompt with no variant suffix", () => {
+    const msg = buildPreviewUserMessage();
+    expect(msg).toBe("Give me the insights summary for this conversation.");
+  });
+  it("concise variant appends a tightness instruction", () => {
+    const msg = buildPreviewUserMessage({ variant: "concise" });
+    expect(msg).toMatch(/insights summary/i);
+    expect(msg.toLowerCase()).toMatch(/tight|bullet|headline/);
+    expect(msg.length).toBeGreaterThan(60);
+  });
+  it("elaborate variant appends a depth instruction", () => {
+    const msg = buildPreviewUserMessage({ variant: "elaborate" });
+    expect(msg).toMatch(/insights summary/i);
+    expect(msg.toLowerCase()).toMatch(/thorough|quote|caveat/);
+    expect(msg.length).toBeGreaterThan(80);
+  });
+  it("unknown variant falls back to the base prompt", () => {
+    const msg = buildPreviewUserMessage({ variant: "garbage" });
+    expect(msg).toBe("Give me the insights summary for this conversation.");
+  });
+  it("concise and elaborate produce distinct strings", () => {
+    const a = buildPreviewUserMessage({ variant: "concise" });
+    const b = buildPreviewUserMessage({ variant: "elaborate" });
+    expect(a).not.toBe(b);
+  });
 });
