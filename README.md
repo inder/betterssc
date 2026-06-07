@@ -19,7 +19,15 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.1)
+## What it does (v0.2.1)
+
+### Sending
+
+- Type and send messages, with optimistic UI so your message lands instantly without waiting for the 12s poll cycle.
+- React with any emoji from Substack's full reaction library (the picker hides duplicates so you don't see two 👍 buttons for `thumbs_up` and `+1`).
+- @mention autocomplete pulls from the people you've already seen in chat.
+- Reply UI puts a Discord-style quoted block on your message locally so you can see what you're answering.
+- Failed sends keep your text and show a Retry button instead of making you re-type.
 
 ### Reading the chat
 
@@ -46,6 +54,7 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 
 - 🔔 bell next to each name in the Active rail. Toggle it on and you'll get a desktop notification when that person posts, even if BetterSSC is in another tab.
 - 📌 pin people to the top of the Active rail so you always see them first.
+- You're auto-pinned and auto-bell'd by default. Your own row sits at the top of the rail no matter the sort.
 - Sort the rail by most-active (default) or alphabetically.
 - The browser tab title shows an unread count while you're away: `(3) Za's Market Terminal · BetterSSC`.
 - Auto mark-viewed every 30 seconds, so your unread count in native Substack stays in sync.
@@ -126,10 +135,28 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 ## Privacy
 
-- No phone-home, no analytics, no third-party scripts of any kind.
-- Every API call goes directly to `substack.com` from your browser, using your existing session.
-- Settings (theme, pinned users, watched users, sort preference) live in `chrome.storage.local`.
-- Failed-image URLs are cached in memory only for the lifetime of the tab.
+**Everything stays on your computer.** That's not marketing language, it's literally how the extension is built.
+
+- There is no BetterSSC server. There is no BetterSSC database. There is no BetterSSC backend at all.
+- Every network request goes directly from your browser to `substack.com`, using the session cookie you already have from being logged in.
+- Nothing about your messages, identity, reactions, search queries, pinned users, watched users, theme, or anything else is sent to me, to a third party, or to anyone else. I cannot see what you read or write in your chats. Nobody else can either.
+- No analytics. No telemetry. No "anonymous usage data." No crash reporters. No third-party scripts. None.
+- Settings (theme, pinned users, watched users, sort preference, notify-all toggle) live in `chrome.storage.local`. That's a per-browser-profile bucket on your disk. They never leave your machine.
+- Failed-image URLs are cached in memory only for the lifetime of the tab, then forgotten.
+- The source is all here in this repo. Read it, audit it, fork it. Roughly 3000 lines of vanilla JS with no build step. What you see is what runs.
+
+## Known issues
+
+Things I know are broken or unfinished as of v0.2.1. PRs welcome. Bug reports help me prioritize.
+
+- **Reply quotes are local-only.** When you click Reply and send, BetterSSC shows the quoted parent message above yours. The actual wire payload sent to Substack is just plain text, so anyone else (including you on your phone in native Substack) sees a first-class message with no quote. Substack's reply API needs a fresh wire capture before this is shippable end-to-end.
+- **Image upload isn't built yet.** Incoming images render inline with a lightbox. Sending an image from BetterSSC isn't implemented. Use native Substack to upload for now. WS capture confirmed Substack creates a separate `type: "media"` post, so the architecture is known. Implementation pending.
+- **Live updates use 12-second polling.** WebSocket support is stubbed but not protocol-decoded. Substack's WS returns "Invalid message" after auth and we fall back to REST polling, same cadence as native. Reactions and new messages land on the next poll, not instantly.
+- **macOS Tahoe 26.3 notification banners can silently drop.** `chrome.notifications.create` returns `permission: granted` and the call reports success, but the OS sometimes doesn't render the banner. This is outside the extension. Notification permission alone doesn't fix it. Affects native Chrome notifications generally on this OS.
+- **You'll see notifications for your own cross-device posts.** Self is auto-watched by default. If you send a message from your phone while this tab is hidden, the desktop will notify you. Some people find this useful, some find it noisy. Click the 🔔 on your own row in the Active rail to silence; the auto-watch will re-add itself on next session.
+- **Thread filter intersected with search occasionally hides too aggressively.** If you have an active thread filter AND start typing in the search box, the intersection logic can hide the parent. Clear one to recover. Will be tightened when we ship the next search pass.
+
+Tracker: [GitHub issues](https://github.com/inder/betterssc/issues).
 
 ## Tech notes
 
