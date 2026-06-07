@@ -154,7 +154,10 @@ That's it.
 
 - **"Open a Substack tab first" message** — you closed every Substack tab. Open `substack.com` in a new tab; BetterSSC will start working again.
 - **The icon doesn't do anything** — make sure you're on a Substack chat URL, not just `substack.com`. The icon needs to know which chat to open.
+- **Chrome keeps showing "Access requested" for BetterSSC in the extensions menu** — that means Chrome has the extension set to "Ask on every site" instead of automatic. Go to `chrome://extensions`, click **Details** on BetterSSC, scroll to **Site access**, and pick **"On all sites"** (or just "On specific sites" → `https://*.substack.com/*`). The "Access requested" prompt goes away and notifications start firing properly.
+- **You pinned the icon but it's not showing in the toolbar** — Chrome occasionally resets pin state when a sideloaded extension auto-updates. Click the puzzle-piece icon (🧩) in the top-right of your browser, find BetterSSC, click the pin icon next to it. The icon should appear in the toolbar. If the pin icon looks struck-through (with a diagonal line through it), it's currently NOT pinned — click it once to pin.
 - **The first time you click, it asks for permission** — that's Chrome confirming the extension can talk to Substack. Click Allow. The permissions are scoped to Substack only.
+- **Notifications aren't firing** — open `chrome://extensions`, click "service worker" under BetterSSC to see the background console. It logs `permission level:` every time it tries to notify. If it says anything other than `granted`, check macOS **System Settings → Notifications → Google Chrome** and `chrome://settings/content/notifications`. On macOS Tahoe 26.3, Chrome may report `granted` but the OS still drops banners — known OS quirk, no fix on our end.
 - **You want to uninstall** — go back to `chrome://extensions`, find BetterSSC, click Remove. Done. No leftover files anywhere except the folder you originally downloaded, which you can delete.
 
 ## Feedback and bug reports
