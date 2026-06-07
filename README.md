@@ -100,16 +100,62 @@ Nothing leaves your browser except calls to `substack.com`. No analytics, no tra
 
 ## Install
 
-1. Clone this repo, or download it as a zip.
-2. Open `chrome://extensions` in Chrome, Brave, Arc, or Edge.
-3. Turn on **Developer mode** in the top right.
-4. Click **Load unpacked** and pick this folder.
-5. Open a Substack chat in another tab, something like `substack.com/chat/<pubId>/post/<uuid>`.
-6. Click the BetterSSC icon in your toolbar.
+This takes about 3 minutes the first time. You only do it once. No technical knowledge required, but if you've never installed a Chrome extension this way, the steps below walk you through every click.
 
-Chrome will ask you to approve the permissions the first time. They're all scoped to Substack.
+BetterSSC isn't in the Chrome Web Store yet, so you install it directly from this repo. That's safer than the Web Store in one way — there's no automatic update, and you can read every line of code before it runs.
 
-One thing to know: **keep at least one `substack.com` tab open** while you're using BetterSSC. That tab is the authentication proxy your REST calls go through. Close it and BetterSSC will tell you it can't reach Substack until you open one again.
+### Step 1 — Download the extension
+
+Click the green **Code** button at the top of this page, then **Download ZIP**. Find the file in your Downloads folder and double-click it to unzip. You'll get a folder called `betterssc-main` (or similar). Move that folder somewhere you won't accidentally delete it. Your Documents folder is fine.
+
+### Step 2 — Open the extensions page in your browser
+
+Works in Chrome, Brave, Arc, Edge, or anything Chromium-based.
+
+Copy this and paste it into your address bar (where you'd normally type a website), then press Enter:
+
+```
+chrome://extensions
+```
+
+You should now see a page listing any extensions you already have installed.
+
+### Step 3 — Turn on Developer Mode
+
+Look in the top-right corner of that page for a toggle labeled **Developer mode**. Click it to turn it on. (The name sounds scary but it just means "let me install extensions that aren't from the Web Store." This is the same toggle every Chrome developer uses every day. It's safe.)
+
+Once it's on, three new buttons appear at the top of the page: **Load unpacked**, **Pack extension**, **Update**.
+
+### Step 4 — Load BetterSSC
+
+Click **Load unpacked**. A file picker opens.
+
+Find the `betterssc-main` folder you saved in Step 1. Select that folder (don't open it — just select it once and click Open or Choose, depending on your OS).
+
+BetterSSC should now appear in the list of installed extensions. You'll see its icon and name.
+
+### Step 5 — Pin the icon to your toolbar (optional but nice)
+
+Look in the top-right of your browser window for a puzzle-piece icon (🧩). Click it. You'll see a list of extensions with little pin icons next to them. Click the pin next to BetterSSC so its icon stays visible in the toolbar.
+
+### Step 6 — Open Substack Chat, then click BetterSSC
+
+In a new tab, go to one of your Substack chats. The URL will look something like `substack.com/chat/12345/post/abcdef-1234`.
+
+Now click the BetterSSC icon (the one you pinned). A new tab opens, and your chat appears in a Discord-style layout.
+
+That's it.
+
+### A small thing to remember
+
+**Keep at least one Substack tab open** while you're using BetterSSC. The extension talks to Substack through whatever Substack tab you have open — it doesn't have its own login. If you close every Substack tab, BetterSSC will tell you it can't reach Substack until you open one again. (You don't need to do anything in the Substack tab — it just needs to exist.)
+
+### When something goes wrong
+
+- **"Open a Substack tab first" message** — you closed every Substack tab. Open `substack.com` in a new tab; BetterSSC will start working again.
+- **The icon doesn't do anything** — make sure you're on a Substack chat URL, not just `substack.com`. The icon needs to know which chat to open.
+- **The first time you click, it asks for permission** — that's Chrome confirming the extension can talk to Substack. Click Allow. The permissions are scoped to Substack only.
+- **You want to uninstall** — go back to `chrome://extensions`, find BetterSSC, click Remove. Done. No leftover files anywhere except the folder you originally downloaded, which you can delete.
 
 ## Feedback and bug reports
 
