@@ -1027,6 +1027,15 @@ function renderMessageItem(c) {
 // cycle from re-firing failed requests forever. v0.1.19.
 const _failedImageUrls = new Set();
 
+// v0.2.1: cache an <img> template per avatar URL so re-renders during
+// polling don't keep creating fresh <img> nodes that each kick off a
+// fetch (DevTools "Disable cache" defeats HTTP cache during dev, and
+// even with HTTP cache the constant img creation + decode is wasteful).
+// We store an img element that's NEVER inserted into the DOM; every
+// makeAvatar call clones it. cloneNode preserves the src attribute,
+// so the clone hits the browser's image cache without a new GET.
+const _avatarTemplates = new Map(); // url → HTMLImageElement
+
 // Substack's media bucket (bucketeer-XXX.s3.amazonaws.com) blocks direct
 // client-side access. Their own UI fetches through substackcdn.com with a
 // server-generated signature. We try the unsigned form as a long shot —
@@ -1071,13 +1080,25 @@ function makeAvatar(author, cssClass) {
   if (_failedImageUrls.has(url)) {
     return makeAvatarPlaceholder(initial, cssClass);
   }
-  const img = document.createElement("img");
+  // Per-URL template: build once, then every caller gets a fresh clone
+  // (clones share the browser image cache and don't kick off new GETs).
+  let template = _avatarTemplates.get(url);
+  if (!template) {
+    template = document.createElement("img");
+    template.src = url;
+    template.loading = "lazy";
+    template.decoding = "async";
+    _avatarTemplates.set(url, template);
+  }
+  const img = template.cloneNode(true);
   img.className = cssClass;
-  img.src = url;
   img.alt = author.name || "";
-  img.loading = "lazy";
+  // One error listener per clone — but on failure we mark the URL dead
+  // for all future calls AND drop the template so we don't keep cloning
+  // a busted src.
   img.addEventListener("error", () => {
     _failedImageUrls.add(url);
+    _avatarTemplates.delete(url);
     img.replaceWith(makeAvatarPlaceholder(initial, cssClass));
   });
   return img;
