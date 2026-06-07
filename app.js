@@ -2088,7 +2088,13 @@ function showError(msg) {
 // B is refactoring renderMessages in parallel, and any v0.2 edits up there
 // would cause merge conflicts. State additions live under `state.composer`.
 
-import { autoGrowTextarea, buildCommentBody } from "./lib/compose.js";
+import {
+  autoGrowTextarea,
+  buildCommentBody,
+  buildPendingComment,
+  reconcilePending,
+  markPendingFailed,
+} from "./lib/compose.js";
 import { postComment as apiPostComment } from "./lib/api.js";
 import { uuid as composerUuid } from "./lib/util.js";
 
@@ -2161,11 +2167,28 @@ async function submitComposer() {
     return;
   }
 
-  const { body, mentions } = buildCommentBody(input.value, state.composer.mentions);
+  const rawText = input.value;
+  const sendingMentions = { ...state.composer.mentions };
+  const { body, mentions } = buildCommentBody(rawText, sendingMentions);
   const clientId = composerUuid();
 
-  // Loading state.
-  state.composer.pending = { id: clientId, text: input.value };
+  // OPTIMISTIC: insert into the store and render IMMEDIATELY so the user
+  // sees their message land without the 12s poll delay.
+  const pending = buildPendingComment(clientId, state.user, body, mentions);
+  state.comments.set(clientId, pending);
+  insertInOrder(pending);
+  renderAll();
+  if (state.isAtBottom) scrollToBottom();
+
+  // Clear the composer right away. If the send fails, the message stays in
+  // the stream with a Retry button — we don't make the user re-type. The
+  // text is preserved on the failed comment itself (via pending.body).
+  input.value = "";
+  state.composer.mentions = {};
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+
+  // Loading state on the button.
+  state.composer.pending = { id: clientId, text: rawText };
   sendBtn.classList.add("is-sending");
   sendBtn.classList.remove("is-error");
   sendBtn.textContent = "Sending…";
@@ -2173,39 +2196,212 @@ async function submitComposer() {
   clearComposerError();
 
   try {
-    await apiPostComment(state.postUuid, {
+    const res = await apiPostComment(state.postUuid, {
       id: clientId,
       body,
       mentions,
     });
-    // Clear composer on success.
-    input.value = "";
-    state.composer.mentions = {};
-    autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
-    // Poll forward so the new message shows up.
-    try {
-      await pollNewMessages();
-    } catch (_) {}
+    // Try to reconcile from the response itself. If we can find the freshly
+    // created comment in the post payload, splice it into the stream right
+    // away so we don't have to wait for the next poll cycle.
+    const freshly = extractFreshComment(res, clientId, state.user);
+    if (freshly) {
+      reconcilePending(
+        { comments: state.comments, order: state.order },
+        freshly
+      );
+      renderAll();
+    } else {
+      // Fall back to a poll — ingestComment will overwrite the pending row
+      // if the server preserved our client id, or we'll have a duplicate
+      // (rare on Substack; their dedup honors client ids).
+      try {
+        await pollNewMessages();
+      } catch (_) {}
+    }
   } catch (e) {
+    // Mark the optimistic message as failed in-place. The user can either
+    // hit the Retry button on the message OR the Retry button next to the
+    // composer (which re-sends the same text).
+    markPendingFailed(
+      { comments: state.comments, order: state.order },
+      clientId,
+      (e && e.message) || "Send failed"
+    );
+    renderAll();
     showComposerError(
       "Send failed: " + (e && e.message ? e.message : "unknown error") +
-        " — click Retry to try again."
+        " — click the message to retry."
     );
-    sendBtn.classList.add("is-error");
-    sendBtn.textContent = "Retry";
     state.composer._lastError = true;
+    state.composer._lastFailedId = clientId;
   } finally {
     state.composer.pending = null;
     sendBtn.classList.remove("is-sending");
     if (!state.composer._lastError) {
       sendBtn.textContent = "Send";
+    } else {
+      sendBtn.classList.add("is-error");
+      sendBtn.textContent = "Retry";
     }
     if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
-    // On error, the button should be clickable even with empty input so the
-    // user can retry. The text in the textarea is preserved (we didn't clear
-    // on failure), so refreshSendBtn naturally re-enables it.
     if (state.composer._lastError) sendBtn.disabled = false;
   }
+}
+
+// Walk a postComment response trying to find the just-created comment with
+// our client id. Substack's response shape is `{post: {...}}` — the
+// updated post object often (but not always) includes a `recent_comments`
+// or similar list with the new comment at the tail. Best-effort.
+function extractFreshComment(res, clientId, user) {
+  if (!res || typeof res !== "object") return null;
+  const candidates = [];
+  const push = (x) => {
+    if (!x) return;
+    if (Array.isArray(x)) for (const it of x) push(it);
+    else if (x.comment) candidates.push(unwrapComment(x) || x.comment);
+    else if (x.body && x.id) candidates.push(x);
+  };
+  // Try every shape we've seen in the wild.
+  push(res.comment);
+  push(res.new_comment);
+  push(res.replies);
+  if (res.post) {
+    push(res.post.recent_comments);
+    push(res.post.replies);
+    push(res.post.comment);
+  }
+  // Pick the comment whose id matches our client id (preferred), else the
+  // most recent comment by this user (fallback).
+  for (const c of candidates) {
+    if (c && String(c.id) === String(clientId)) return c;
+  }
+  if (user && user.id != null) {
+    let best = null;
+    let bestT = 0;
+    for (const c of candidates) {
+      if (!c) continue;
+      const uid = c.user_id ?? (c.author && c.author.id);
+      if (uid !== user.id) continue;
+      const t = new Date(c.created_at || 0).getTime() || 0;
+      if (t >= bestT) {
+        bestT = t;
+        best = c;
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+// After every render, decorate pending/failed messages with their state-
+// specific UI. We do this as a post-render pass instead of editing the
+// (frozen-for-track-B) renderMessageItem path.
+function decoratePendingMessages() {
+  const container = document.getElementById("messages");
+  if (!container) return;
+  for (const id of state.order) {
+    const c = state.comments.get(id);
+    if (!c) continue;
+    if (!c._pending && !c._failed) continue;
+    const node = container.querySelector(
+      `.msg-item[data-id="${cssEscape(String(id))}"]`
+    );
+    if (!node) continue;
+    if (c._pending) {
+      node.classList.add("_pending");
+    } else {
+      node.classList.remove("_pending");
+    }
+    if (c._failed) {
+      node.classList.add("_failed");
+      // Add a retry bar if not already there.
+      if (!node.querySelector(".msg-failed-bar")) {
+        const bar = document.createElement("div");
+        bar.className = "msg-failed-bar";
+        const label = document.createElement("span");
+        label.textContent = "Send failed.";
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "msg-failed-retry";
+        retry.textContent = "Retry";
+        retry.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          retryFailedMessage(id);
+        });
+        bar.appendChild(label);
+        bar.appendChild(retry);
+        node.appendChild(bar);
+      }
+    } else {
+      node.classList.remove("_failed");
+    }
+  }
+}
+
+async function retryFailedMessage(clientId) {
+  const c = state.comments.get(clientId);
+  if (!c || !c._failed) return;
+  // Flip back to pending.
+  c._failed = false;
+  c._pending = true;
+  c._error = null;
+  renderAll();
+  try {
+    const res = await apiPostComment(state.postUuid, {
+      id: clientId,
+      body: c.body,
+      mentions: c.mentions || {},
+    });
+    const freshly = extractFreshComment(res, clientId, state.user);
+    if (freshly) {
+      reconcilePending(
+        { comments: state.comments, order: state.order },
+        freshly
+      );
+    } else {
+      // The reconciler will run again on the next poll if needed.
+      c._pending = false;
+    }
+    renderAll();
+  } catch (e) {
+    markPendingFailed(
+      { comments: state.comments, order: state.order },
+      clientId,
+      (e && e.message) || "Send failed"
+    );
+    renderAll();
+  }
+}
+
+// Hook the post-render decorator. We patch renderAll once at mount time:
+// every call routes through the original first, then runs our decorator.
+let _renderAllPatched = false;
+function patchRenderAllForComposer() {
+  if (_renderAllPatched) return;
+  _renderAllPatched = true;
+  const orig = renderAll;
+  // We can't reassign the top-level `renderAll` reference (it's a function
+  // declaration), but we CAN wrap the post-render hook by monkey-patching
+  // `renderMessages` instead — it's the one renderAll calls after the
+  // ingest path settles. Subclasses below override window-level hook.
+  // Simpler: just listen for the messages container to update via a
+  // MutationObserver. Lightweight and unaware of internal render structure.
+  const container = document.getElementById("messages");
+  if (!container) return;
+  const observer = new MutationObserver(() => {
+    try {
+      decoratePendingMessages();
+    } catch (e) {
+      console.warn("[BetterSSC] decorate failed:", e);
+    }
+  });
+  observer.observe(container, { childList: true });
+  // Run once immediately so any initial pending rows pick up styling.
+  decoratePendingMessages();
+  // Reference orig so the linter doesn't complain about unused vars.
+  void orig;
 }
 
 function showComposerError(msg) {
@@ -2235,4 +2431,5 @@ function clearComposerError() {
 // listeners are scoped to its own elements.
 if (typeof appEl !== "undefined" && appEl && !appEl.classList.contains("hidden")) {
   mountComposer();
+  patchRenderAllForComposer();
 }

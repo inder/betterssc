@@ -917,6 +917,35 @@ button {
 }
 .composer-reply-close:hover { color: var(--text-primary); }
 
+/* PENDING / FAILED MESSAGE STATES (commit 3) */
+.msg-item._pending { opacity: 0.55; }
+.msg-item._pending::after {
+  content: "sending…";
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  margin-left: 6px;
+}
+.msg-item._failed { opacity: 0.85; }
+.msg-failed-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.msg-failed-retry {
+  background: none;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.msg-failed-retry:hover { background: var(--danger); color: white; }
+
 /* FOOTER */
 .footer {
   display: flex;
