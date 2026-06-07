@@ -1164,10 +1164,39 @@ function rewriteImageUrl(url) {
   return url;
 }
 
-function makeAvatarPlaceholder(initial, cssClass) {
+// Substack-flavored palette for default avatars. Picked by hashing
+// user_id mod palette length so the same user always gets the same
+// color across sessions and tabs. Matches the native Substack default
+// avatar style (colored circle + first letter) instead of our prior
+// single-blue placeholder, which made every photo-less user look
+// identical.
+const AVATAR_PALETTE = [
+  { bg: "#e47453", fg: "#ffffff" }, // coral
+  { bg: "#2d5f5c", fg: "#ffffff" }, // teal
+  { bg: "#c25d5d", fg: "#ffffff" }, // brick
+  { bg: "#3d6b8a", fg: "#ffffff" }, // slate blue
+  { bg: "#7a5c8b", fg: "#ffffff" }, // muted purple
+  { bg: "#b58a3e", fg: "#ffffff" }, // ochre
+  { bg: "#4e7c4f", fg: "#ffffff" }, // forest
+  { bg: "#a1556e", fg: "#ffffff" }, // rose
+];
+function paletteForId(id) {
+  if (id == null) return AVATAR_PALETTE[0];
+  let h = 0;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return AVATAR_PALETTE[Math.abs(h) % AVATAR_PALETTE.length];
+}
+
+function makeAvatarPlaceholder(initial, cssClass, userId) {
   const div = document.createElement("div");
   div.className = cssClass + " msg-avatar-placeholder";
   div.textContent = initial;
+  const { bg, fg } = paletteForId(userId);
+  div.style.backgroundColor = bg;
+  div.style.color = fg;
   return div;
 }
 
@@ -1216,15 +1245,16 @@ function makeAvatar(author, cssClass) {
       author.photo_url = photoUrl;
     }
   }
+  const authorId = author && author.id;
   if (!photoUrl) {
-    return makeAvatarPlaceholder(initial, cssClass);
+    return makeAvatarPlaceholder(initial, cssClass, authorId);
   }
   const url = rewriteImageUrl(photoUrl);
   // Recently-failed URLs go straight to placeholder — but with a TTL,
   // not a permanent ban, so a one-time CDN throttle doesn't doom the
   // avatar forever.
   if (isUrlFailed(url)) {
-    return makeAvatarPlaceholder(initial, cssClass);
+    return makeAvatarPlaceholder(initial, cssClass, authorId);
   }
   // Per-URL template: build once, then every caller gets a fresh clone
   // (clones share the browser image cache and don't kick off new GETs).
@@ -1242,7 +1272,7 @@ function makeAvatar(author, cssClass) {
   img.addEventListener("error", () => {
     markUrlFailed(url);
     _avatarTemplates.delete(url);
-    img.replaceWith(makeAvatarPlaceholder(initial, cssClass));
+    img.replaceWith(makeAvatarPlaceholder(initial, cssClass, authorId));
   });
   return img;
 }
