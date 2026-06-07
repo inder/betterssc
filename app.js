@@ -531,6 +531,10 @@ const _userTable = new Map(); // user_id → {id, name, handle, photo_url}
 function registerUserObjects(arr) {
   if (!Array.isArray(arr)) return 0;
   let n = 0;
+  // Track ids whose photo_url just upgraded from null → real. Used by
+  // refreshAvatarsForUsers to repaint already-rendered .msg-group
+  // avatars whose original render baked in a letter placeholder.
+  const photoUpgradedIds = [];
   for (const u of arr) {
     if (!u) continue;
     const id = u.id ?? u.user_id;
@@ -552,6 +556,7 @@ function registerUserObjects(arr) {
       if (!existing.photo_url && u.photo_url) {
         existing.photo_url = u.photo_url;
         upgraded = true;
+        photoUpgradedIds.push(id);
       }
       if (!existing.handle && u.handle) {
         existing.handle = u.handle;
@@ -566,6 +571,10 @@ function registerUserObjects(arr) {
       }
       if (upgraded) n++;
     }
+  }
+  if (photoUpgradedIds.length) {
+    // Defer so the caller's render pass (if any) finishes first.
+    setTimeout(() => refreshAvatarsForUsers(photoUpgradedIds), 0);
   }
   return n;
 }
@@ -1127,6 +1136,38 @@ function makeAvatarPlaceholder(initial, cssClass) {
   div.className = cssClass + " msg-avatar-placeholder";
   div.textContent = initial;
   return div;
+}
+
+// Walks the DOM for already-rendered .msg-group elements whose
+// data-author-id matches an upgraded user, and swaps the avatar
+// element in place with a fresh makeAvatar() that picks up the new
+// photo_url. Without this, message rows rendered BEFORE the photo
+// arrived stay stuck on the letter placeholder forever — even
+// though _userTable now has the real avatar.
+function refreshAvatarsForUsers(userIds) {
+  if (!Array.isArray(userIds) || !userIds.length) return;
+  const seen = new Set();
+  for (const id of userIds) {
+    if (id == null) continue;
+    const key = String(id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const cached = _userTable.get(id);
+    if (!cached || !cached.photo_url) continue;
+    const author = { id, name: cached.name, handle: cached.handle, photo_url: cached.photo_url };
+    const groups = document.querySelectorAll(
+      `.msg-group[data-author-id="${cssEscape(key)}"]`
+    );
+    for (const group of groups) {
+      const old = group.querySelector(":scope > .msg-avatar, :scope > .msg-avatar-placeholder");
+      if (!old) continue;
+      const fresh = makeAvatar(author, "msg-avatar");
+      old.replaceWith(fresh);
+    }
+  }
+  // Header avatar too (post author + self) — cheaper to re-render than
+  // walk for it explicitly.
+  renderChatHeader();
 }
 
 function makeAvatar(author, cssClass) {
