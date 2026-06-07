@@ -2096,12 +2096,18 @@ import {
   markPendingFailed,
   findActiveMentionToken,
   replaceMentionToken,
+  updateReactionCount,
+  pickSuggestedReactions,
+  DEFAULT_SUGGESTED_REACTIONS,
 } from "./lib/compose.js";
 import {
   postComment as apiPostComment,
   fetchMentionSuggestions as apiFetchMentions,
+  postReaction as apiPostReaction,
+  fetchReactionsLibrary as apiFetchReactionsLibrary,
 } from "./lib/api.js";
 import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
+import { reactionEmojiFor as composerReactionEmojiFor } from "./lib/emojis.js";
 
 // Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
 // state path. Initialized lazily on first mount so a missing #composer (e.g.
@@ -2493,10 +2499,10 @@ function extractFreshComment(res, clientId, user) {
 function decoratePendingMessages() {
   const container = document.getElementById("messages");
   if (!container) return;
+  // Pending / failed UI.
   for (const id of state.order) {
     const c = state.comments.get(id);
     if (!c) continue;
-    if (!c._pending && !c._failed) continue;
     const node = container.querySelector(
       `.msg-item[data-id="${cssEscape(String(id))}"]`
     );
@@ -2508,7 +2514,6 @@ function decoratePendingMessages() {
     }
     if (c._failed) {
       node.classList.add("_failed");
-      // Add a retry bar if not already there.
       if (!node.querySelector(".msg-failed-bar")) {
         const bar = document.createElement("div");
         bar.className = "msg-failed-bar";
@@ -2529,6 +2534,11 @@ function decoratePendingMessages() {
       }
     } else {
       node.classList.remove("_failed");
+    }
+    // Commit 5: reaction toolbar (skip on pending/failed rows — can't react
+    // to something that hasn't landed yet).
+    if (!c._pending && !c._failed) {
+      decorateReactionToolbar(node, c);
     }
   }
 }
@@ -2616,6 +2626,122 @@ function clearComposerError() {
   state.composer._lastError = false;
   const sendBtn = document.getElementById("composerSend");
   if (sendBtn) sendBtn.classList.remove("is-error");
+}
+
+// ============================================================
+// REACTIONS (commit 5)
+// ============================================================
+//
+// Hover toolbar with a "+" button → opens an emoji picker (top 6). Clicking
+// an emoji optimistically bumps the count + calls api.postReaction. On
+// error we roll back. Decorator runs on every render via the MutationObserver
+// in patchRenderAllForComposer.
+
+state.composer._reactionLibrary = null; // populated lazily
+
+async function ensureReactionLibrary() {
+  if (state.composer._reactionLibrary) return state.composer._reactionLibrary;
+  try {
+    const lib = await apiFetchReactionsLibrary();
+    state.composer._reactionLibrary = lib;
+    return lib;
+  } catch (_) {
+    state.composer._reactionLibrary = {};
+    return {};
+  }
+}
+
+function suggestedReactions() {
+  return pickSuggestedReactions(state.composer._reactionLibrary, 6);
+}
+
+function decorateReactionToolbar(node, comment) {
+  if (node.querySelector(".msg-toolbar")) return; // already decorated
+  const toolbar = document.createElement("div");
+  toolbar.className = "msg-toolbar";
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "msg-toolbar-btn";
+  addBtn.title = "Add reaction";
+  addBtn.setAttribute("aria-label", "Add reaction");
+  addBtn.textContent = "+";
+  addBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleEmojiPicker(node, comment);
+  });
+  toolbar.appendChild(addBtn);
+  node.appendChild(toolbar);
+}
+
+async function toggleEmojiPicker(node, comment) {
+  // Close any other open picker first.
+  document.querySelectorAll(".emoji-picker").forEach((p) => p.remove());
+  document.querySelectorAll(".msg-item.has-picker").forEach((m) =>
+    m.classList.remove("has-picker")
+  );
+  // If this row already had one, we just closed it — done.
+  if (node._hasPicker) {
+    node._hasPicker = false;
+    return;
+  }
+  // Make sure the library is loaded so suggestedReactions returns the live
+  // set (if available). Don't await — show defaults immediately and let the
+  // next click hit the live list.
+  ensureReactionLibrary();
+
+  const picker = document.createElement("div");
+  picker.className = "emoji-picker";
+  const types = suggestedReactions();
+  for (const type of types) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "emoji-picker-btn";
+    btn.title = `:${type}:`;
+    btn.textContent = composerReactionEmojiFor(type);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      picker.remove();
+      node.classList.remove("has-picker");
+      node._hasPicker = false;
+      sendReaction(comment, type);
+    });
+    picker.appendChild(btn);
+  }
+  node.appendChild(picker);
+  node.classList.add("has-picker");
+  node._hasPicker = true;
+  // Click-outside to close.
+  const onDocClick = (e) => {
+    if (!picker.contains(e.target) && !node.contains(e.target)) {
+      picker.remove();
+      node.classList.remove("has-picker");
+      node._hasPicker = false;
+      document.removeEventListener("click", onDocClick, true);
+    }
+  };
+  // Defer so the current click doesn't immediately close.
+  setTimeout(() => document.addEventListener("click", onDocClick, true), 0);
+}
+
+async function sendReaction(comment, type) {
+  if (!comment || !type) return;
+  const id = comment.id;
+  // Optimistic bump.
+  const prevReactions = comment.reactions;
+  comment.reactions = updateReactionCount(prevReactions, type, +1);
+  renderAll();
+  try {
+    await apiPostReaction(id, type);
+  } catch (e) {
+    // Rollback.
+    comment.reactions = prevReactions;
+    renderAll();
+    showError(
+      "Reaction failed: " + ((e && e.message) || "unknown error")
+    );
+  }
 }
 
 // Mount when the app is visible. If we're on the landing screen, #composer

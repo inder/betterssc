@@ -990,6 +990,60 @@ button {
 }
 .msg-failed-retry:hover { background: var(--danger); color: white; }
 
+/* HOVER TOOLBAR + EMOJI PICKER (commit 5) */
+.msg-item { position: relative; }
+.msg-toolbar {
+  position: absolute;
+  top: -10px;
+  right: 6px;
+  display: none;
+  gap: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  box-shadow: var(--shadow);
+  z-index: 5;
+}
+.msg-item:hover > .msg-toolbar,
+.msg-item.has-picker > .msg-toolbar {
+  display: inline-flex;
+}
+.msg-toolbar-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.msg-toolbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.emoji-picker {
+  position: absolute;
+  top: 18px;
+  right: 6px;
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+.emoji-picker-btn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.emoji-picker-btn:hover { background: var(--bg-hover); }
+
 /* FOOTER */
 .footer {
   display: flex;
