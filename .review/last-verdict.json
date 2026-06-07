@@ -1,12 +1,12 @@
 {
-  "sha": "65499adbe8a5a10b267c573f43db22085c2b3ad3",
+  "sha": "65499ad",
   "branch": "main",
   "ts": "2026-06-07T00:00:00Z",
   "verdict": "fix-these",
-  "retro_required": "no",
-  "retro_reasoning": "Diff is under 100 lines, no schema/contract changes, one should-fix finding with no critical issues",
+  "retro_required": "yes",
+  "retro_reasoning": "Diff is well over 200 lines, new AI feature with BYOK key storage and external API calls, touches state/rendering/cursor — real learning surface",
   "critical_count": 0,
-  "should_fix_count": 1,
-  "nit_count": 1,
+  "should_fix_count": 2,
+  "nit_count": 2,
   "files_reviewed": 2
 }

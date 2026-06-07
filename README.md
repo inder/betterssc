@@ -51,6 +51,14 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
   - `/help` the full reference
 - 💬 thread badge on any message that has replies (quote-replies count too). Click it to focus the stream on just that conversation.
 
+### AI Insights (bring your own key)
+
+- Click the **✨ AI Insights** button in the header to get an AI-generated summary of whatever is currently visible in the feed (respects active search + thread filter).
+- First click prompts for an API key — pick OpenAI, Anthropic, or Google and paste your own key.
+- The insight appears as a special accent-tinted message in the feed authored by **"✨ BetterSSC AI"**, with a "Only visible to you · [provider] · N messages analyzed" footer. The message is local-only — it's never posted to Substack.
+- Dismiss any AI message with the Dismiss button. All AI messages clear on reload (in-memory only for now).
+- Key stays in `chrome.storage.local` on your device. The chat content you send goes directly from your browser to your chosen provider — no BetterSSC server, no proxy. See Privacy below.
+
 ### Following specific people
 
 - 🔔 bell next to each name in the Active rail. Toggle it on and you'll get a desktop notification when that person posts, even if BetterSSC is in another tab.
@@ -185,15 +193,24 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 ## Privacy
 
-**Everything stays on your computer.** That's not marketing language, it's literally how the extension is built.
+**The core extension is server-less.** Nothing about your messages, identity, reactions, search queries, pinned users, watched users, or theme ever gets sent to me, to a third party, or to anyone else. I cannot see what you read or write in your chats. Nobody else can either.
 
 - There is no BetterSSC server. There is no BetterSSC database. There is no BetterSSC backend at all.
-- Every network request goes directly from your browser to `substack.com`, using the session cookie you already have from being logged in.
-- Nothing about your messages, identity, reactions, search queries, pinned users, watched users, theme, or anything else is sent to me, to a third party, or to anyone else. I cannot see what you read or write in your chats. Nobody else can either.
+- Every Substack-side network request goes directly from your browser to `substack.com`, using the session cookie you already have from being logged in.
 - No analytics. No telemetry. No "anonymous usage data." No crash reporters. No third-party scripts. None.
-- Settings (theme, pinned users, watched users, sort preference, notify-all toggle) live in `chrome.storage.local`. That's a per-browser-profile bucket on your disk. They never leave your machine.
+- Settings (theme, pinned users, watched users, sort preference, notify-all toggle, AI provider + key) live in `chrome.storage.local`. That's a per-browser-profile bucket on your disk. They never leave your machine.
 - Failed-image URLs are cached in memory only for the lifetime of the tab, then forgotten.
 - The source is all here in this repo. Read it, audit it, fork it. Roughly 3000 lines of vanilla JS with no build step. What you see is what runs.
+
+### AI Insights — opt-in BYOK
+
+When you choose to use the **✨ AI Insights** feature, the privacy story changes only for that feature, and only when you trigger it:
+
+- **You bring your own API key** for OpenAI, Anthropic, or Google. Your key stays in `chrome.storage.local` on this device.
+- **The chat content you choose to analyze** (whatever is currently visible in the feed at click time) is sent **directly from your browser to your chosen AI provider's API** using your key. BetterSSC has no server in this path either — but the provider sees what you send.
+- BetterSSC does NOT route AI calls through the Substack proxy tab. We use a separate fetch to `api.openai.com` / `api.anthropic.com` / `generativelanguage.googleapis.com` so Substack's network trail doesn't contain any AI traffic.
+- The feature is fully opt-in. Until you click the AI Insights button and configure a key, none of these endpoints are contacted.
+- If you don't want any chat content reaching a third party, simply don't use AI Insights. Everything else works exactly the same.
 
 ## Known issues
 

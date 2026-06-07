@@ -33,6 +33,12 @@ import {
   incrementUnreadMentions,
 } from "./lib/notify.js";
 import { reactionEmojiFor } from "./lib/emojis.js";
+import { PROVIDERS, callProvider } from "./lib/ai-providers.js";
+import {
+  formatMessagesForLLM,
+  buildSystemPrompt,
+  buildPreviewUserMessage,
+} from "./lib/ai-context.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -116,6 +122,11 @@ const state = {
   notifyAllMessages: false, // header bell toggle — alert on every new msg
   consecutivePollFailures: 0, // resets to 0 on success; banner shows at >=2
   proxyDisconnected: false,
+  // AI Insights — see "AI INSIGHTS" section below. BYOK: chat content
+  // goes browser → provider with the user's own API key. Never proxied.
+  aiProvider: null, // "openai" | "anthropic" | "google" | null
+  aiKeys: {}, // {openai?: string, anthropic?: string, google?: string}
+  aiBusy: false,
 };
 
 // ============================================================
@@ -335,7 +346,11 @@ async function pollNewMessages() {
 function getNewestCommentISO() {
   for (let i = state.order.length - 1; i >= 0; i--) {
     const c = state.comments.get(state.order[i]);
-    if (c && c.created_at) return c.created_at;
+    // AI messages are local-only synthetic rows — skip them so the poll
+    // cursor stays anchored to real Substack-side timestamps. Otherwise
+    // a fresh AI message would advance the cursor past any unloaded
+    // real messages.
+    if (c && c.created_at && !c._aiGenerated) return c.created_at;
   }
   return null;
 }
@@ -1042,6 +1057,10 @@ function renderGroup(group) {
 }
 
 function renderMessageItem(c) {
+  // AI Insights messages have their own rendering — local-only, light
+  // markdown, dismiss button, "only visible to you" footer.
+  if (c._aiGenerated) return renderAiMessageItem(c);
+
   const wrap = document.createElement("div");
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
@@ -1118,6 +1137,84 @@ function renderMessageItem(c) {
   if (reactionsEl) wrap.appendChild(reactionsEl);
 
   return wrap;
+}
+
+// Render an AI Insights message — special, local-only, light markdown.
+// Body comes back as markdown from the provider; we render bold,
+// italic, headers, and bullet lists. Linkifying URLs would risk
+// XSS on stylized strings, so we skip it for AI bodies — providers
+// almost never emit URLs in this preview format anyway.
+function renderAiMessageItem(c) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg-item ai-msg" + (c._aiPending ? " ai-pending" : "")
+    + (c._aiError ? " ai-error" : "");
+  wrap.dataset.id = c.id;
+
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "msg-body ai-body";
+  // innerHTML is safe here because renderAiMarkdownToHtml escapes the
+  // raw text via escapeHtml() BEFORE applying its narrow set of inline
+  // transforms (bold/italic/headers/bullets). No <script>, no event
+  // handler attributes can survive.
+  bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
+  wrap.appendChild(bodyEl);
+
+  const footer = document.createElement("div");
+  footer.className = "ai-footer";
+  const meta = document.createElement("span");
+  meta.className = "ai-footer-meta";
+  const providerLabel = c._aiProvider ? ` · ${c._aiProvider}` : "";
+  const ctxInfo = c._aiContextInfo
+    ? ` · ${c._aiContextInfo.included} message${c._aiContextInfo.included === 1 ? "" : "s"}`
+      + (c._aiContextInfo.dropped ? ` (oldest ${c._aiContextInfo.dropped} truncated)` : "")
+    : "";
+  meta.textContent = `Only visible to you${providerLabel}${ctxInfo}`;
+  footer.appendChild(meta);
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "ai-dismiss";
+  dismiss.textContent = "Dismiss";
+  dismiss.title = "Remove this AI message (it's local-only anyway)";
+  dismiss.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dismissAiMessage(c.id);
+  });
+  footer.appendChild(dismiss);
+  wrap.appendChild(footer);
+
+  return wrap;
+}
+
+// Tiny markdown subset for AI bodies: **bold**, _italic_, ## / ### headers,
+// "- " bullet lists, \n → <br>. Input is escapeHtml'd FIRST so no raw HTML
+// from the provider can land in the DOM.
+function renderAiMarkdownToHtml(raw) {
+  let html = escapeHtml(raw);
+  // Headers (operate on escaped text — pattern still matches "## " literally)
+  html = html.replace(/^### (.+)$/gm, "<h4 class='ai-h4'>$1</h4>");
+  html = html.replace(/^## (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
+  html = html.replace(/^# (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
+  // Bold (greedy-resistant: no asterisks inside the run)
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  // Italic — underscore-bounded with word-boundary guards so we don't
+  // chew through identifiers like _foo_bar_baz.
+  html = html.replace(
+    /(^|[\s(\[])_([^_\n]+)_(?=[\s.,;:?!)\]]|$)/g,
+    "$1<em>$2</em>"
+  );
+  // Bullet groups: consecutive "- " lines become a <ul>.
+  html = html.replace(/(?:^[-*] .+(?:\n|$))+/gm, (block) => {
+    const items = block
+      .trim()
+      .split(/\n[-*] /)
+      .map((s) => s.replace(/^[-*] /, "").trim())
+      .filter(Boolean);
+    return "<ul class='ai-ul'>" + items.map((i) => `<li>${i}</li>`).join("") + "</ul>";
+  });
+  // Remaining newlines → <br>
+  html = html.replace(/\n+/g, "<br>");
+  return html;
 }
 
 // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
@@ -1632,6 +1729,23 @@ function restoreWatchedUsers() {
           renderNotifyAllButton();
         }
       );
+    // AI Insights config loads independently — don't gate the rail on it.
+    chrome.storage.local.get(
+      ["bssc_ai_provider", "bssc_ai_keys"],
+      (res) => {
+        if (!res) return;
+        if (
+          res.bssc_ai_provider === "openai" ||
+          res.bssc_ai_provider === "anthropic" ||
+          res.bssc_ai_provider === "google"
+        ) {
+          state.aiProvider = res.bssc_ai_provider;
+        }
+        if (res.bssc_ai_keys && typeof res.bssc_ai_keys === "object") {
+          state.aiKeys = res.bssc_ai_keys;
+        }
+      }
+    );
   } catch (_) {}
 }
 
@@ -1982,6 +2096,317 @@ function closePostModal() {
   backdrop.classList.add("hidden");
   const btn = document.getElementById("headerLeft");
   if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+// ============================================================
+// AI INSIGHTS (BYOK — bring your own key)
+// ============================================================
+//
+// Click the "✨ AI Insights" header button to summarize whatever is
+// currently visible in the feed (respects active search + thread filter).
+// First click prompts for a provider + API key; subsequent clicks
+// generate a fresh insight using the saved config.
+//
+// Insights render as a special LOCAL-ONLY message authored by
+// "✨ BetterSSC AI". They are stored in state.comments with
+// _aiGenerated:true, never POSTed to Substack, never included in the
+// poll cursor, and never decorated with reaction / reply UI.
+//
+// Privacy: the API call goes directly from the extension page to the
+// provider's API host. We do NOT route through the substack.com proxy
+// tab — that would leak chat content into Substack's network trail.
+// The user's own API key is held in chrome.storage.local (per-browser-
+// profile, OS-keychain-protected).
+
+const AI_AUTHOR = {
+  id: "bssc-ai",
+  name: "✨ BetterSSC AI",
+  handle: null,
+  photo_url: null,
+};
+
+function buildAiMessage(id, body, providerName, opts = {}) {
+  return {
+    id,
+    body,
+    created_at: new Date().toISOString(),
+    author: AI_AUTHOR,
+    user_id: "bssc-ai",
+    _aiGenerated: true,
+    _aiProvider: providerName,
+    _aiPending: !!opts.pending,
+    _aiError: !!opts.error,
+  };
+}
+
+// Pick the messages currently visible to the user. Mirrors the same
+// filter logic applySearch uses on the DOM, but operates on state so
+// the result is an array of comment objects (oldest → newest, no AI
+// rows since those aren't context for further insights).
+function getVisibleCommentsForAi() {
+  const all = state.order
+    .map((id) => state.comments.get(id))
+    .filter((c) => c && !c._aiGenerated);
+  const hasSearch = !!(state.searchQuery && state.searchQuery.trim());
+  const hasThread = !!state.threadFilter;
+  if (!hasSearch && !hasThread) return all;
+  const matcher = hasSearch ? parseSearchQuery(state.searchQuery.trim()) : null;
+  let threadMembers = null;
+  if (hasThread) {
+    const parentId = state.threadFilter.parentId;
+    threadMembers = new Set([parentId]);
+    const localRefs = state.threadIndex && state.threadIndex.get(parentId);
+    if (localRefs) for (const id of localRefs) threadMembers.add(id);
+  }
+  return all.filter((c) => {
+    if (threadMembers && !threadMembers.has(c.id)) return false;
+    if (matcher && matcher.test && !matcher.test(c)) return false;
+    return true;
+  });
+}
+
+async function handleAiInsightsClick() {
+  if (state.aiBusy) return;
+  const provider = state.aiProvider;
+  const key = provider ? state.aiKeys[provider] : null;
+  if (!provider || !key) {
+    openAiSettingsModal();
+    return;
+  }
+  await runAiInsights(provider, key);
+}
+
+async function runAiInsights(providerName, apiKey) {
+  const providerObj = PROVIDERS[providerName];
+  if (!providerObj) {
+    showError("AI Insights: unknown provider");
+    return;
+  }
+  state.aiBusy = true;
+  setAiButtonBusy(true);
+
+  const aiId = `ai_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const pending = buildAiMessage(
+    aiId,
+    "_Generating insights…_",
+    providerName,
+    { pending: true }
+  );
+  state.comments.set(aiId, pending);
+  insertInOrder(pending);
+  renderAll();
+  scrollToBottom();
+
+  const visible = getVisibleCommentsForAi();
+  const { context, included, dropped } = formatMessagesForLLM(visible);
+  const systemPrompt = buildSystemPrompt(context, { lens: "trading" });
+
+  try {
+    // 30s timeout — provider hangs would otherwise lock aiBusy forever
+    // (button disabled until page reload, no recourse for the user).
+    const signal = AbortSignal.timeout(30_000);
+    const result = await callProvider(providerObj, {
+      systemPrompt,
+      conversation: [
+        { role: "user", content: buildPreviewUserMessage() },
+      ],
+      apiKey,
+      signal,
+    });
+    const row = state.comments.get(aiId);
+    if (!row) return; // dismissed mid-flight
+    row._aiPending = false;
+    row._aiContextInfo = { included, dropped };
+    if (result.error) {
+      row._aiError = true;
+      row.body = `**Error:** ${result.error}`;
+    } else {
+      row.body = result.text;
+    }
+    renderAll();
+  } finally {
+    state.aiBusy = false;
+    setAiButtonBusy(false);
+  }
+}
+
+function dismissAiMessage(id) {
+  if (!state.comments.has(id)) return;
+  state.comments.delete(id);
+  const idx = state.order.indexOf(id);
+  if (idx !== -1) state.order.splice(idx, 1);
+  renderAll();
+}
+
+function setAiButtonBusy(busy) {
+  const btn = document.getElementById("aiInsightsBtn");
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.classList.toggle("is-busy", busy);
+  btn.textContent = busy ? "✨ Thinking…" : "✨ AI Insights";
+}
+
+// ----- Settings modal -----
+
+function openAiSettingsModal() {
+  closeAiSettingsModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "aiSettingsBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "AI Insights settings");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "AI Insights — bring your own key";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeAiSettingsModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const note = document.createElement("p");
+  note.className = "ai-settings-note";
+  note.innerHTML =
+    "Your key is stored in <code>chrome.storage.local</code> on this device. " +
+    "Chat content goes <em>directly</em> from your browser to your chosen provider — " +
+    "no BetterSSC server, no proxy. The provider sees what you send.";
+  body.appendChild(note);
+
+  const providersWrap = document.createElement("div");
+  providersWrap.className = "ai-settings-providers";
+  const PROVIDER_META = [
+    { value: "openai", label: "OpenAI", model: PROVIDERS.openai.model },
+    { value: "anthropic", label: "Anthropic", model: PROVIDERS.anthropic.model },
+    { value: "google", label: "Google", model: PROVIDERS.google.model },
+  ];
+  for (const p of PROVIDER_META) {
+    const label = document.createElement("label");
+    label.className = "ai-settings-provider";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "ai-provider";
+    radio.value = p.value;
+    if (state.aiProvider === p.value) radio.checked = true;
+    const txt = document.createElement("span");
+    const big = document.createElement("strong");
+    big.textContent = p.label;
+    const small = document.createElement("small");
+    small.textContent = ` (${p.model})`;
+    txt.appendChild(big);
+    txt.appendChild(small);
+    label.appendChild(radio);
+    label.appendChild(txt);
+    providersWrap.appendChild(label);
+  }
+  body.appendChild(providersWrap);
+
+  const keyLabel = document.createElement("label");
+  keyLabel.className = "ai-settings-key-label";
+  keyLabel.textContent = "API key";
+  const keyInput = document.createElement("input");
+  keyInput.type = "password";
+  keyInput.id = "aiSettingsKey";
+  keyInput.placeholder = "sk-…  /  ai-…  /  AIza…";
+  keyInput.autocomplete = "off";
+  keyInput.spellcheck = false;
+  // Prefill when the user has an existing key for the selected provider.
+  if (state.aiProvider && state.aiKeys[state.aiProvider]) {
+    keyInput.value = state.aiKeys[state.aiProvider];
+  }
+  keyLabel.appendChild(keyInput);
+  body.appendChild(keyLabel);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "ai-settings-save";
+  saveBtn.textContent = "Save & generate";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "ai-settings-cancel";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", closeAiSettingsModal);
+  footer.appendChild(cancelBtn);
+  footer.appendChild(saveBtn);
+
+  // Refill the key input when the provider radio changes — so switching
+  // providers shows the saved key for that provider (if any).
+  providersWrap.addEventListener("change", () => {
+    const selected = providersWrap.querySelector(
+      'input[name="ai-provider"]:checked'
+    );
+    if (!selected) return;
+    const saved = state.aiKeys[selected.value];
+    keyInput.value = saved || "";
+  });
+
+  saveBtn.addEventListener("click", () => {
+    const selected = providersWrap.querySelector(
+      'input[name="ai-provider"]:checked'
+    );
+    if (!selected) {
+      keyInput.focus();
+      return;
+    }
+    const providerName = selected.value;
+    const key = keyInput.value.trim();
+    if (!key) {
+      keyInput.focus();
+      return;
+    }
+    state.aiProvider = providerName;
+    state.aiKeys = { ...state.aiKeys, [providerName]: key };
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_ai_provider: state.aiProvider,
+          bssc_ai_keys: state.aiKeys,
+        });
+    } catch (_) {}
+    closeAiSettingsModal();
+    // Guard against re-entry — the modal can only open when no key is
+    // configured, so aiBusy is normally false here, but future code
+    // paths could open the modal mid-flight. Belt-and-suspenders.
+    if (state.aiBusy) return;
+    runAiInsights(providerName, key);
+  });
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeAiSettingsModal();
+  });
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  // Focus the first unchecked radio (or the key input if a provider is
+  // already selected) for fast keyboard flow.
+  const checked = providersWrap.querySelector(
+    'input[name="ai-provider"]:checked'
+  );
+  if (checked) keyInput.focus();
+  else providersWrap.querySelector('input[name="ai-provider"]').focus();
+}
+
+function closeAiSettingsModal() {
+  const el = document.getElementById("aiSettingsBackdrop");
+  if (el) el.remove();
 }
 
 // ============================================================
@@ -2719,6 +3144,13 @@ function bindEventHandlers() {
     scrollToBottom();
   });
 
+  const aiBtn = document.getElementById("aiInsightsBtn");
+  if (aiBtn) {
+    aiBtn.addEventListener("click", () => {
+      handleAiInsightsClick();
+    });
+  }
+
   // Delegated click handler for $TICKER links in messages — opens the
   // TradingView modal. Delegation means we don't have to re-bind on
   // every render.
@@ -2762,6 +3194,11 @@ function bindEventHandlers() {
     // Escape — clear active overlays, then thread filter, then search.
     // v0.1.27: works from anywhere, not just when focused in the search box.
     if (e.key === "Escape") {
+      const aiSettings = document.getElementById("aiSettingsBackdrop");
+      if (aiSettings) {
+        closeAiSettingsModal();
+        return;
+      }
       const tickerModal = document.getElementById("tickerModalBackdrop");
       if (tickerModal) {
         closeTickerModal();
@@ -3490,8 +3927,9 @@ function decoratePendingMessages() {
       node.classList.remove("_failed");
     }
     // Commit 5: reaction toolbar (skip on pending/failed rows — can't react
-    // to something that hasn't landed yet).
-    if (!c._pending && !c._failed) {
+    // to something that hasn't landed yet, and AI messages are local-only
+    // so there's nothing on Substack to react to).
+    if (!c._pending && !c._failed && !c._aiGenerated) {
       decorateReactionToolbar(node, c);
     }
   }

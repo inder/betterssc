@@ -1351,3 +1351,234 @@ button {
 .proxy-banner-text {
   flex: 1;
 }
+
+/* ============================================================
+   AI Insights — header button, AI message, settings modal
+   ============================================================ */
+
+.ai-insights-btn {
+  background: var(--accent-bg-soft);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ai-insights-btn:hover {
+  background: var(--accent-bg-strong);
+  border-color: var(--accent);
+}
+.ai-insights-btn.is-busy {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+/* AI message in the feed — accent-tinted, no clickable interactions
+   beyond Dismiss. Sits in the same group flow as a normal author
+   but renders distinctly so the user always knows it's local-only. */
+.ai-msg {
+  background: var(--accent-bg-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 6px 0;
+}
+.ai-msg.ai-pending .ai-body {
+  opacity: 0.7;
+  font-style: italic;
+}
+.ai-msg.ai-error {
+  background: rgba(201, 42, 42, 0.08);
+  border-left-color: var(--danger);
+}
+
+.ai-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.ai-body h3.ai-h3 {
+  margin: 10px 0 6px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ai-body h4.ai-h4 {
+  margin: 8px 0 4px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.ai-body ul.ai-ul {
+  margin: 4px 0 8px 0;
+  padding-left: 22px;
+}
+.ai-body ul.ai-ul li {
+  margin: 2px 0;
+}
+.ai-body strong { color: var(--text-primary); }
+
+.ai-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ai-footer-meta { font-style: italic; }
+.ai-dismiss {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ai-dismiss:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Settings modal (first-use API key configuration). */
+.ai-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 24px;
+}
+.ai-settings-modal {
+  background: var(--bg-primary);
+  border-radius: 10px;
+  width: min(480px, 100%);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.ai-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.ai-settings-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ai-settings-close {
+  background: transparent;
+  border: 0;
+  font-size: 16px;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ai-settings-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ai-settings-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ai-settings-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--accent-bg-soft);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0;
+  line-height: 1.5;
+}
+.ai-settings-note code {
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.ai-settings-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ai-settings-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ai-settings-provider:hover { background: var(--bg-hover); }
+.ai-settings-provider small {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.ai-settings-key-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.ai-settings-key-label input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ai-settings-key-label input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ai-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+.ai-settings-save {
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 0;
+  cursor: pointer;
+}
+.ai-settings-save:hover { background: var(--accent-hover); }
+.ai-settings-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.ai-settings-cancel:hover { background: var(--bg-hover); }

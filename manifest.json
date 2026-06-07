@@ -14,7 +14,10 @@
     "https://substack.com/*",
     "https://*.substack.com/*",
     "https://*.s3.amazonaws.com/*",
-    "https://substackcdn.com/*"
+    "https://substackcdn.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*"
   ],
   "declarative_net_request": {
     "rule_resources": [
