@@ -1455,19 +1455,19 @@ function maybeAlertOnReplyToMe(comment) {
 // stacking dozens of notifications during a busy chat.
 function maybeAlertAllMessages(newlyAdded) {
   if (!state.notifyAllMessages) {
-    console.debug(
+    console.log(
       "[BetterSSC notify-all] skip — toggle is off (click 🔔 in header)"
     );
     return;
   }
   if (!document.hidden) {
-    console.debug(
+    console.log(
       "[BetterSSC notify-all] skip — tab is visible (alerts fire only when tab is hidden)"
     );
     return;
   }
   if (!Array.isArray(newlyAdded) || !newlyAdded.length) return;
-  console.debug(
+  console.log(
     `[BetterSSC notify-all] firing for ${newlyAdded.length} new message(s)`
   );
   const pubName =
