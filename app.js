@@ -29,6 +29,7 @@ import {
 import {
   maybeNotifyMention,
   resetUnreadMentions,
+  incrementUnreadMentions,
 } from "./lib/notify.js";
 import { reactionEmojiFor } from "./lib/emojis.js";
 
@@ -66,6 +67,24 @@ const ICON_BELL_OFF = `<svg viewBox="0 0 24 24" width="14" height="14"
   <path d="M2 2l20 20"/>
 </svg>`;
 
+// Header notify-all-messages toggle uses bigger 18px versions of the same icons.
+const ICON_BELL_ON_LG = `<svg viewBox="0 0 24 24" width="18" height="18"
+  fill="currentColor" aria-hidden="true">
+  <path d="M12 22a2.2 2.2 0 0 0 2.2-2.2H9.8A2.2 2.2 0 0 0 12 22z"/>
+  <path d="M18 16v-5a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2
+    2v1h16v-1z"/>
+</svg>`;
+
+const ICON_BELL_OFF_LG = `<svg viewBox="0 0 24 24" width="18" height="18"
+  fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M18 8a6 6 0 0 0-9.33-5"/>
+  <path d="M6.26 6.26A6 6 0 0 0 6 8v5l-2 2v1h12.74"/>
+  <path d="M18 14v-1l2-2"/>
+  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  <path d="M2 2l20 20"/>
+</svg>`;
+
 // ============================================================
 // STATE
 // ============================================================
@@ -93,6 +112,7 @@ const state = {
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
   threadFilter: null, // { parentId } when user clicked a 💬 thread icon
+  notifyAllMessages: false, // header bell toggle — alert on every new msg
 };
 
 // ============================================================
@@ -209,9 +229,18 @@ async function pollNewMessages() {
     if (added > 0) {
       renderAll();
       incrementUnreadWhileHidden(added);
-      // Fire per-user alerts on every truly-new comment (originals and
-      // threaded replies).
-      for (const c of newlyAdded) maybeAlertOnWatchedUser(c);
+      // For each new comment pick at most ONE alert in priority order:
+      // reply-to-me → watched-user. (@mentions fire separately from
+      // ingestComment, so a reply that also @mentions you fires both —
+      // acceptable since both signals are important.)
+      for (const c of newlyAdded) {
+        if (maybeAlertOnReplyToMe(c)) continue;
+        maybeAlertOnWatchedUser(c);
+      }
+      // Fire a single batched alert if "notify on all messages" is on,
+      // using a stable id per chat post so subsequent polls REPLACE the
+      // previous notification instead of stacking.
+      maybeAlertAllMessages(newlyAdded);
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
@@ -1270,7 +1299,12 @@ function restoreWatchedUsers() {
     chrome.storage &&
       chrome.storage.local &&
       chrome.storage.local.get(
-        ["bssc_watched_users", "bssc_pinned_users", "bssc_member_sort"],
+        [
+          "bssc_watched_users",
+          "bssc_pinned_users",
+          "bssc_member_sort",
+          "bssc_notify_all",
+        ],
         (res) => {
           if (res) {
             state.watchedUserIds = new Set(res.bssc_watched_users || []);
@@ -1278,10 +1312,124 @@ function restoreWatchedUsers() {
             if (res.bssc_member_sort === "name" || res.bssc_member_sort === "active") {
               state.memberSort = res.bssc_member_sort;
             }
+            state.notifyAllMessages = !!res.bssc_notify_all;
           }
           renderMembers();
+          renderNotifyAllButton();
         }
       );
+  } catch (_) {}
+}
+
+// ============================================================
+// "Notify on every new message" header toggle (v0.2)
+// ============================================================
+
+function renderNotifyAllButton() {
+  const btn = document.getElementById("notifyAllBtn");
+  if (!btn) return;
+  const on = !!state.notifyAllMessages;
+  btn.innerHTML = on ? ICON_BELL_ON_LG : ICON_BELL_OFF_LG;
+  btn.classList.toggle("on", on);
+  btn.title = on
+    ? "Notifications on for every new message — click to turn off"
+    : "Notify me on every new message (only while this tab is hidden)";
+}
+
+function toggleNotifyAllMessages() {
+  state.notifyAllMessages = !state.notifyAllMessages;
+  renderNotifyAllButton();
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({ bssc_notify_all: state.notifyAllMessages });
+  } catch (_) {}
+}
+
+// Alert when someone replies to one of YOUR messages. Catches both
+// styles Substack uses:
+//   - quote-reply: comment.quote refers to your message
+//   - threaded reply: comment.parent_id refers to your message (looked
+//     up in state.comments; if the parent isn't in our cache we can't
+//     detect this case, but live polling will normally have it)
+// Returns true if a notification was fired so the caller can skip the
+// fallback watched-user alert path.
+function maybeAlertOnReplyToMe(comment) {
+  if (!comment) return false;
+  if (!document.hidden) return false;
+  if (!state.user || state.user.id == null) return false;
+  const myId = state.user.id;
+  // Don't alert about my own replies.
+  const authorId =
+    comment.user_id ?? (comment.author && comment.author.id);
+  if (authorId === myId) return false;
+
+  let targetIsMe = false;
+
+  // Quote-reply: c.quote was attached by unwrapComment from raw.quote.
+  if (comment.quote) {
+    const qAuthorId =
+      comment.quote.user_id ??
+      (comment.quote.author && comment.quote.author.id);
+    if (qAuthorId === myId) targetIsMe = true;
+  }
+
+  // Threaded reply: parent_id points at a comment we may have cached.
+  if (!targetIsMe && comment.parent_id) {
+    const parent = state.comments.get(comment.parent_id);
+    if (parent) {
+      const pAuthorId =
+        parent.user_id ?? (parent.author && parent.author.id);
+      if (pAuthorId === myId) targetIsMe = true;
+    }
+  }
+
+  if (!targetIsMe) return false;
+
+  const name = (comment.author && comment.author.name) || "Someone";
+  const preview = (comment.body || "").slice(0, 200);
+  try {
+    chrome.runtime.sendMessage({
+      type: "notify",
+      title: `↩ Reply from ${name}`,
+      message: preview || "(replied to your message)",
+      mentionRef: comment.id,
+    });
+  } catch (_) {}
+  incrementUnreadMentions();
+  return true;
+}
+
+// Called from pollNewMessages after the per-user-watched alerts. Fires a
+// single batched notification covering everything new this poll, using a
+// stable id per chat post so it REPLACES the previous batch instead of
+// stacking dozens of notifications during a busy chat.
+function maybeAlertAllMessages(newlyAdded) {
+  if (!state.notifyAllMessages) return;
+  if (!document.hidden) return;
+  if (!Array.isArray(newlyAdded) || !newlyAdded.length) return;
+  const pubName =
+    (state.publication && state.publication.name) || "Substack chat";
+  const last = newlyAdded[newlyAdded.length - 1];
+  const lastAuthor =
+    (last && last.author && last.author.name) || "Someone";
+  const lastBody = ((last && last.body) || "").slice(0, 140);
+  const title =
+    newlyAdded.length === 1
+      ? `New message in ${pubName}`
+      : `${newlyAdded.length} new messages in ${pubName}`;
+  const message =
+    newlyAdded.length === 1
+      ? `${lastAuthor}: ${lastBody}`
+      : `Latest — ${lastAuthor}: ${lastBody}`;
+  try {
+    chrome.runtime.sendMessage({
+      type: "notify",
+      title,
+      message,
+      mentionRef: last && last.id,
+      notificationId: `bssc-allmsg-${state.postUuid}`,
+    });
   } catch (_) {}
 }
 
@@ -2034,6 +2182,13 @@ function bindEventHandlers() {
     refreshBtn.addEventListener("click", () => {
       manualRefresh(refreshBtn);
     });
+  }
+
+  // "Notify on every new message" header toggle.
+  const notifyAllBtn = document.getElementById("notifyAllBtn");
+  if (notifyAllBtn) {
+    notifyAllBtn.addEventListener("click", toggleNotifyAllMessages);
+    renderNotifyAllButton();
   }
 
   // Background can send us "focusMessage" when a notification is clicked.

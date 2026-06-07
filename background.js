@@ -88,7 +88,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return;
   if (!msg || !msg.type) return;
   if (msg.type === "notify") {
-    const id = `bssc-${Date.now()}-${Math.floor(performance.now() * 1000) % 1000000}`;
+    // If the sender passes a stable notificationId, reuse it — Chrome
+    // will REPLACE the existing notification of that id instead of
+    // stacking. Used by the "notify on every new message" toggle so a
+    // chatty publication doesn't spam dozens of OS notifications.
+    const id =
+      msg.notificationId ||
+      `bssc-${Date.now()}-${Math.floor(performance.now() * 1000) % 1000000}`;
     chrome.notifications.create(id, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon128.png"),

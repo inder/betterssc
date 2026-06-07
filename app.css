@@ -257,6 +257,15 @@ button {
   align-items: center;
   justify-content: center;
 }
+.header-btn.icon-btn svg { display: block; }
+.header-btn.on {
+  background: var(--success-bg-soft);
+  border-color: var(--success);
+  color: var(--success);
+}
+.header-btn.on:hover {
+  background: var(--success-bg-strong);
+}
 .header-btn.spinning {
   animation: spinHeaderBtn 0.6s linear;
 }
