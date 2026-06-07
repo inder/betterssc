@@ -2499,6 +2499,188 @@ function closeAiSettingsModal() {
 }
 
 // ============================================================
+// KEBAB MENU (header ⋮ — settings + tuning + reset)
+// ============================================================
+
+function toggleKebabMenu() {
+  if (document.getElementById("kebabMenu")) {
+    closeKebabMenu();
+  } else {
+    openKebabMenu();
+  }
+}
+
+function openKebabMenu() {
+  closeKebabMenu();
+  const btn = document.getElementById("kebabMenuBtn");
+  if (!btn) return;
+  btn.setAttribute("aria-expanded", "true");
+  const menu = document.createElement("div");
+  menu.id = "kebabMenu";
+  menu.className = "kebab-menu";
+  menu.setAttribute("role", "menu");
+  const rect = btn.getBoundingClientRect();
+  menu.style.position = "fixed";
+  menu.style.top = `${rect.bottom + 4}px`;
+  menu.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+  const items = [
+    { label: "Tune AI model", handler: openTuneModelModal },
+    { label: "Tune prompt", handler: openTunePromptModal },
+    { label: "Reset all saved data", handler: openResetConfirmModal, danger: true },
+  ];
+  for (const item of items) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "kebab-menu-item" + (item.danger ? " is-danger" : "");
+    el.setAttribute("role", "menuitem");
+    el.textContent = item.label;
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeKebabMenu();
+      item.handler();
+    });
+    menu.appendChild(el);
+  }
+  document.body.appendChild(menu);
+  // Defer so the click that opened the menu doesn't immediately close it.
+  setTimeout(() => {
+    document.addEventListener("click", kebabOutsideClick, true);
+    document.addEventListener("keydown", kebabEscape);
+  }, 0);
+}
+
+function kebabOutsideClick(e) {
+  const menu = document.getElementById("kebabMenu");
+  const btn = document.getElementById("kebabMenuBtn");
+  if (!menu) return;
+  if (menu.contains(e.target)) return;
+  if (btn && btn.contains(e.target)) return;
+  closeKebabMenu();
+}
+
+function kebabEscape(e) {
+  if (e.key === "Escape") closeKebabMenu();
+}
+
+function closeKebabMenu() {
+  const menu = document.getElementById("kebabMenu");
+  if (menu) menu.remove();
+  const btn = document.getElementById("kebabMenuBtn");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+  document.removeEventListener("click", kebabOutsideClick, true);
+  document.removeEventListener("keydown", kebabEscape);
+}
+
+// Placeholders — replaced in the next two commits.
+function openTuneModelModal() {
+  showError("Tune AI model — coming next.");
+}
+function openTunePromptModal() {
+  showError("Tune prompt — coming next.");
+}
+
+function openResetConfirmModal() {
+  // Close any prior backdrop and build a fresh one.
+  const existing = document.getElementById("resetConfirmBackdrop");
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "resetConfirmBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Reset all saved data");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal reset-confirm-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "Reset all saved data?";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeResetConfirmModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const note = document.createElement("p");
+  note.className = "ai-settings-note";
+  note.innerHTML =
+    "This will permanently wipe BetterSSC's local storage on this device. " +
+    "You'll be signed back to defaults the next time you reload.";
+  body.appendChild(note);
+
+  const list = document.createElement("ul");
+  list.className = "reset-confirm-list";
+  const things = [
+    "📌 Pinned members and 🔔 watch / alert preferences",
+    "✨ AI provider settings and API key (you'll re-paste it next time)",
+    "Theme (light / dark), member-rail sort, notify-all toggle",
+    "WebSocket-enabled flag",
+  ];
+  for (const t of things) {
+    const li = document.createElement("li");
+    li.textContent = t;
+    list.appendChild(li);
+  }
+  body.appendChild(list);
+
+  const warn = document.createElement("p");
+  warn.className = "reset-confirm-warn";
+  warn.textContent =
+    "Chat messages themselves stay on Substack — nothing on their side changes.";
+  body.appendChild(warn);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeResetConfirmModal);
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "ai-settings-btn ai-settings-btn-danger";
+  confirm.textContent = "Reset everything";
+  confirm.addEventListener("click", () => {
+    if (chrome && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.clear(() => {
+        closeResetConfirmModal();
+        // Reload — easiest way to land cleanly with default state
+        // (in-memory state.pinnedUsers / state.aiKeys / etc all live).
+        window.location.reload();
+      });
+    } else {
+      closeResetConfirmModal();
+    }
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(confirm);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeResetConfirmModal();
+  });
+  document.body.appendChild(backdrop);
+}
+
+function closeResetConfirmModal() {
+  const el = document.getElementById("resetConfirmBackdrop");
+  if (el) el.remove();
+}
+
+// ============================================================
 // TICKER MODAL (click $NASA / $DXYZ → TradingView chart)
 // ============================================================
 //
@@ -3311,6 +3493,15 @@ function bindEventHandlers() {
   if (aiBtn) {
     aiBtn.addEventListener("click", () => {
       handleAiInsightsClick();
+    });
+  }
+
+  const kebabBtn = document.getElementById("kebabMenuBtn");
+  if (kebabBtn) {
+    kebabBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleKebabMenu();
     });
   }
 
