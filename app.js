@@ -152,7 +152,11 @@ async function init() {
   // Fallback: try to read from a known route once we hit the API.
   try {
     state.user = await fetchUserIdentity();
-    console.log("[BetterSSC identity]", state.user);
+    try {
+      console.log("[BetterSSC identity] " + JSON.stringify(state.user));
+    } catch (_) {
+      console.log("[BetterSSC identity]", state.user);
+    }
   } catch (_) {}
   // If we got id+name but no photo_url AND we know the handle, hit
   // the public profile endpoint. Skip when handle is missing: Substack's
@@ -646,28 +650,12 @@ function ingestComment(c, { silent = false } = {}) {
   // pushes contribute to avatar healing in real time.
   if (unwrapped.author && (unwrapped.author.id != null || unwrapped.author.user_id != null)) {
     registerUserObjects([unwrapped.author]);
-    // Diagnostic: log the shape of any comment whose author still
-    // has no photo. Tells us whether Substack is sending the photo
-    // under a different field name OR not at all. Rate-limited to
-    // at most one log per user_id per session.
-    if (!unwrapped.author.photo_url) {
-      const a = unwrapped.author;
-      const id = a.id ?? a.user_id;
-      if (id != null && !_avatarMissLogged.has(id)) {
-        _avatarMissLogged.add(id);
-        // Stringify inline so the values show in console without
-        // needing to expand each entry. Chrome collapses object args.
-        let json = "";
-        try {
-          json = JSON.stringify(a);
-        } catch (_) {
-          json = String(a);
-        }
-        console.log(
-          `[BetterSSC avatar-miss] id=${id} name=${a.name} handle=${a.handle} keys=[${Object.keys(a).join(",")}] full=${json}`
-        );
-      }
-    }
+    // Avatar-miss diagnostic was here. Confirmed via live dump
+    // (commit a2a64fb logs) that Substack sends photo_url: null
+    // for users who never set a profile photo — Vandy, Nicho,
+    // Jp, Blair, PKR, V J, Kyle, Bernelius, tcy908, Chris, JD,
+    // jrock452. Native Substack UI renders them as letter
+    // placeholders too. Not a bug; we're rendering correctly.
   }
 
   const isNew = !state.comments.has(id);
