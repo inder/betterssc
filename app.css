@@ -523,7 +523,10 @@ button {
   border-radius: 4px;
   transition: background 0.1s ease;
 }
-.msg-group:hover { background: var(--bg-hover); }
+/* Hover highlight lives on .msg-item now (per-row), not the whole group, so
+   one message in a multi-message author run highlights on hover instead of
+   the whole block. The whole-group tints below (search / mention) and the
+   vi-active focus marker are intentional and stay at the group level. */
 .msg-group.search-hit { background: var(--accent-bg-soft); }
 .msg-group.search-active { background: var(--accent-bg-strong); }
 .msg-group.search-hidden { display: none; }
@@ -575,12 +578,25 @@ button {
 .msg-item {
   font-size: 14px;
   color: var(--text-primary);
-  margin: 2px 0;
+  padding: 3px 0;
+  border-radius: 4px;
   word-wrap: break-word;
   white-space: pre-wrap;
   line-height: 1.4;
   position: relative;
 }
+/* Each message is its own hoverable row. Consecutive messages from the same
+   author are split by a faint divider so a run reads as separate blurbs —
+   each with its own react/reply toolbar — instead of one merged paragraph.
+   The divider only appears between two items (never under the author header,
+   which is not a .msg-item). */
+.msg-item:hover { background: var(--bg-hover); }
+.msg-item + .msg-item { border-top: 1px solid var(--border); }
+/* Inside a vi-active group the whole block is tinted with --accent-bg-soft;
+   the near-black --border divider becomes a harsh slash on it (most visible
+   in dark theme). Soften the divider to an accent-tinted line so it stays a
+   separator, not a gash. */
+.msg-group.vi-active .msg-item + .msg-item { border-top-color: var(--accent-bg-strong); }
 .msg-thread-btn {
   margin-left: auto;
   font-size: 11px;
