@@ -3514,7 +3514,7 @@ function showHelpOverlay() {
       <dt>j / k</dt><dd>Next / previous message</dd>
       <dt>PageDn / PageUp</dt><dd>Full page down / up</dd>
       <dt>⌘D / ⌘U</dt><dd>Half page down / up (vim style)</dd>
-      <dt>g</dt><dd>Jump to top (+ load older history)</dd>
+      <dt>g</dt><dd>Page up (loads older history at the top)</dd>
       <dt>Shift+G</dt><dd>Jump to bottom (latest)</dd>
       <dt>n / Shift+N</dt><dd>Next / previous search match</dd>
       <dt>r</dt><dd>Refresh now (polls for new messages)</dd>
@@ -3785,36 +3785,50 @@ async function jumpToStreamEdge(edge) {
   const groups = getVisibleGroups();
   if (!groups.length) return;
   const stream = document.getElementById("stream");
-  if (edge === "top") {
-    // Drain all older history before scrolling. Each loadOlder pulls
-    // one batch + preserves the user's visual position; we loop until
-    // state.moreBefore turns false so the final scrollTo lands on the
-    // ACTUAL oldest message in the chat, not on whatever batch was
-    // first loaded in the previous attempt.
-    //
-    // Doing the drain up front eliminates the jitter the user saw
-    // before — previously the smooth scrollTo would cross the
-    // scroll-handler's "near top" threshold mid-animation, fire ANOTHER
-    // loadOlder, and the scrollTop-preserve math inside loadOlder
-    // (line 518) would yank the viewport down by a page worth of
-    // newly-prepended content. Smooth scroll, then sudden down jump,
-    // visible to the user as a jitter.
-    //
-    // Safety cap at 100 batches (~5000 messages) so a stuck moreBefore
-    // flag from a bad API response can't hang the tab.
-    let safety = 100;
-    while (state.moreBefore && safety-- > 0) {
-      await loadOlder();
+  // Bottom edge (Shift+G) is the only "absolute edge" jump that makes
+  // sense in a chat — the bottom is fixed (the latest message), the
+  // top is unbounded (history goes back as far as the user wants to
+  // page). The top-edge path now lives in pageUpWithFocus() and is
+  // bound to `g`. This function only handles bottom.
+  setActiveGroup(groups[groups.length - 1], { skipScroll: true });
+  if (stream)
+    stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+}
+
+// `g` — scroll up one viewport, kick loadOlder if we're near the top,
+// then move the j/k cursor to whatever group is sitting at the top of
+// the viewport once the smooth scroll settles. Each press takes the
+// user one page deeper into history; press it as many times as you
+// want and it'll keep paginating back via loadOlder.
+function pageUpWithFocus() {
+  const stream = document.getElementById("stream");
+  if (!stream) return;
+  // pageScroll(-1.0) does the smooth scroll AND kicks loadOlder when
+  // the user is near the top. We piggy-back on it instead of duplicating.
+  pageScroll(-1.0);
+  // After the smooth scroll settles, set focus to the topmost group
+  // that's still visible in the viewport. scrollend fires after the
+  // animation completes in modern Chromium; the setTimeout fallback
+  // is a safety net (the AbortController-free version of "scroll
+  // finished probably").
+  const settle = () => {
+    stream.removeEventListener("scrollend", settle);
+    const streamRect = stream.getBoundingClientRect();
+    const candidates = getVisibleGroups();
+    for (const g of candidates) {
+      const rect = g.getBoundingClientRect();
+      // First group whose bottom is below the viewport's top edge is
+      // the one the user is now looking at as "the topmost message."
+      if (rect.bottom > streamRect.top + 8) {
+        setActiveGroup(g, { skipScroll: true });
+        return;
+      }
     }
-    const freshGroups = getVisibleGroups();
-    if (freshGroups.length) {
-      setActiveGroup(freshGroups[0], { skipScroll: true });
-    }
-    if (stream) stream.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  if ("onscrollend" in stream) {
+    stream.addEventListener("scrollend", settle);
   } else {
-    setActiveGroup(groups[groups.length - 1], { skipScroll: true });
-    if (stream)
-      stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+    setTimeout(settle, 350);
   }
 }
 
@@ -4018,7 +4032,7 @@ function bindEventHandlers() {
       moveActive(-1);
     } else if (e.key === "g") {
       e.preventDefault();
-      jumpToStreamEdge("top");
+      pageUpWithFocus();
     } else if (e.key === "G") {
       e.preventDefault();
       goToLatest({ clearFilters: true });
