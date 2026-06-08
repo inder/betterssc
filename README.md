@@ -2,6 +2,10 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
+![tests](https://img.shields.io/badge/tests-186%2F186-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+
+Latest release: **v0.2.3** (Jun 7, 2026). 18 polish commits since the tag, on main. 186/186 tests passing.
+
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
 **[Install](#install)** · **[Give feedback](https://github.com/inder/betterssc/issues/new)** · **[Roadmap](#roadmap)**
