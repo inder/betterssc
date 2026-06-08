@@ -1,131 +1,89 @@
 {
   "mode": "full",
-  "sha": "2f7c550a4f33f4b104c6415c2148cd4511049e43",
-  "branch": "main",
-  "ts": "2026-06-07T20:50:26.044Z",
-  "base": "8a2ed99",
-  "diff_lines": 1587,
-  "commits": 9,
+  "sha": "f44c1436898ac7dd3bb4a7de682f862e49458795",
+  "branch": "feat/emoji-picker-copy",
+  "ts": "2026-06-08T18:37:23.000Z",
+  "base": "main",
+  "diff_lines": 865,
+  "commits": 2,
   "payload": {
     "what_went_right": [
-      "Per the feature-bundling-causes-styling-iteration-tail memory, the work was correctly split into 5 separate feature commits (whitespace, Concise/Elaborate, kebab menu, Tune AI Model, Tune Prompt) plus 2 doc/fix commits — no single-bundle smash like v0.1.13 or v0.1.20. The split itself did NOT generate a styling iteration tail; each feature shipped clean with no follow-on cosmetic fix commit.",
-      "Pre-tag review gate fired and was load-bearing AGAIN (third confirmed instance): code-reviewer pass #1 caught CHANGELOG cost figures off by 2-10x (commit 2890b76 corrected); code-reviewer pass #2 caught README cost table off by 20-30% across every row + the Reset dialog missing model/budget bullet (commit 2f7c550 corrected). Both fixed inline before the push, exactly as the pre-tag-review-gate-is-load-bearing memory prescribes.",
-      "Test suite was real: 186 tests green after the bundle, including new coverage for buildPreviewUserMessage variants, buildSystemPrompt overrides, MODEL_CATALOG structure, and model override wiring across all three providers (test/ai-providers.test.mjs +95 lines, test/ai-context.test.mjs +50 lines). Where the work-agent broke a contract (lens to lensHint), the existing test failure forced an explicit refactor of the test inside the same commit instead of silent skew.",
-      "Session-start memory consultation happened and was visible: the assistant emitted the 'Memories I'm operating with' block at 19:17:38 citing parallelize-from-the-second-file. This is the protocol working — even when the rule didn't fire in practice (see what_went_wrong), the consultation step succeeded."
+      "Worktree-first and test-before-touch discipline held end to end: the agent refused to write code on main ('You're on main… Run /work… or say skip worktree', transcript ln 1102), then took a green baseline (186/186) on the fresh worktree before touching anything (ln 1322).",
+      "The work-agent self-spotted the Critical onDocClick document-listener leak BEFORE the background reviewer returned (ln 1390: 'One thing I already spotted that the reviewer will likely flag: the onDocClick document listener leaks…').",
+      "It did not race the reviewer: while the reviewer was reading app.js the agent explicitly held all edits ('no racing on app.js', ln 1402) and folded its own catch plus the 2 should-fixes and 1 nit into a single post-review pass before one commit.",
+      "The dynamic-library-removal risk was de-risked by READING the fetch path instead of assuming: pickSuggestedReactions only reads suggested/frequently_used keys, so the live library was 'a popularity hint, never a validation whitelist' and exposing 392 names 'doesn't change the risk profile at all' (ln 1325).",
+      "Multi-file build protocol followed: background code-reviewer + background test-writer spawned per file; tests grew 186 → 211 → 212 green with all review findings (1 Critical, 2 Should-fix, 1 Nit on commit 2; 1 Should-fix, 1 Nit on commit 1) resolved before commit.",
+      "Dead-code removal was clean and intentional: dropping the dynamic lib killed ensureReactionLibrary, suggestedReactions, _reactionLibrary, and three now-unused imports, with pickSuggestedReactions kept exported+tested in compose.js (ln 1378, diff app.js:4857-4914).",
+      "The reviewer's test-gap should-fix was honored with a test for the REAL call-site shape: a Map iterator (state.comments.values()), not just plain arrays (test/picker.test.mjs ln 715-726)."
     ],
     "what_went_wrong": [
-      "TaskCreate was adopted at 20:13:30 — AFTER the user's third request (kebab menu) — and ONLY after the work-agent had already shipped commits 8bdcdf1 (60K bump) and d6fb834 (Concise/Elaborate). The 'compact whitespace + Concise/Elaborate buttons' request at 20:04 was TWO independent items and should have tripped the gate; it did not. The parallelize-from-the-second-file memory was loaded but not applied. Loud signal: ToolSearch had to be called to fetch TaskCreate's schema mid-task, proving the work-agent hadn't pre-loaded it.",
-      "Even once TaskCreate was adopted, the 5 calls were sequential (back-to-back from 20:13:35 to 20:13:57) and the BACKGROUND sub-agent fan-out from the Multi-file Build Protocol was skipped entirely. Only 3 Agent invocations across the whole session (47 Bash + 39 Edit + 21 Read): two code-reviewer runs (one per phase) and one retro. No per-file background code-reviewer, no per-file test-writing general-purpose agent. The protocol was nominally honored (tasks created) but the execution mechanism (BACKGROUND fan-out) was not used.",
-      "Same arithmetic bug landed TWICE: CHANGELOG cost figures off by ~2x and 10x in commit 8bdcdf1 (fixed by 2890b76), then README cost table off by 20-30% across every row in commit 499ecf4 (fixed by 2f7c550). Both were hand-rolled estimates by the work-agent. The codebase shipped estimateCostUsd() and MODEL_CATALOG in the same session — the doc figures should have been derived from that function (or at minimum cross-checked against it). Code-reviewer's nit explicitly called out the missing test for estimateCostUsd, which would have closed this loop.",
-      "Single end-of-bundle code-reviewer pass at 20:31:46 against 5 commits caught both contract drift (lens to lensHint refactor in commit 0f17ebb broke an existing test) and arithmetic drift (README cost table). The lens refactor was salvaged because the work-agent ran the test suite inside the same commit and noticed the failure (transcript 20:24:52: 'I need to update the existing lens-override test since I removed the lens: neutral keyword handling'). But that's a lucky catch driven by test coverage existing for that path — a less-covered signature change would have shipped broken and only been caught at end-of-bundle review."
+      "Genuinely thin — this was a clean ship. The one open thread: the live-API spot-check that Substack accepts all ~392 obscure reaction names was correctly identified as 'the one real risk' and put in the test plan as a MANUAL step, but it had NOT been executed at retro time (ln 1492, 1348). The analytical conclusion ('the old path was never a whitelist') is necessary but not sufficient to close an empirical risk.",
+      "Minor process friction (not a code defect): the retro receipt's prior state was stale (.review/last-verdict.json carried a main-branch sha 499ecf4 before being overwritten to feat/emoji-picker-copy), a known artifact of the verdict-file-as-mutable-state design rather than a mistake on this branch."
     ],
     "three_whys": [
-      "Why 1 (surface problem): The work-agent caught two cost-figure arithmetic bugs only at end-of-bundle code-reviewer pass, not during the commits that introduced them — so each had to be fixed in a follow-on commit (2890b76 and 2f7c550) rather than landing right the first time.",
-      "Why 2 (underlying cause): The Multi-file Build Protocol's BACKGROUND fan-out (per-file code-reviewer + per-file test-writer sub-agents as each file lands) was not used. Five sequential TaskCreate calls without any concurrent Agent invocation against the in-flight commits meant nothing was reviewing the cost figures or the lens contract while the next commit was being written.",
-      "Why 3 (root cause): The parallelize-from-the-second-file memory was consulted at session start (visible in the Memories block at 19:17:38) but the rule does not fire automatically — it requires the work-agent to ask the gate question on EVERY new user request. In this session it didn't fire on the user's first multi-item request ('compact whitespace + Concise/Elaborate buttons', 2 items, 2+ files) and only fired retroactively when the kebab menu request made the multi-step nature impossible to ignore. Loading a memory at session start is a stale ambient signal; the acute trigger is the user's next message, and that trigger was missed twice."
+      "Why 1: The picker shipped exposing ~392 POST-able reaction names with the accept-all-names assumption verified only by reasoning, not by a live POST. — Because the agent read the fetch path, correctly proved the dynamic library was a popularity hint and never a validation whitelist, and concluded the risk profile was unchanged, which downgraded the live probe from a blocker to a 'manual spot-check during QA' (ln 1325).",
+      "Why 2: That downgrade was reasonable but left an empirical gap open. — Because 'the old path wasn't a gate' answers whether the CHANGE introduces new risk; it does NOT answer whether the pre-existing optimistic-POST behavior actually succeeds for obscure names. Substack accepting thumbs_up tells you nothing about it accepting a rare Objects/Symbols name; the only way to know is to POST one and watch it stick after the next poll.",
+      "Why 3: The gap stayed open at retro time because the verification was a MANUAL in-browser step that the automated test suite structurally cannot cover (no live Substack POST in vitest), and the agent deferred it to the user's QA pass rather than executing it before the retro — appropriate sequencing, but it means the receipt must explicitly carry the open spot-check forward as an action item so it isn't silently dropped after merge."
     ],
     "learnings_written": [
       {
-        "name": "taskcreate-adopted-mid-task-not-up-front",
+        "name": "self-spotted-critical-before-reviewer-hold-edits",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/taskcreate-adopted-mid-task-not-up-front.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/self-spotted-critical-before-reviewer-hold-edits.md"
       },
       {
-        "name": "static-doc-cost-figures-compute-dont-estimate",
+        "name": "static-catalog-exposes-untested-reaction-names",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/static-doc-cost-figures-compute-dont-estimate.md"
-      },
-      {
-        "name": "contract-changes-need-write-time-review-not-end-of-bundle",
-        "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/contract-changes-need-write-time-review-not-end-of-bundle.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/static-catalog-exposes-untested-reaction-names.md"
       }
     ],
     "evidence_citations": [
       {
-        "learning_id": "taskcreate-adopted-mid-task-not-up-front",
+        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
         "source_type": "transcript",
-        "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/9f00b877-69d7-48d8-9137-6828d6adc80c.jsonl @ 2026-06-07T20:13:30.093Z",
-        "quote": "5-commit feature build, time to track this. Let me load TaskCreate and find the render function."
+        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1390",
+        "quote": "One thing I already spotted that the reviewer will likely flag: the `onDocClick` document listener leaks on the toggle-close and open-another-picker paths (the top-of-function querySelectorAll(...).remove() nukes the DOM node but never removes its document listener)."
       },
       {
-        "learning_id": "taskcreate-adopted-mid-task-not-up-front",
+        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
         "source_type": "transcript",
-        "source_ref": "session 9f00b877 user message @ 2026-06-07T20:04:37.716Z",
-        "quote": "i find the AI summary to have a lot of white spacing - can you compact that? zecondly, can you give an option to make it consise or more elaborate(use right words) to the user at the bottom of the summary?"
+        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1402",
+        "quote": "I'm holding edits until the reviewer returns (no racing on app.js). When it lands I'll fold its findings plus the onDocClick listener-leak fix I already spotted into one pass, then commit 2."
       },
       {
-        "learning_id": "taskcreate-adopted-mid-task-not-up-front",
-        "source_type": "transcript",
-        "source_ref": "session 9f00b877 tool_use frequency by name",
-        "quote": "47 Bash | 39 Edit | 21 Read | 10 TaskUpdate | 5 TaskCreate | 3 Agent | 2 ToolSearch | 1 Skill — only 3 Agent invocations across the whole 1500-line, 9-commit session"
-      },
-      {
-        "learning_id": "static-doc-cost-figures-compute-dont-estimate",
-        "source_type": "commit",
-        "source_ref": "2890b76 docs(changelog): correct per-call cost figures in 60K budget entry",
-        "quote": "Gemini was off by 10x (decimal slip: $0.011 -> $0.001), claude-haiku and gpt-4o-min[i] inflated ~2x"
-      },
-      {
-        "learning_id": "static-doc-cost-figures-compute-dont-estimate",
-        "source_type": "transcript",
-        "source_ref": "session 9f00b877 code-reviewer agent output (Review 6-commit AI Insights bundle) ~20:31",
-        "quote": "SHOULD FIX: README cost table is 20-30% low on every row. … This appears to be manual rounding to nice numbers rather than running the formula. The discrepancy is up to 27%."
-      },
-      {
-        "learning_id": "static-doc-cost-figures-compute-dont-estimate",
+        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
         "source_type": "diff",
-        "source_ref": "/tmp/retro-diff.txt lib/ai-providers.js MODEL_CATALOG (lines ~1294-1307) + app.js estimateCostUsd (lines ~878-885)",
-        "quote": "export const MODEL_CATALOG = { openai: [ { id: 'gpt-4o-mini', ..., inputPer1M: 0.15, outputPer1M: 0.60 }, ... ] } — pricing data exists in code, the docs hand-rolled estimates alongside it instead of deriving from it"
+        "source_ref": "app.js @@ -4934,+4952 (toggleEmojiPicker)",
+        "quote": "let activePickerClose = null; ... if (activePickerClose) activePickerClose(); ... document.removeEventListener(\"click\", onDocClick, true); if (activePickerClose === closeThisPicker) activePickerClose = null;"
       },
       {
-        "learning_id": "contract-changes-need-write-time-review-not-end-of-bundle",
-        "source_type": "diff",
-        "source_ref": "/tmp/retro-diff.txt commit 0f17ebb, lib/ai-context.js lines 1228-1240 (buildSystemPrompt signature change)",
-        "quote": "- const lens = opts.lens || \"trading\";  ->  + const lensHint = typeof opts.lensHint === \"string\" && opts.lensHint.trim() ? opts.lensHint.trim() : DEFAULT_LENS_HINT;"
-      },
-      {
-        "learning_id": "contract-changes-need-write-time-review-not-end-of-bundle",
+        "learning_id": "static-catalog-exposes-untested-reaction-names",
         "source_type": "transcript",
-        "source_ref": "session 9f00b877 assistant @ 2026-06-07T20:24:52.261Z",
-        "quote": "I need to update the existing lens-override test since I removed the `lens: \"neutral\"` keyword handling — now you pass a freeform `lensHint` string."
+        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1325",
+        "quote": "Settled the risk: pickSuggestedReactions only reads suggested/frequently_used keys — the live library was a popularity hint, never a validation whitelist. ... exposing all 392 names doesn't change the risk profile at all — it's a pre-existing property. The probe drops from blocker to a quick manual spot-check during QA."
       },
       {
-        "learning_id": "contract-changes-need-write-time-review-not-end-of-bundle",
+        "learning_id": "static-catalog-exposes-untested-reaction-names",
+        "source_type": "transcript",
+        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1492",
+        "quote": "The one real risk — spot-check: post 3-4 obscure emojis (Objects/Symbols section), confirm they stick after the next poll. This verifies Substack accepts arbitrary reaction names from the static catalog (it was never validated against a whitelist — pre-existing property, but worth a live check before tag)."
+      },
+      {
+        "learning_id": "static-catalog-exposes-untested-reaction-names",
         "source_type": "diff",
-        "source_ref": "/tmp/retro-diff.txt test/ai-context.test.mjs lines 1399-1413 (test rewrite inside same commit 0f17ebb)",
-        "quote": "-    expect(neutral).toContain(\"Read the conversation neutrally\");  ->  +    expect(custom).toContain(\"19th-century Russian novels\");"
+        "source_ref": "lib/emojis.js @@ +596 (groupedReactions / filterReactionsByQuery over REACTION_EMOJI)",
+        "quote": "export const filterReactionsByQuery = (query) => { const all = Object.entries(REACTION_EMOJI); ... }"
       }
     ],
     "action_items": [
       {
-        "title": "Add a unit test for estimateCostUsd in test/ai-providers.test.mjs",
+        "title": "Run the live spot-check that Substack accepts obscure reaction names before tagging the picker",
         "scope": "project",
-        "description": "Pure function with no DOM or storage deps. Test inputs: 60K chars + each MODEL_CATALOG entry. Assert input tokens (15000), output tokens (800), totalUsd within +/-0.1% of the hand-computed expected value per model. This closes the loop on the static-doc-cost-figures-compute-dont-estimate learning — the moment pricing drifts in MODEL_CATALOG, the test breaks, and a doc-regen script (next item) can rebuild the README + CHANGELOG cost tables from the function's output.",
-        "source_learning": "static-doc-cost-figures-compute-dont-estimate"
-      },
-      {
-        "title": "Add npm run docs:cost-table that regenerates README + CHANGELOG cost tables from estimateCostUsd + MODEL_CATALOG, with a CI assert that committed tables match",
-        "scope": "project",
-        "description": "Replace the hand-rolled cost tables in README.md (under 'AI Insights' / 'Tune AI model') and any future CHANGELOG entries with a generated block (e.g., bracketed by <!-- generated:cost-table --> markers). Script reads MODEL_CATALOG, calls estimateCostUsd at the 60K default for each entry, formats as markdown table, writes in place. CI step (or pre-commit hook) re-runs the generator and fails if the working tree differs from the regenerated output. This is the structural fix for both cost-table strikes in this session and for the next pricing change in MODEL_CATALOG.",
-        "source_learning": "static-doc-cost-figures-compute-dont-estimate"
-      },
-      {
-        "title": "Add a global rule: on every new user request, the assistant must visibly ask the gate question (>=2 files OR >=2 independent items?) before the first tool call",
-        "scope": "global",
-        "description": "Goes in ~/.claude/tech-debt.md. The parallelize-from-the-second-file memory captures the rule but agents are loading it at session start and then failing to apply it on the second/third user request of the session (this session is the second confirmed instance — the precursor memory's own session was the first). The fix is a forcing function: every new user request opens with a one-line visible decision ('Gate: 2+ files/items? yes/no -> next call is TaskCreate / Edit'). This is the same pattern as the 'Memories I'm operating with' block from CLAUDE.md — a loud, visible action the user can challenge. Worth promoting from memory to a top-level CLAUDE.md rule under HIGH PRIORITY: Parallelism-First Execution. Belongs in tech-debt.md because it's a meta-improvement that applies across every project, not just BetterSSC.",
-        "source_learning": "taskcreate-adopted-mid-task-not-up-front"
-      },
-      {
-        "title": "When a commit touches a lib/ export's signature, that same commit must (a) run the test suite and (b) spawn a background code-reviewer on its diff",
-        "scope": "global",
-        "description": "Goes in ~/.claude/tech-debt.md. The Multi-file Build Protocol already says BACKGROUND review per file, but the protocol's enforcement is missing — this session ran code-reviewer ONCE at end-of-bundle despite touching three lib/ signatures (buildPreviewUserMessage, buildSystemPrompt, and the three provider buildRequest functions in lib/ai-providers.js). Tighten the protocol by adding a concrete trigger: any diff that modifies an `export function` / `export const` shape in a lib/ file invokes a background code-reviewer agent at commit time. The lens -> lensHint refactor would have been flagged inside commit 0f17ebb instead of at end-of-bundle review.",
-        "source_learning": "contract-changes-need-write-time-review-not-end-of-bundle"
+        "description": "In a logged-in browser with the extension loaded, open the picker and POST 3-4 obscure names from the Objects/Symbols/Weather sections of REACTION_EMOJI (not the common thumbs_up/fire set). Confirm each reaction sticks after the next poll cycle rather than optimistic-bumping then silently rolling back. If any name is rejected, Substack is whitelisting — intersect the static catalog with the accepted set (or filter at render) so the picker never offers a dead-click. This is the empirical close-condition for the static-catalog-exposes-untested-reaction-names learning; the analytical 'the old path was never a whitelist' conclusion does not substitute for it. Route to the BetterSSC narrative in ~/.claude/roadmap.md as a pre-tag QA gate.",
+        "source_learning": "static-catalog-exposes-untested-reaction-names"
       }
     ],
-    "memory_md_changes": [
-      "Appended 3 new index entries to /Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/MEMORY.md under the existing ## Index section: taskcreate-adopted-mid-task-not-up-front, static-doc-cost-figures-compute-dont-estimate, contract-changes-need-write-time-review-not-end-of-bundle"
-    ],
+    "memory_md_changes": [],
     "claude_md_changes": []
   }
 }

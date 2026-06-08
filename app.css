@@ -1327,16 +1327,21 @@ button {
   color: var(--text-secondary);
   background: var(--bg-primary);
 }
+/* Fixed-width, left-packed cells. auto-fill + justify-content:start means a
+   short row (e.g. Frequently used with 3 glyphs) packs tight on the left
+   instead of stretching each emoji across a wide 1fr column. */
 .emoji-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 1px;
+  grid-template-columns: repeat(auto-fill, 32px);
+  justify-content: start;
+  gap: 2px;
 }
 .emoji-picker-panel .emoji-picker-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  aspect-ratio: 1;
+  width: 32px;
+  height: 32px;
   padding: 0;
 }
 .emoji-picker-empty {
