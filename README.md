@@ -92,6 +92,8 @@ Polling once every 12 seconds, which is the same thing Substack's own native cli
 
 A one-click summarizer for whatever's currently visible in the chat. Built BYOK (Bring Your Own Key) so the privacy story stays clean — your messages don't pass through a BetterSSC server because there is no BetterSSC server.
 
+![A BetterSSC AI insight summary in the feed showing TLDR, Themes, Key takeaways, and Notable trades sections generated from a markets chat](assets/ai-summary.png)
+
 ### What it does
 
 Click **✨ AI** in the header. The model reads the messages you're currently seeing (respecting your active search filter and thread filter) and emits a structured summary with these sections:
@@ -166,6 +168,10 @@ This does NOT touch anything on Substack's side — your actual chats stay where
 ### Privacy
 
 Already covered in the [Privacy](#privacy) section below, but the short version: your key lives in `chrome.storage.local` on this device, the chat content you choose to analyze goes directly from your browser to the provider's API (not through Substack and not through any BetterSSC server, because there is no BetterSSC server), and the whole feature is opt-in — until you click the ✨ AI button and configure a key, none of the AI endpoints are contacted.
+
+### Long-form write-up
+
+For a narrative version of the above — why I built this, the author-aware reframe in more depth, the cost / latency / quality tradeoff behind the budget slider — see **[posts/ai-insights.md](posts/ai-insights.md)**. Same story, different voice.
 
 ## How it works under the hood
 
