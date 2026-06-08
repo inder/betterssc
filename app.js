@@ -114,6 +114,10 @@ const state = {
   authors: new Map(), // userId → {profile, lastSeenAt}
   moreBefore: true, // pagination flag
   loadingHistory: false,
+  // Set true across the smooth-scroll window inside pageUpWithFocus so
+  // the scroll handler doesn't fire loadOlder mid-animation and yank
+  // scrollTop — that's the cancellation bug we kept hitting on `g`.
+  suppressScrollLoadOlder: false,
   earliestISO: null,
   ws: null,
   wsStatus: "idle",
@@ -3822,62 +3826,74 @@ async function jumpToStreamEdge(edge) {
     stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
 }
 
-// `g` — scroll up one viewport, kick loadOlder if we're near the top,
-// then move the j/k cursor to whatever group is sitting at the top of
-// the viewport once the smooth scroll settles. Each press takes the
-// user one page deeper into history; press it as many times as you
-// want and it'll keep paginating back via loadOlder.
+// `g` — two-tier state machine. Each press does at most ONE thing:
+//
+//   State A: not at top of currently-loaded feed (scrollTop > 20)
+//     → smooth-scroll to scrollTop=0. Focus first group on settle.
+//
+//   State B: at top of loaded + more history available
+//     → loadOlder (await), then smooth-scroll back to scrollTop=0.
+//       loadOlder preserves visual position by setting scrollTop to
+//       the new batch's height, so the scroll covers that distance.
+//
+//   State C: at top of loaded + no more history (state.moreBefore===false)
+//     → no-op. Absolute top of the chat, nothing left to do.
+//
+// The split avoids the bug that plagued every prior version: when
+// loadOlder fired DURING a smooth scroll, its tail line
+// `stream.scrollTop = ...` (app.js:518) cancelled the animation and
+// the user only saw a few messages of progress. Here loadOlder is
+// always sequenced BEFORE the smooth scroll (via await), and the
+// scroll handler's loadOlder trigger is suppressed across the
+// animation window via state.suppressScrollLoadOlder.
+const AT_TOP_THRESHOLD = 20;
+
+function onScrollSettled(stream, cb) {
+  if ("onscrollend" in stream) {
+    const handler = () => {
+      stream.removeEventListener("scrollend", handler);
+      cb();
+    };
+    stream.addEventListener("scrollend", handler);
+  } else {
+    setTimeout(cb, 350);
+  }
+}
+
+function focusFirstGroup() {
+  const groups = getVisibleGroups();
+  if (groups.length) {
+    setActiveGroup(groups[0], { skipScroll: true });
+  }
+}
+
 async function pageUpWithFocus() {
   const stream = document.getElementById("stream");
   if (!stream) return;
-  const viewport = stream.clientHeight;
-  // Pre-load older history until we have enough scroll headroom above
-  // the viewport that the smooth scrollBy(-viewport) won't cross the
-  // loadOlder trigger thresholds (200px in the scroll handler, 400px
-  // in pageScroll) mid-animation. Without this, loadOlder fires
-  // DURING the animation, its tail-line `stream.scrollTop = ...`
-  // assignment cancels the smooth scroll, and the user sees only a
-  // few messages of progress instead of a full page.
-  //
-  // Target headroom: viewport + 500. After scrollBy(-viewport) the
-  // scrollTop will still be > 500, comfortably above both thresholds
-  // with slop for subpixel rounding. Safety cap at 5 batches per
-  // press so a small-batch chat can't slow-load the user mid-input.
-  let safety = 5;
-  while (
-    stream.scrollTop < viewport + 500 &&
-    state.moreBefore &&
-    safety-- > 0
-  ) {
-    await loadOlder();
+  const atTop = stream.scrollTop <= AT_TOP_THRESHOLD;
+
+  if (!atTop) {
+    // State A — smooth-scroll to top of currently loaded.
+    state.suppressScrollLoadOlder = true;
+    stream.scrollTo({ top: 0, behavior: "smooth" });
+    onScrollSettled(stream, () => {
+      state.suppressScrollLoadOlder = false;
+      focusFirstGroup();
+    });
+    return;
   }
-  pageScroll(-1.0);
-  // After the smooth scroll settles, set focus to the topmost group
-  // that's still visible in the viewport. scrollend fires after the
-  // animation completes in modern Chromium; the setTimeout fallback
-  // is a safety net (the AbortController-free version of "scroll
-  // finished probably").
-  const settle = () => {
-    stream.removeEventListener("scrollend", settle);
-    const streamRect = stream.getBoundingClientRect();
-    const candidates = getVisibleGroups();
-    for (const g of candidates) {
-      const rect = g.getBoundingClientRect();
-      // First group whose TOP is at-or-below the viewport's top edge —
-      // i.e., the first fully-visible group from the top, not the
-      // partially-cut-off one above it. 4px slop because subpixel
-      // rounding from smooth-scroll can leave a sliver above the line.
-      if (rect.top >= streamRect.top - 4) {
-        setActiveGroup(g, { skipScroll: true });
-        return;
-      }
-    }
-  };
-  if ("onscrollend" in stream) {
-    stream.addEventListener("scrollend", settle);
-  } else {
-    setTimeout(settle, 350);
-  }
+
+  // At top of loaded — state B or C.
+  if (!state.moreBefore) return; // State C: no-op, already at oldest.
+
+  // State B — fetch one older batch, then smooth-scroll back to top.
+  state.suppressScrollLoadOlder = true;
+  await loadOlder();
+  stream.scrollTo({ top: 0, behavior: "smooth" });
+  onScrollSettled(stream, () => {
+    state.suppressScrollLoadOlder = false;
+    focusFirstGroup();
+  });
 }
 
 // Scroll the stream by a fraction of the viewport. amount=1 is one full
@@ -3948,7 +3964,9 @@ function bindEventHandlers() {
       } else {
         showNewMessageJump();
       }
-      if (stream.scrollTop < 200) loadOlder();
+      if (stream.scrollTop < 200 && !state.suppressScrollLoadOlder) {
+        loadOlder();
+      }
     }, 100)
   );
 
