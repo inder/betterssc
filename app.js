@@ -4287,8 +4287,7 @@ import {
   findActiveMentionToken,
   replaceMentionToken,
   updateReactionCount,
-  pickSuggestedReactions,
-  DEFAULT_SUGGESTED_REACTIONS,
+  topReactionsInChat,
   setReplyTarget,
   clearReplyTarget,
   buildReplyFields,
@@ -4297,10 +4296,13 @@ import {
   postComment as apiPostComment,
   fetchMentionSuggestions as apiFetchMentions,
   postReaction as apiPostReaction,
-  fetchReactionsLibrary as apiFetchReactionsLibrary,
 } from "./lib/api.js";
 import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
-import { reactionEmojiFor as composerReactionEmojiFor } from "./lib/emojis.js";
+import {
+  reactionEmojiFor as composerReactionEmojiFor,
+  groupedReactions,
+  filterReactionsByQuery,
+} from "./lib/emojis.js";
 
 // Composer-scoped state. Kept namespaced so it doesn't collide with any v0.1
 // state path. Initialized lazily on first mount so a missing #composer (e.g.
@@ -4912,50 +4914,11 @@ function clearComposerError() {
 // REACTIONS (commit 5)
 // ============================================================
 //
-// Hover toolbar with a "+" button → opens an emoji picker (top 6). Clicking
-// an emoji optimistically bumps the count + calls api.postReaction. On
-// error we roll back. Decorator runs on every render via the MutationObserver
-// in patchRenderAllForComposer.
-
-state.composer._reactionLibrary = null; // populated lazily
-
-async function ensureReactionLibrary() {
-  if (state.composer._reactionLibrary) return state.composer._reactionLibrary;
-  try {
-    const lib = await apiFetchReactionsLibrary();
-    state.composer._reactionLibrary = lib;
-    return lib;
-  } catch (_) {
-    state.composer._reactionLibrary = {};
-    return {};
-  }
-}
-
-// Returns 6 reaction names, all guaranteed to render distinct glyphs.
-// Substack's library returns aliases (thumbs_up vs upvote) that map
-// to the same emoji — without per-glyph dedup at THIS layer, the
-// picker's own glyph dedup strips the alias and the row shrinks to 5.
-function suggestedReactions() {
-  const raw = pickSuggestedReactions(state.composer._reactionLibrary, 12);
-  const out = [];
-  const seenGlyphs = new Set();
-  for (const type of raw) {
-    const glyph = composerReactionEmojiFor(type);
-    if (seenGlyphs.has(glyph)) continue;
-    seenGlyphs.add(glyph);
-    out.push(type);
-    if (out.length >= 6) return out;
-  }
-  // Pad from defaults if dedup left us short.
-  for (const type of DEFAULT_SUGGESTED_REACTIONS) {
-    const glyph = composerReactionEmojiFor(type);
-    if (seenGlyphs.has(glyph)) continue;
-    seenGlyphs.add(glyph);
-    out.push(type);
-    if (out.length >= 6) break;
-  }
-  return out;
-}
+// Hover toolbar with a "+" button → opens a full emoji picker. Clicking an
+// emoji optimistically bumps the count + calls api.postReaction. On error we
+// roll back. Decorator runs on every render via the MutationObserver in
+// patchRenderAllForComposer. The picker is backed by the static REACTION_EMOJI
+// catalog (lib/emojis.js) — no live library fetch.
 
 function decorateReactionToolbar(node, comment) {
   if (node.querySelector(".msg-toolbar")) return; // already decorated
@@ -4989,62 +4952,149 @@ function decorateReactionToolbar(node, comment) {
   node.appendChild(toolbar);
 }
 
-async function toggleEmojiPicker(node, comment) {
-  // Close any other open picker first.
-  document.querySelectorAll(".emoji-picker").forEach((p) => p.remove());
-  document.querySelectorAll(".msg-item.has-picker").forEach((m) =>
-    m.classList.remove("has-picker")
-  );
-  // If this row already had one, we just closed it — done.
-  if (node._hasPicker) {
-    node._hasPicker = false;
-    return;
-  }
-  // Make sure the library is loaded so suggestedReactions returns the live
-  // set (if available). Don't await — show defaults immediately and let the
-  // next click hit the live list.
-  ensureReactionLibrary();
+// Tracks the single open picker's full teardown (DOM node + document click
+// listener + pending focus timer). Module-level so opening a new picker — or
+// re-clicking the same "+" — tears the previous one down completely instead of
+// orphaning its document listener on the page.
+let activePickerClose = null;
 
+async function toggleEmojiPicker(node, comment) {
+  const wasThisOpen = node._hasPicker;
+  // Close whatever picker is currently open (this row's or another's),
+  // including its document listener and pending timer — not just the DOM node.
+  if (activePickerClose) activePickerClose();
+  // Toggle: clicking "+" on the row whose picker was open just closes it.
+  if (wasThisOpen) return;
+
+  // Panel: search box + a "Frequently used" row derived from THIS chat's
+  // reactions + the full categorized catalog. All static (lib/emojis.js) —
+  // no live library fetch.
   const picker = document.createElement("div");
-  picker.className = "emoji-picker";
-  // Dedupe by emoji glyph — Substack's library returns aliases like
-  // `thumbs_up` AND `upvote` that both render 👍, which surfaced as a
-  // duplicate button in the picker.
-  const types = suggestedReactions();
-  const seenGlyphs = new Set();
-  for (const type of types) {
-    const glyph = composerReactionEmojiFor(type);
-    if (seenGlyphs.has(glyph)) continue;
-    seenGlyphs.add(glyph);
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "emoji-picker-btn";
-    btn.title = `:${type}:`;
-    btn.textContent = glyph;
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      picker.remove();
-      node.classList.remove("has-picker");
-      node._hasPicker = false;
-      sendReaction(comment, type);
-    });
-    picker.appendChild(btn);
+  picker.className = "emoji-picker emoji-picker-panel";
+
+  const search = document.createElement("input");
+  search.type = "text";
+  search.className = "emoji-search-input";
+  search.placeholder = "Search emoji";
+  search.setAttribute("aria-label", "Search emoji");
+  // Keep clicks/keys inside the field from reaching the click-outside handler
+  // or the app's global vi key nav (j/k/g).
+  search.addEventListener("click", (e) => e.stopPropagation());
+  search.addEventListener("keydown", (e) => e.stopPropagation());
+  picker.appendChild(search);
+
+  const scroll = document.createElement("div");
+  scroll.className = "emoji-picker-scroll";
+  picker.appendChild(scroll);
+
+  // Pending focus/listener timer (set at the bottom). Cleared on close so a
+  // fast double-click can't re-attach this picker's listener after teardown.
+  let addTimer = null;
+
+  // Click-outside to close. Declared before closeThisPicker so the closure
+  // dependency is explicit to the next maintainer.
+  const onDocClick = (e) => {
+    if (!picker.contains(e.target) && !node.contains(e.target)) {
+      closeThisPicker();
+    }
+  };
+
+  function closeThisPicker() {
+    if (addTimer !== null) {
+      clearTimeout(addTimer);
+      addTimer = null;
+    }
+    picker.remove();
+    node.classList.remove("has-picker");
+    node._hasPicker = false;
+    document.removeEventListener("click", onDocClick, true);
+    if (activePickerClose === closeThisPicker) activePickerClose = null;
   }
+
+  // One labeled section of emoji buttons. Dedupes by glyph so aliases that
+  // render the same emoji don't double up within a section. Returns null
+  // when the section would be empty.
+  const buildSection = (label, entries) => {
+    const seen = new Set();
+    const grid = document.createElement("div");
+    grid.className = "emoji-grid";
+    for (const [name, glyph] of entries) {
+      if (seen.has(glyph)) continue;
+      seen.add(glyph);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "emoji-picker-btn";
+      btn.title = `:${name}:`;
+      btn.textContent = glyph;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeThisPicker();
+        sendReaction(comment, name);
+      });
+      grid.appendChild(btn);
+    }
+    if (!grid.childElementCount) return null;
+    const section = document.createElement("div");
+    section.className = "emoji-cat";
+    const head = document.createElement("div");
+    head.className = "emoji-cat-label";
+    head.textContent = label;
+    section.appendChild(head);
+    section.appendChild(grid);
+    return section;
+  };
+
+  // Default view: Frequently used (from this chat) + the full catalog.
+  const renderDefault = () => {
+    scroll.replaceChildren();
+    const favNames = topReactionsInChat(
+      state.comments.values(),
+      8,
+      composerReactionEmojiFor
+    );
+    const favEntries = favNames.map((n) => [n, composerReactionEmojiFor(n)]);
+    const fav = buildSection("Frequently used", favEntries);
+    if (fav) scroll.appendChild(fav);
+    for (const group of groupedReactions()) {
+      const section = buildSection(group.label, group.entries);
+      if (section) scroll.appendChild(section);
+    }
+  };
+
+  // Search view: a single flat section, or an empty-state.
+  const renderResults = (query) => {
+    scroll.replaceChildren();
+    const section = buildSection("Results", filterReactionsByQuery(query));
+    if (section) {
+      scroll.appendChild(section);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "emoji-picker-empty";
+      empty.textContent = "No emoji match";
+      scroll.appendChild(empty);
+    }
+  };
+
+  search.addEventListener("input", () => {
+    const q = search.value.trim();
+    if (q) renderResults(q);
+    else renderDefault();
+  });
+
+  renderDefault();
   node.appendChild(picker);
   node.classList.add("has-picker");
   node._hasPicker = true;
-  // Click-outside to close.
-  const onDocClick = (e) => {
-    if (!picker.contains(e.target) && !node.contains(e.target)) {
-      picker.remove();
-      node.classList.remove("has-picker");
-      node._hasPicker = false;
-      document.removeEventListener("click", onDocClick, true);
-    }
-  };
-  // Defer so the current click doesn't immediately close.
-  setTimeout(() => document.addEventListener("click", onDocClick, true), 0);
+  activePickerClose = closeThisPicker;
+  // Defer so the opening click doesn't immediately trigger click-outside, then
+  // focus the search. Tracked in addTimer so closeThisPicker can cancel it if
+  // the picker is torn down first (fast double-click race).
+  addTimer = setTimeout(() => {
+    addTimer = null;
+    document.addEventListener("click", onDocClick, true);
+    search.focus();
+  }, 0);
 }
 
 async function sendReaction(comment, type) {

@@ -1283,6 +1283,69 @@ button {
 }
 .emoji-picker-btn:hover { background: var(--bg-hover); }
 
+/* Full picker panel: search + scrollable categorized grid. Overrides the
+   inline-flex base into a fixed-width column. Width clamps on narrow
+   overlays so it never overflows the viewport. */
+.emoji-picker-panel {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 8px;
+}
+.emoji-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+.emoji-search-input:focus { border-color: var(--accent); }
+.emoji-search-input::placeholder { color: var(--text-secondary); }
+.emoji-picker-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.emoji-cat-label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 2px 4px;
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+}
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1px;
+}
+.emoji-picker-panel .emoji-picker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
+}
+.emoji-picker-empty {
+  padding: 16px 8px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
 /* FOOTER */
 .footer {
   display: flex;

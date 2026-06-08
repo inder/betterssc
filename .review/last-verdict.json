@@ -1,12 +1,12 @@
 {
-  "sha": "499ecf4",
-  "branch": "main",
-  "ts": "2026-06-07T13:33:45Z",
+  "sha": "uncommitted-working-tree",
+  "branch": "feat/emoji-picker-copy",
+  "ts": "2026-06-08T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "Diff is well over 200 lines of new feature code, touches AI provider contracts and storage keys, and has 2 should-fix findings including a README cost table that is 20-30% off from computed values",
-  "critical_count": 0,
+  "retro_reasoning": "Diff >200 lines, touches reaction/event-listener contract and introduces a document-level listener leak (Critical), schema of picker state changed",
+  "critical_count": 1,
   "should_fix_count": 2,
-  "nit_count": 3,
+  "nit_count": 1,
   "files_reviewed": 5
 }
