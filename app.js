@@ -3812,20 +3812,6 @@ function moveActive(direction) {
   setActiveGroup(groups[nextIdx]);
 }
 
-async function jumpToStreamEdge(edge) {
-  const groups = getVisibleGroups();
-  if (!groups.length) return;
-  const stream = document.getElementById("stream");
-  // Bottom edge (Shift+G) is the only "absolute edge" jump that makes
-  // sense in a chat — the bottom is fixed (the latest message), the
-  // top is unbounded (history goes back as far as the user wants to
-  // page). The top-edge path now lives in pageUpWithFocus() and is
-  // bound to `g`. This function only handles bottom.
-  setActiveGroup(groups[groups.length - 1], { skipScroll: true });
-  if (stream)
-    stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
-}
-
 // `g` — two-tier state machine. Each press does at most ONE thing:
 //
 //   State A: not at top of currently-loaded feed (scrollTop > 20)
