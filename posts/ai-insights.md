@@ -2,7 +2,7 @@
 
 *A one-click summary button I added to my Substack Chat client. Reads your visible feed, sends it to OpenAI / Anthropic / Google with your own API key, returns a structured summary. No server, no proxy, no telemetry. Tunable model, tunable prompt, live per-call cost.*
 
-![BetterSSC layout showing the ✨ AI button in the header and the Discord-style chat view underneath](../assets/hero.png)
+![A BetterSSC AI insight summary message in the feed — TLDR, Themes, Key takeaways, and Notable trades sections generated from a markets chat](../assets/ai-summary.png)
 
 I spend a lot of time in Substack chats with hundreds of messages a day. The good ones are dense — three or four traders thinking out loud, names, tickers, theses, half-formed ideas. Catching up after dinner means scrolling through 800 messages to figure out what mattered. That's not reading. That's archaeology.
 
