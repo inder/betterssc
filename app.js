@@ -3223,6 +3223,14 @@ function goToLatest({ clearFilters = true } = {}) {
     }
   }
   scrollToBottom();
+  // Move the j/k cursor anchor to the last visible group. Without this
+  // Shift+G scrolls to bottom but the cursor stays wherever it was, so
+  // the next j/k jumps from the middle of the feed instead of from the
+  // bottom row the user just landed on.
+  const groups = getVisibleGroups();
+  if (groups.length) {
+    setActiveGroup(groups[groups.length - 1], { skipScroll: true });
+  }
 }
 
 // The bottom jump pill is the user's only "scroll back to current" cue.
@@ -3905,6 +3913,17 @@ function bindEventHandlers() {
   const messagesEl = document.getElementById("messages");
   if (messagesEl) {
     messagesEl.addEventListener("click", (e) => {
+      // Move the j/k cursor anchor to whatever group the user clicked
+      // on. Skip scroll — the click itself already put the row where
+      // the user wants it; we just need to update _viActiveId so the
+      // next j/k starts from here. Defensive class check in case a
+      // future filter hides clickable groups in some edge state.
+      const clickedGroup = e.target.closest && e.target.closest(".msg-group");
+      if (clickedGroup && !clickedGroup.classList.contains("search-hidden")) {
+        setActiveGroup(clickedGroup, { skipScroll: true });
+      }
+      // TradingView modal trigger (separate concern — keeps the focus
+      // shift above even when the click is on a ticker).
       const ticker = e.target.closest && e.target.closest(".msg-ticker");
       if (!ticker) return;
       e.preventDefault();
