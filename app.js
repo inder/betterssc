@@ -3797,12 +3797,15 @@ async function jumpToStreamEdge(edge) {
   if (!groups.length) return;
   const stream = document.getElementById("stream");
   if (edge === "top") {
-    // Mark the current first-visible group, but don't let setActiveGroup
-    // auto-center it (that's what was making `g` land in the middle of the
-    // viewport instead of scrolling to the actual top).
-    setActiveGroup(groups[0], { skipScroll: true });
-    // Pull in older history if available, THEN scroll to absolute top.
+    // Pull in older history FIRST so the cursor anchor lands on the
+    // actual new top, not on the row that used to be top before the
+    // older history loaded (which would now sit in the middle of the
+    // feed and trap j/k there).
     if (state.moreBefore) await loadOlder();
+    const freshGroups = getVisibleGroups();
+    if (freshGroups.length) {
+      setActiveGroup(freshGroups[0], { skipScroll: true });
+    }
     if (stream) stream.scrollTo({ top: 0, behavior: "smooth" });
   } else {
     setActiveGroup(groups[groups.length - 1], { skipScroll: true });
