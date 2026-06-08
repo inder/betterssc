@@ -3768,7 +3768,34 @@ function setActiveGroup(group, opts = {}) {
 function moveActive(direction) {
   const groups = getVisibleGroups();
   if (!groups.length) return;
-  const currentIdx = groups.findIndex((g) => g.classList.contains("vi-active"));
+  let currentIdx = groups.findIndex((g) => g.classList.contains("vi-active"));
+
+  // Lazy re-anchor: if the user scrolled the active row off-screen
+  // with the mousewheel / scrollbar since the last j/k, snap the
+  // cursor to the topmost fully-visible group BEFORE moving. Without
+  // this, j after a manual scroll-up would move from the offscreen
+  // anchor (probably below the viewport) and instantly yank the user
+  // back to where they came from. Costs one bounding-rect check per
+  // keystroke — only fires on j/k, not on every scroll event.
+  const stream = document.getElementById("stream");
+  if (currentIdx !== -1 && stream) {
+    const streamRect = stream.getBoundingClientRect();
+    const activeRect = groups[currentIdx].getBoundingClientRect();
+    const stillVisible =
+      activeRect.bottom > streamRect.top + 8 &&
+      activeRect.top < streamRect.bottom - 8;
+    if (!stillVisible) {
+      for (let i = 0; i < groups.length; i++) {
+        const rect = groups[i].getBoundingClientRect();
+        if (rect.top >= streamRect.top - 4) {
+          currentIdx = i;
+          setActiveGroup(groups[i], { skipScroll: true });
+          break;
+        }
+      }
+    }
+  }
+
   let nextIdx;
   if (currentIdx === -1) {
     nextIdx = direction > 0 ? 0 : groups.length - 1;
@@ -3817,9 +3844,11 @@ function pageUpWithFocus() {
     const candidates = getVisibleGroups();
     for (const g of candidates) {
       const rect = g.getBoundingClientRect();
-      // First group whose bottom is below the viewport's top edge is
-      // the one the user is now looking at as "the topmost message."
-      if (rect.bottom > streamRect.top + 8) {
+      // First group whose TOP is at-or-below the viewport's top edge —
+      // i.e., the first fully-visible group from the top, not the
+      // partially-cut-off one above it. 4px slop because subpixel
+      // rounding from smooth-scroll can leave a sliver above the line.
+      if (rect.top >= streamRect.top - 4) {
         setActiveGroup(g, { skipScroll: true });
         return;
       }
