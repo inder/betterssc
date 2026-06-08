@@ -1157,6 +1157,43 @@ function renderMessageItem(c) {
   return wrap;
 }
 
+// Standard "copy" glyph (two overlapping sheets) and a "copied" checkmark.
+// Static, author-controlled SVG strings — safe to assign via innerHTML.
+const AI_COPY_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" ' +
+  'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="9" y="9" width="11" height="11" rx="2"></rect>' +
+  '<path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>';
+const AI_CHECK_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" ' +
+  'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M20 6 9 17l-5-5"></path></svg>';
+
+// Copy the insight's raw markdown body to the clipboard. Local-only read:
+// this NEVER hits the network and copies only this message's own text.
+// On success, flash a checkmark for ~1.5s. If the clipboard API is
+// unavailable or blocked (no secure context / lost focus), fail soft with
+// a brief shake — never throw, never leave the user staring at a dead icon.
+async function copyAiInsight(btn, text) {
+  try {
+    await navigator.clipboard.writeText(text || "");
+    btn.classList.add("is-copied");
+    btn.innerHTML = AI_CHECK_ICON_SVG;
+    btn.setAttribute("aria-label", "Copied");
+    setTimeout(() => {
+      btn.classList.remove("is-copied");
+      btn.innerHTML = AI_COPY_ICON_SVG;
+      btn.setAttribute("aria-label", "Copy insight");
+    }, 1500);
+  } catch (err) {
+    console.warn("[BetterSSC copy] clipboard unavailable:", err);
+    btn.classList.add("is-copy-failed");
+    setTimeout(() => btn.classList.remove("is-copy-failed"), 1200);
+  }
+}
+
 // Render an AI Insights message — special, local-only, light markdown.
 // Body comes back as markdown from the provider; we render bold,
 // italic, headers, and bullet lists. Linkifying URLs would risk
@@ -1167,6 +1204,24 @@ function renderAiMessageItem(c) {
   wrap.className = "msg-item ai-msg" + (c._aiPending ? " ai-pending" : "")
     + (c._aiError ? " ai-error" : "");
   wrap.dataset.id = c.id;
+
+  // Copy button — top-right of the insight box. Copies the raw markdown so
+  // it pastes cleanly into a doc/message. Only on finished, non-error
+  // insights; pending/error states have no body worth copying.
+  if (!c._aiPending && !c._aiError && (c.body || "").trim()) {
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "ai-copy-btn";
+    copyBtn.title = "Copy insight";
+    copyBtn.setAttribute("aria-label", "Copy insight");
+    copyBtn.innerHTML = AI_COPY_ICON_SVG;
+    copyBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      copyAiInsight(copyBtn, c.body || "");
+    });
+    wrap.appendChild(copyBtn);
+  }
 
   const bodyEl = document.createElement("div");
   bodyEl.className = "msg-body ai-body";

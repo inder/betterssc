@@ -1472,10 +1472,57 @@ button {
   border-left-color: var(--danger);
 }
 
+/* Copy button — top-right corner of the insight box. Visible-but-subtle
+   by default (0.55) so it's discoverable on touch where there's no hover,
+   brightens on hover/focus. Flips green on copy, shakes red on failure. */
+.ai-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease, background 0.12s ease;
+}
+.ai-msg:hover .ai-copy-btn,
+.ai-copy-btn:focus-visible { opacity: 1; }
+.ai-copy-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-bg-soft);
+}
+.ai-copy-btn.is-copied {
+  opacity: 1;
+  color: #2f9e44;
+  border-color: #2f9e44;
+}
+.ai-copy-btn.is-copy-failed {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: ai-copy-shake 0.3s ease;
+}
+@keyframes ai-copy-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
 .ai-body {
   font-size: 14px;
   line-height: 1.4;
   color: var(--text-primary);
+  /* Clear the copy button (26px wide at right:8px → reaches 34px in). */
+  padding-right: 36px;
 }
 .ai-body > *:first-child { margin-top: 0; }
 .ai-body > *:last-child { margin-bottom: 0; }
