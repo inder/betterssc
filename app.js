@@ -3744,7 +3744,6 @@ const cssEscape = (s) =>
 // ============================================================
 
 let _viActiveId = null;
-let _lastGKeyTime = 0;
 
 function getVisibleGroups() {
   return Array.from(
@@ -3780,16 +3779,6 @@ function moveActive(direction) {
     );
   }
   setActiveGroup(groups[nextIdx]);
-}
-
-function handleGKey() {
-  const now = Date.now();
-  if (now - _lastGKeyTime < 500) {
-    jumpToStreamEdge("top");
-    _lastGKeyTime = 0;
-  } else {
-    _lastGKeyTime = now;
-  }
 }
 
 async function jumpToStreamEdge(edge) {
