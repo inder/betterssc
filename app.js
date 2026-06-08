@@ -3786,11 +3786,26 @@ async function jumpToStreamEdge(edge) {
   if (!groups.length) return;
   const stream = document.getElementById("stream");
   if (edge === "top") {
-    // Pull in older history FIRST so the cursor anchor lands on the
-    // actual new top, not on the row that used to be top before the
-    // older history loaded (which would now sit in the middle of the
-    // feed and trap j/k there).
-    if (state.moreBefore) await loadOlder();
+    // Drain all older history before scrolling. Each loadOlder pulls
+    // one batch + preserves the user's visual position; we loop until
+    // state.moreBefore turns false so the final scrollTo lands on the
+    // ACTUAL oldest message in the chat, not on whatever batch was
+    // first loaded in the previous attempt.
+    //
+    // Doing the drain up front eliminates the jitter the user saw
+    // before — previously the smooth scrollTo would cross the
+    // scroll-handler's "near top" threshold mid-animation, fire ANOTHER
+    // loadOlder, and the scrollTop-preserve math inside loadOlder
+    // (line 518) would yank the viewport down by a page worth of
+    // newly-prepended content. Smooth scroll, then sudden down jump,
+    // visible to the user as a jitter.
+    //
+    // Safety cap at 100 batches (~5000 messages) so a stuck moreBefore
+    // flag from a bad API response can't hang the tab.
+    let safety = 100;
+    while (state.moreBefore && safety-- > 0) {
+      await loadOlder();
+    }
     const freshGroups = getVisibleGroups();
     if (freshGroups.length) {
       setActiveGroup(freshGroups[0], { skipScroll: true });
