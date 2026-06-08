@@ -3827,11 +3827,30 @@ async function jumpToStreamEdge(edge) {
 // the viewport once the smooth scroll settles. Each press takes the
 // user one page deeper into history; press it as many times as you
 // want and it'll keep paginating back via loadOlder.
-function pageUpWithFocus() {
+async function pageUpWithFocus() {
   const stream = document.getElementById("stream");
   if (!stream) return;
-  // pageScroll(-1.0) does the smooth scroll AND kicks loadOlder when
-  // the user is near the top. We piggy-back on it instead of duplicating.
+  const viewport = stream.clientHeight;
+  // Pre-load older history until we have enough scroll headroom above
+  // the viewport that the smooth scrollBy(-viewport) won't cross the
+  // loadOlder trigger thresholds (200px in the scroll handler, 400px
+  // in pageScroll) mid-animation. Without this, loadOlder fires
+  // DURING the animation, its tail-line `stream.scrollTop = ...`
+  // assignment cancels the smooth scroll, and the user sees only a
+  // few messages of progress instead of a full page.
+  //
+  // Target headroom: viewport + 500. After scrollBy(-viewport) the
+  // scrollTop will still be > 500, comfortably above both thresholds
+  // with slop for subpixel rounding. Safety cap at 5 batches per
+  // press so a small-batch chat can't slow-load the user mid-input.
+  let safety = 5;
+  while (
+    stream.scrollTop < viewport + 500 &&
+    state.moreBefore &&
+    safety-- > 0
+  ) {
+    await loadOlder();
+  }
   pageScroll(-1.0);
   // After the smooth scroll settles, set focus to the topmost group
   // that's still visible in the viewport. scrollend fires after the
