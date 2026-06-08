@@ -4,8 +4,19 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-06-08
+
+### Added
+- **Full emoji reaction picker.** The reaction "+" now opens a real popover: a search box, a "Frequently used" row derived from the reactions actually present in the current chat, and the complete ~392-emoji catalog grouped into scrollable categories. Replaces the old 6-emoji strip.
+- **Copy button on AI Insights.** A standard copy icon sits top-right of the insight box and copies the raw markdown body to your clipboard (checkmark on success). Local-only — never touches the Substack wire.
+
 ### Changed
 - **AI Insights context budget bumped from 6K chars → 60K chars** (~1.5K tokens → ~15K tokens). The previous 6K limit dropped 1342 of 1381 messages in dense chats; 60K fits realistic full-chat summaries while staying under 12% of every supported provider's context window. Keeps latency clickable (~5-8s) and per-call input cost negligible (gpt-4o-mini ~$0.002, claude-haiku ~$0.015, gemini-flash ~$0.001).
+- **Reaction picker no longer fetches a live Substack library.** It's backed entirely by the static reaction catalog, so the picker opens instantly and always shows the full set.
+
+### Fixed
+- **Frequently-used emoji row spacing.** Short rows stretched each glyph across a wide grid column, leaving big gaps; emojis now pack tight on the left at a fixed size.
+- **Picker teardown leak.** Opening or toggling a picker now fully removes the prior one's document click listener (no orphaned listeners), with the open-focus timer cancelled on the fast double-click path.
 
 ## [0.2.3] — 2026-06-07
 
