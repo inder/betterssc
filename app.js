@@ -1368,7 +1368,9 @@ function buildReactionsEl(c) {
   for (const [reactionType, count] of entries) {
     const pill = document.createElement("span");
     pill.className = "msg-reaction";
-    pill.title = `:${reactionType}: ×${count}`;
+    pill.title = `Click to react with :${reactionType}: (currently ×${count})`;
+    pill.setAttribute("role", "button");
+    pill.setAttribute("tabindex", "0");
     pill.appendChild(
       document.createTextNode(reactionEmojiFor(reactionType))
     );
@@ -1376,6 +1378,16 @@ function buildReactionsEl(c) {
     countEl.className = "msg-reaction-count";
     countEl.textContent = String(count);
     pill.appendChild(countEl);
+    // Click an existing reaction pill to add your own reaction of the
+    // same type — saves a trip through the picker for the common case
+    // of "+1ing" a reaction someone else already made. Stop propagation
+    // so the pill click doesn't also trigger any parent .msg-item /
+    // .msg-group click handlers (focus tracking, ticker modal, etc).
+    pill.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sendReaction(c, reactionType);
+    });
     reactionsEl.appendChild(pill);
   }
   return reactionsEl;
@@ -5020,6 +5032,35 @@ function decorateReactionToolbar(node, comment) {
   if (node.querySelector(".msg-toolbar")) return; // already decorated
   const toolbar = document.createElement("div");
   toolbar.className = "msg-toolbar";
+
+  // Quick-react strip — top 4 emojis used in this chat. Click sends the
+  // reaction directly without opening the picker. topReactionsInChat
+  // falls back to DEFAULT_SUGGESTED_REACTIONS when the chat has no
+  // reactions yet, so the strip is never empty. Walking state.comments
+  // here is O(N) but the toolbar is only decorated on the rendered nodes
+  // (not all 1000+ messages in state) so the per-decoration cost is the
+  // walk itself, ~1ms per render frame. Caching is doable later if it
+  // shows up in a profile — defer.
+  const quickNames = topReactionsInChat(
+    [...state.comments.values()],
+    4,
+    reactionEmojiFor
+  );
+  for (const name of quickNames) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "msg-toolbar-btn msg-quick-react";
+    btn.title = `React with :${name}:`;
+    btn.setAttribute("aria-label", `React with ${name}`);
+    btn.textContent = reactionEmojiFor(name);
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      sendReaction(comment, name);
+    });
+    toolbar.appendChild(btn);
+  }
+
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.className = "msg-toolbar-btn";

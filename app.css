@@ -825,6 +825,17 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.msg-reaction:hover {
+  background: var(--accent-bg-soft);
+  border-color: var(--accent);
+}
+.msg-reaction:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .msg-reaction-count {
   font-size: 11px;
@@ -1298,6 +1309,12 @@ button {
   color: var(--text-secondary);
 }
 .msg-toolbar-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.msg-toolbar-btn.msg-quick-react {
+  /* Quick-react buttons hold real emoji glyphs, not text — bump the
+     size + nudge the padding so they read clean and tap-friendly. */
+  font-size: 15px;
+  padding: 2px 5px;
+}
 .emoji-picker {
   position: absolute;
   top: 18px;
