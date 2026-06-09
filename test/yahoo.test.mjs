@@ -58,6 +58,29 @@ describe("isMarketHours", () => {
   // (holidays, half-days) we'd test with frozen Date.now mocks.
 });
 
+// Helper — build a v8 chart response with the meta block we read.
+function v8Response(symbol, price, prevClose) {
+  return {
+    ok: true,
+    status: 200,
+    text: JSON.stringify({
+      chart: {
+        result: [
+          {
+            meta: {
+              symbol,
+              regularMarketPrice: price,
+              chartPreviousClose: prevClose,
+              currency: "USD",
+            },
+          },
+        ],
+        error: null,
+      },
+    }),
+  };
+}
+
 describe("fetchYahooQuotes", () => {
   it("returns empty Map for empty input", async () => {
     const proxyFn = vi.fn();
@@ -67,8 +90,8 @@ describe("fetchYahooQuotes", () => {
     expect(proxyFn).not.toHaveBeenCalled();
   });
 
-  it("returns empty Map when proxy returns non-ok", async () => {
-    const proxyFn = vi.fn(async () => ({ ok: false, status: 0 }));
+  it("returns empty Map when proxy returns non-ok for all symbols", async () => {
+    const proxyFn = vi.fn(async () => ({ ok: false, status: 401 }));
     const out = await fetchYahooQuotes(["AAPL", "MSFT"], proxyFn);
     expect(out).toBeInstanceOf(Map);
     expect(out.size).toBe(0);
@@ -84,67 +107,52 @@ describe("fetchYahooQuotes", () => {
     expect(out.size).toBe(0);
   });
 
-  it("parses quote shape and keys by HUMAN symbol", async () => {
-    const proxyFn = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: JSON.stringify({
-        quoteResponse: {
-          result: [
-            {
-              symbol: "AAPL",
-              regularMarketPrice: 234.56,
-              regularMarketChange: 2.34,
-              regularMarketChangePercent: 1.01,
-              marketState: "REGULAR",
-              currency: "USD",
-            },
-            {
-              symbol: "BTC-USD",
-              regularMarketPrice: 67890.12,
-              regularMarketChange: -1234.56,
-              regularMarketChangePercent: -1.79,
-              marketState: "REGULAR",
-              currency: "USD",
-            },
-          ],
-        },
-      }),
-    }));
+  it("parses v8 chart meta shape and keys by HUMAN symbol", async () => {
+    const proxyFn = vi.fn(async (url) => {
+      if (url.includes("AAPL")) return v8Response("AAPL", 234.56, 232.22);
+      if (url.includes("BTC-USD"))
+        return v8Response("BTC-USD", 67890.12, 69124.68);
+      return { ok: false, status: 404 };
+    });
     const out = await fetchYahooQuotes(["AAPL", "BTC"], proxyFn);
     expect(out.size).toBe(2);
     const aapl = out.get("AAPL");
     expect(aapl.price).toBe(234.56);
-    expect(aapl.changePercent).toBeCloseTo(1.01);
+    expect(aapl.changePercent).toBeCloseTo(((234.56 - 232.22) / 232.22) * 100);
     expect(aapl.currency).toBe("USD");
-    // BTC-USD should map BACK to "BTC" via fromYahooSymbol.
+    // BTC-USD should map BACK to "BTC" via the human-symbol key.
     const btc = out.get("BTC");
     expect(btc.price).toBe(67890.12);
-    expect(btc.changePercent).toBeCloseTo(-1.79);
+    expect(btc.changePercent).toBeLessThan(0);
   });
 
-  it("batches requests of 10 symbols", async () => {
-    const calls = [];
-    const proxyFn = vi.fn(async (url) => {
-      calls.push(url);
-      return {
-        ok: true,
-        status: 200,
-        text: JSON.stringify({ quoteResponse: { result: [] } }),
-      };
-    });
-    const symbols = Array.from({ length: 25 }, (_, i) => `SYM${i}`);
+  it("fires one request per symbol (no batching with v8 chart)", async () => {
+    const proxyFn = vi.fn(async () => v8Response("X", 100, 100));
+    const symbols = Array.from({ length: 12 }, (_, i) => `SYM${i}`);
     await fetchYahooQuotes(symbols, proxyFn);
-    // 25 symbols / 10 per batch = 3 calls (10, 10, 5).
-    expect(proxyFn).toHaveBeenCalledTimes(3);
-    expect(calls[0]).toContain("symbols=");
+    expect(proxyFn).toHaveBeenCalledTimes(12);
   });
 
-  it("silently survives proxy throwing", async () => {
-    const proxyFn = vi.fn(async () => {
-      throw new Error("network down");
+  it("survives a proxy throwing on one symbol while others succeed", async () => {
+    const proxyFn = vi.fn(async (url) => {
+      if (url.includes("BAD")) throw new Error("network down");
+      return v8Response("OK", 50, 49);
     });
-    const out = await fetchYahooQuotes(["AAPL"], proxyFn);
+    const out = await fetchYahooQuotes(["OK", "BAD"], proxyFn);
+    expect(out.size).toBe(1);
+    expect(out.has("OK")).toBe(true);
+    expect(out.has("BAD")).toBe(false);
+  });
+
+  it("skips entries without regularMarketPrice", async () => {
+    const proxyFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: JSON.stringify({
+        chart: { result: [{ meta: { symbol: "X", currency: "USD" } }] },
+      }),
+    }));
+    const out = await fetchYahooQuotes(["X"], proxyFn);
     expect(out.size).toBe(0);
   });
 });
