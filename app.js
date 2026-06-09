@@ -3296,10 +3296,13 @@ function paintAllTickerPriceChips(symbol) {
     .forEach((node) => paintPriceChipNode(node, quote));
 }
 
+// Line-chart-with-axes icon. Reads like a stock chart (X+Y axis + a
+// climbing series) instead of the prior trending-arrow that the user
+// described as too thin. 13px renders crisp at native scale.
 const TICKER_CHART_ICON_SVG =
-  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<polyline points="3 17 9 11 13 15 21 7"></polyline>' +
-  '<polyline points="14 7 21 7 21 14"></polyline>' +
+  '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M3 3v18h18"></path>' +
+  '<polyline points="6 15 10 11 14 13 19 7"></polyline>' +
   "</svg>";
 
 function renderTickerGroup(part) {
@@ -3307,11 +3310,17 @@ function renderTickerGroup(part) {
   group.className = "msg-ticker-group";
   group.dataset.symbol = part.symbol;
 
-  // Display text — accent-pill style, NOT clickable. The display value
-  // preserves what the user typed ($AAPL vs AAPL) so the message reads
-  // naturally; symbol normalization happens on the icon's data-symbol.
+  // Display text — accent pill, ALSO clickable (opens TV modal). The
+  // display preserves what the user typed ($AAPL vs AAPL); symbol
+  // normalization is on the data-symbol attribute so both the display
+  // and the icon below dispatch to the same openTickerModal call via
+  // the delegated handler at bindEventHandlers.
   const display = document.createElement("span");
   display.className = "msg-ticker-display";
+  display.dataset.symbol = part.symbol;
+  display.title = `View ${part.symbol} on TradingView`;
+  display.setAttribute("role", "button");
+  display.setAttribute("tabindex", "0");
   display.textContent = part.value;
   group.appendChild(display);
 
@@ -4311,9 +4320,14 @@ function bindEventHandlers() {
       if (clickedGroup && !clickedGroup.classList.contains("search-hidden")) {
         setActiveGroup(clickedGroup, { skipScroll: true });
       }
-      // TradingView modal trigger (separate concern — keeps the focus
-      // shift above even when the click is on a ticker).
-      const ticker = e.target.closest && e.target.closest(".msg-ticker");
+      // TradingView modal trigger. Two click targets share this handler
+      // — the chart icon (.msg-ticker, an <a>) and the accent-pill text
+      // (.msg-ticker-display, a span with role=button). Both carry
+      // data-symbol set by renderTickerGroup, so the dispatch is the
+      // same once we find the closest match.
+      const ticker =
+        e.target.closest &&
+        e.target.closest(".msg-ticker, .msg-ticker-display");
       if (!ticker) return;
       e.preventDefault();
       const symbol = ticker.dataset.symbol;

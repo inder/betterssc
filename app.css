@@ -1456,8 +1456,9 @@ button {
   vertical-align: baseline;
 }
 /* The "display" half is the accent-pill text — what the user sees as
-   "this is a ticker." Not a click target; the chart icon next to it
-   handles the chart-open action. */
+   "this is a ticker." Clickable: opens the same TradingView modal as
+   the chart icon next to it (handler matches both .msg-ticker and
+   .msg-ticker-display via :is() in the closest() query). */
 .msg-ticker-display {
   display: inline-block;
   color: var(--accent);
@@ -1465,6 +1466,15 @@ button {
   padding: 0 4px;
   border-radius: 3px;
   font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.msg-ticker-display:hover {
+  background: var(--accent-bg-strong);
+}
+.msg-ticker-display:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 /* The chart icon — small, accent-colored, click opens TradingView via
    the existing #messages delegated handler (matches .msg-ticker). */
