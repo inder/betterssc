@@ -1862,11 +1862,14 @@ button {
 
 /* ----- Kebab menu (header ⋮) ----- */
 .kebab-btn {
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 700;
+  /* Now holds an SVG gear icon, not a text glyph. inline-flex centers
+     the SVG within the button regardless of header-btn vertical metrics. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 6px;
 }
+.kebab-btn svg { display: block; }
 .kebab-menu {
   background: var(--bg-primary);
   border: 1px solid var(--border);
