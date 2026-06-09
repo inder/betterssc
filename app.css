@@ -896,20 +896,44 @@ button {
   z-index: 5;
   margin-top: auto;
   pointer-events: none;
+  /* Two buttons (main + aside) read as one rounded capsule. inline-flex
+     pulls them flush; the buttons themselves keep pointer-events. */
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 .new-message-jump button {
   pointer-events: auto;
-}
-.new-message-jump button {
   background: var(--accent);
   color: white;
   padding: 8px 16px;
-  border-radius: 999px;
   font-weight: 600;
   font-size: 13px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border: 0;
 }
+.new-message-jump-main {
+  border-radius: 999px 0 0 999px;
+}
+/* When the aside is hidden, the main button is the whole pill — give it
+   the full pill radius. Uses :has() so we don't need a JS class toggle. */
+.new-message-jump:has(.new-message-jump-aside.hidden) .new-message-jump-main,
+.new-message-jump:not(:has(.new-message-jump-aside)) .new-message-jump-main {
+  border-radius: 999px;
+}
+.new-message-jump-aside {
+  border-radius: 0 999px 999px 0;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+  padding: 8px 14px !important;
+  /* Subtle vertical separator between main and aside so the two click
+     targets read as distinct without breaking the single-pill silhouette. */
+  border-left: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+.new-message-jump-aside.hidden { display: none; }
 .new-message-jump button:hover { background: var(--accent-hover); }
+.new-message-jump-aside:hover { color: white !important; }
 
 /* MEMBERS RAIL */
 .members {

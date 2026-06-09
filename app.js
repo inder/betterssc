@@ -126,6 +126,11 @@ const state = {
   searchActiveIdx: 0,
   isAtBottom: true,
   pendingNewMessages: 0,
+  // New messages that arrived while a filter was active AND don't
+  // match the filter. Surfaced in the pill's secondary "elsewhere"
+  // suffix so the user can see off-filter activity without losing
+  // their filter context. Always 0 when no filter is active.
+  pendingNewMessagesOffFilter: 0,
   watchedUserIds: new Set(),
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
@@ -335,7 +340,17 @@ async function pollNewMessages() {
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
-        state.pendingNewMessages += added;
+        // Bucket each new comment by whether it matches the active
+        // filter. The pill's main count is filter-matching; the
+        // "elsewhere" suffix carries the rest. When no filter is
+        // active, every new message matches, so off-filter stays 0.
+        for (const c of newlyAdded) {
+          if (commentMatchesActiveFilter(c)) {
+            state.pendingNewMessages++;
+          } else {
+            state.pendingNewMessagesOffFilter++;
+          }
+        }
         showNewMessageJump();
       }
     }
@@ -837,7 +852,12 @@ function handleChatEvent(ev) {
     if (state.isAtBottom) {
       scrollToBottom();
     } else {
-      state.pendingNewMessages++;
+      const c = state.comments.get(ev.comment.id);
+      if (c && commentMatchesActiveFilter(c)) {
+        state.pendingNewMessages++;
+      } else if (c) {
+        state.pendingNewMessagesOffFilter++;
+      }
       showNewMessageJump();
     }
   } else if (ev.type === "chat:updated-comment" && ev.comment) {
@@ -2278,26 +2298,35 @@ function buildAiMessage(id, body, providerName, opts = {}) {
 // filter logic applySearch uses on the DOM, but operates on state so
 // the result is an array of comment objects (oldest → newest, no AI
 // rows since those aren't context for further insights).
-function getVisibleCommentsForAi() {
-  const all = state.order
-    .map((id) => state.comments.get(id))
-    .filter((c) => c && !c._aiGenerated);
+// Single source of truth for "does this comment match the currently
+// active search + thread filter?" Used by the AI Insights visible-set
+// builder AND by the poll/WS new-message bucketing path so the
+// bottom-pill count and the AI summary always agree on what's "in
+// filter." AI-generated rows are excluded by design (they're never
+// part of either count).
+function commentMatchesActiveFilter(c) {
+  if (!c || c._aiGenerated) return false;
   const hasSearch = !!(state.searchQuery && state.searchQuery.trim());
   const hasThread = !!state.threadFilter;
-  if (!hasSearch && !hasThread) return all;
-  const matcher = hasSearch ? parseSearchQuery(state.searchQuery.trim()) : null;
-  let threadMembers = null;
+  if (!hasSearch && !hasThread) return true;
   if (hasThread) {
     const parentId = state.threadFilter.parentId;
-    threadMembers = new Set([parentId]);
-    const localRefs = state.threadIndex && state.threadIndex.get(parentId);
-    if (localRefs) for (const id of localRefs) threadMembers.add(id);
+    if (c.id !== parentId) {
+      const refs = state.threadIndex && state.threadIndex.get(parentId);
+      if (!refs || !refs.has(c.id)) return false;
+    }
   }
-  return all.filter((c) => {
-    if (threadMembers && !threadMembers.has(c.id)) return false;
+  if (hasSearch) {
+    const matcher = parseSearchQuery(state.searchQuery.trim());
     if (matcher && matcher.test && !matcher.test(c)) return false;
-    return true;
-  });
+  }
+  return true;
+}
+
+function getVisibleCommentsForAi() {
+  return state.order
+    .map((id) => state.comments.get(id))
+    .filter((c) => c && !c._aiGenerated && commentMatchesActiveFilter(c));
 }
 
 // When the user has narrowed the chat to a single person via @<name>,
@@ -3300,14 +3329,37 @@ function showNewMessageJump() {
   const jump = document.getElementById("newMessageJump");
   if (!jump) return;
   jump.classList.remove("hidden");
+  const main = jump.querySelector("#newMessageJumpMain");
+  const aside = jump.querySelector("#newMessageJumpAside");
   const n = state.pendingNewMessages;
-  jump.querySelector("button").textContent = n > 0
-    ? `↓ ${n} new message${n > 1 ? "s" : ""}`
-    : "↓ Latest";
+  const m = state.pendingNewMessagesOffFilter;
+  const filtered =
+    !!(state.searchQuery && state.searchQuery.trim()) ||
+    !!state.threadFilter;
+  // Main text — "in filter" suffix only when a filter is active so the
+  // user knows the count is filter-scoped.
+  const suffix = filtered ? " in filter" : "";
+  if (main) {
+    main.textContent = n > 0
+      ? `↓ ${n} new message${n > 1 ? "s" : ""}${suffix}`
+      : `↓ Latest${suffix}`;
+  }
+  // Aside ("elsewhere" suffix) only appears when a filter is active AND
+  // off-filter activity exists. It's a separate click target that clears
+  // the filter and jumps to the absolute bottom of the chat.
+  if (aside) {
+    if (filtered && m > 0) {
+      aside.textContent = n > 0 ? `+${m} elsewhere` : `${m} elsewhere`;
+      aside.classList.remove("hidden");
+    } else {
+      aside.classList.add("hidden");
+    }
+  }
 }
 
 function hideNewMessageJump() {
   state.pendingNewMessages = 0;
+  state.pendingNewMessagesOffFilter = 0;
   document.getElementById("newMessageJump").classList.add("hidden");
 }
 
@@ -3316,6 +3368,22 @@ function hideNewMessageJump() {
 // ============================================================
 
 function applySearch() {
+  // Filter change → the two pending counts are scoped to the OLD filter
+  // and can't be meaningfully carried over (a count of 5 "in '@boz'" is
+  // not 5 "in '@jordan'"). Reset both; the next poll cycle will populate
+  // them correctly under the new filter. Hiding the pill avoids a
+  // momentary stale-count flicker while waiting for that poll.
+  if (state.pendingNewMessages || state.pendingNewMessagesOffFilter) {
+    state.pendingNewMessages = 0;
+    state.pendingNewMessagesOffFilter = 0;
+    const jump = document.getElementById("newMessageJump");
+    if (jump && !state.isAtBottom) {
+      // Repaint the pill (shows "↓ Latest [in filter]" with no count).
+      showNewMessageJump();
+    } else if (jump) {
+      jump.classList.add("hidden");
+    }
+  }
   const raw = state.searchQuery.trim();
   const q = raw.toLowerCase();
 
@@ -4011,13 +4079,21 @@ function bindEventHandlers() {
     }, 100)
   );
 
-  document.getElementById("newMessageJump").addEventListener("click", () => {
-    // "Latest" mode (no pending new messages) → real bottom of the feed,
-    // so we clear both search AND thread filter. Asymmetric with the
-    // "N new messages" mode where the filter is the WHOLE reason the
-    // pill is showing — keep that intact.
-    goToLatest({ clearFilters: state.pendingNewMessages === 0 });
-  });
+  // Split pill: main button preserves the active filter (Latest in
+  // filter); aside button clears the filter and goes to absolute bottom
+  // (the off-filter "+M elsewhere" shortcut). The asymmetric click
+  // semantics now live in the HTML, not in a condition over
+  // pendingNewMessages — much cleaner.
+  document
+    .getElementById("newMessageJumpMain")
+    .addEventListener("click", () => {
+      goToLatest({ clearFilters: false });
+    });
+  document
+    .getElementById("newMessageJumpAside")
+    .addEventListener("click", () => {
+      goToLatest({ clearFilters: true });
+    });
 
   const aiBtn = document.getElementById("aiInsightsBtn");
   if (aiBtn) {
