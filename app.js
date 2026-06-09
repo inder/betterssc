@@ -15,7 +15,9 @@ import {
   detectChatChannels,
   postChatViewed,
   fetchUserProfile,
+  proxyFetchAbsolute,
 } from "./lib/api.js";
+import { fetchYahooQuotes, isMarketHours } from "./lib/yahoo.js";
 import { SubstackRealtime } from "./lib/ws.js";
 import {
   formatRelativeTime,
@@ -131,6 +133,15 @@ const state = {
   // suffix so the user can see off-filter activity without losing
   // their filter context. Always 0 when no filter is active.
   pendingNewMessagesOffFilter: 0,
+  // Cache of Yahoo-fetched live prices keyed by human ticker symbol.
+  // Value: { price, change, changePercent, marketState, fetchedAt }.
+  // TTL: 60s during market hours, 5 min otherwise (see lib/yahoo.js
+  // isMarketHours). Survives renders; cleared on chat switch.
+  tickerPrices: new Map(),
+  // User toggle for the inline price display next to ticker links.
+  // Default ON; turned off via the kebab menu. Persisted to
+  // chrome.storage.local as bssc_show_live_prices.
+  showLivePrices: true,
   watchedUserIds: new Set(),
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
@@ -1151,13 +1162,7 @@ function renderMessageItem(c) {
           a.textContent = part.value;
           wrap.appendChild(a);
         } else if (part.type === "ticker") {
-          const a = document.createElement("a");
-          a.className = "msg-ticker";
-          a.href = "#";
-          a.dataset.symbol = part.symbol;
-          a.textContent = part.value;
-          a.title = `View ${part.symbol} on TradingView`;
-          wrap.appendChild(a);
+          wrap.appendChild(renderTickerGroup(part));
         } else {
           wrap.appendChild(document.createTextNode(part.value));
         }
@@ -1882,9 +1887,13 @@ function restoreWatchedUsers() {
         "bssc_ai_budget_chars",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
+        "bssc_show_live_prices",
       ],
       (res) => {
         if (!res) return;
+        if (typeof res.bssc_show_live_prices === "boolean") {
+          state.showLivePrices = res.bssc_show_live_prices;
+        }
         if (
           res.bssc_ai_provider === "openai" ||
           res.bssc_ai_provider === "anthropic" ||
@@ -2668,6 +2677,12 @@ function openKebabMenu() {
   const items = [
     { label: "Tune AI model", handler: openTuneModelModal },
     { label: "Tune prompt", handler: openTunePromptModal },
+    {
+      label: state.showLivePrices
+        ? "✓ Show live prices next to tickers"
+        : "Show live prices next to tickers",
+      handler: toggleLivePrices,
+    },
     { label: "Reset all saved data", handler: openResetConfirmModal, danger: true },
   ];
   for (const item of items) {
@@ -2912,6 +2927,22 @@ function formatUsd(n) {
   if (n < 0.01) return `$${n.toFixed(4)}`;
   if (n < 1) return `$${n.toFixed(3)}`;
   return `$${n.toFixed(2)}`;
+}
+
+// Kebab menu toggle: flip the inline-price display on/off. Renders
+// affect the entire visible feed (price chips appear or disappear).
+// Persisted to chrome.storage.local so the choice survives reloads.
+function toggleLivePrices() {
+  state.showLivePrices = !state.showLivePrices;
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({ bssc_show_live_prices: state.showLivePrices });
+  } catch (_) {}
+  // Re-render so the new state takes effect on every visible message.
+  // The lazy fetch queue will pick up the visible symbols on the next
+  // renderTickerGroup pass if we just turned the feature on.
+  renderAll();
 }
 
 function openTuneModelModal() {
@@ -3175,13 +3206,155 @@ function closeResetConfirmModal() {
 }
 
 // ============================================================
-// TICKER MODAL (click $NASA / $DXYZ → TradingView chart)
+// INLINE TICKER GROUP (text + chart icon + live price chip)
 // ============================================================
 //
-// Each $TICKER token in a message renders as a .msg-ticker anchor. A
-// delegated listener on #messages handles clicks. The modal embeds
-// TradingView's free advanced-chart widget via iframe — no script tag,
-// no API key, no auth. Theme follows the current BetterSSC theme.
+// Each ticker token in a message renders as a 3-element group:
+//   .msg-ticker-display  — accent-pill text of the symbol (no click)
+//   .msg-ticker          — small chart icon, click opens TV modal
+//   .msg-ticker-price    — colored text price + % change (live, optional)
+//
+// .msg-ticker stays the click target so the existing delegated handler
+// at bindEventHandlers keeps working. The display + price are siblings.
+
+const TICKER_FETCH_DEBOUNCE_MS = 200;
+const TICKER_PRICE_TTL_OPEN_MS = 60 * 1000;
+const TICKER_PRICE_TTL_CLOSED_MS = 5 * 60 * 1000;
+const _tickerFetchQueue = new Set();
+let _tickerFetchTimer = null;
+
+function tickerPriceTTL() {
+  return isMarketHours() ? TICKER_PRICE_TTL_OPEN_MS : TICKER_PRICE_TTL_CLOSED_MS;
+}
+
+function isTickerPriceFresh(symbol) {
+  const entry = state.tickerPrices.get(symbol);
+  if (!entry || entry.fetchedAt == null) return false;
+  return Date.now() - entry.fetchedAt < tickerPriceTTL();
+}
+
+function queueTickerPriceFetch(symbol) {
+  if (!state.showLivePrices) return;
+  if (isTickerPriceFresh(symbol)) return;
+  _tickerFetchQueue.add(symbol);
+  if (_tickerFetchTimer) return;
+  _tickerFetchTimer = setTimeout(async () => {
+    const symbols = [..._tickerFetchQueue];
+    _tickerFetchQueue.clear();
+    _tickerFetchTimer = null;
+    try {
+      const results = await fetchYahooQuotes(symbols, proxyFetchAbsolute);
+      const now = Date.now();
+      for (const [symbol, quote] of results) {
+        state.tickerPrices.set(symbol, { ...quote, fetchedAt: now });
+        paintAllTickerPriceChips(symbol);
+      }
+    } catch (_) {
+      // Silent. Chips stay blank; next render will re-queue.
+    }
+  }, TICKER_FETCH_DEBOUNCE_MS);
+}
+
+function formatPriceText(quote) {
+  if (!quote || quote.price == null) return "";
+  const price = quote.price;
+  // Compact format: $1,234.56 for stocks, $0.0024 for tiny crypto.
+  let priceStr;
+  if (price >= 100) priceStr = `$${price.toFixed(2)}`;
+  else if (price >= 1) priceStr = `$${price.toFixed(2)}`;
+  else if (price >= 0.01) priceStr = `$${price.toFixed(4)}`;
+  else priceStr = `$${price.toPrecision(2)}`;
+  const pct = quote.changePercent;
+  if (pct == null) return priceStr;
+  const arrow = pct >= 0 ? "↑" : "↓";
+  const pctStr = Math.abs(pct).toFixed(2);
+  return `${priceStr} ${arrow}${pctStr}%`;
+}
+
+function paintPriceChipNode(node, quote) {
+  if (!node) return;
+  if (!quote || quote.price == null) {
+    node.textContent = "";
+    node.classList.remove("up", "down");
+    return;
+  }
+  node.textContent = formatPriceText(quote);
+  node.classList.remove("up", "down");
+  const pct = quote.changePercent;
+  if (pct == null) return;
+  if (pct > 0) node.classList.add("up");
+  else if (pct < 0) node.classList.add("down");
+}
+
+// Surgically update every rendered price chip for a symbol after a
+// successful fetch. Cheaper than renderAll + avoids any scroll jank.
+function paintAllTickerPriceChips(symbol) {
+  const quote = state.tickerPrices.get(symbol);
+  if (!quote) return;
+  document
+    .querySelectorAll(`.msg-ticker-price[data-symbol="${cssEscape(symbol)}"]`)
+    .forEach((node) => paintPriceChipNode(node, quote));
+}
+
+const TICKER_CHART_ICON_SVG =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<polyline points="3 17 9 11 13 15 21 7"></polyline>' +
+  '<polyline points="14 7 21 7 21 14"></polyline>' +
+  "</svg>";
+
+function renderTickerGroup(part) {
+  const group = document.createElement("span");
+  group.className = "msg-ticker-group";
+  group.dataset.symbol = part.symbol;
+
+  // Display text — accent-pill style, NOT clickable. The display value
+  // preserves what the user typed ($AAPL vs AAPL) so the message reads
+  // naturally; symbol normalization happens on the icon's data-symbol.
+  const display = document.createElement("span");
+  display.className = "msg-ticker-display";
+  display.textContent = part.value;
+  group.appendChild(display);
+
+  // Chart icon — the click target. Keeps .msg-ticker class so the
+  // existing delegated click handler at bindEventHandlers fires
+  // openTickerModal without changes.
+  const chart = document.createElement("a");
+  chart.className = "msg-ticker msg-ticker-chart";
+  chart.href = "#";
+  chart.dataset.symbol = part.symbol;
+  chart.title = `View ${part.symbol} on TradingView`;
+  chart.setAttribute("aria-label", `Open ${part.symbol} chart`);
+  chart.innerHTML = TICKER_CHART_ICON_SVG;
+  group.appendChild(chart);
+
+  // Price chip — text-only, may be empty until the fetch completes.
+  if (state.showLivePrices) {
+    const price = document.createElement("span");
+    price.className = "msg-ticker-price";
+    price.dataset.symbol = part.symbol;
+    const cached = state.tickerPrices.get(part.symbol);
+    if (cached && isTickerPriceFresh(part.symbol)) {
+      paintPriceChipNode(price, cached);
+    } else {
+      // Queue an async fetch. The price will paint when the result lands.
+      queueTickerPriceFetch(part.symbol);
+    }
+    group.appendChild(price);
+  }
+
+  return group;
+}
+
+// ============================================================
+// TICKER MODAL (click chart icon → TradingView chart)
+// ============================================================
+//
+// Each ticker token in a message renders as a .msg-ticker-group (see
+// renderTickerGroup above). The chart icon inside that group is the
+// .msg-ticker click target — a delegated listener on #messages
+// handles clicks. The modal embeds TradingView's free advanced-chart
+// widget via iframe — no script tag, no API key, no auth. Theme
+// follows the current BetterSSC theme.
 
 function openTickerModal(symbol) {
   if (!symbol) return;
