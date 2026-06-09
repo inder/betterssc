@@ -118,6 +118,80 @@ describe("linkifyText", () => {
     });
     expect(parts[2]).toEqual({ type: "text", value: ".BB now" });
   });
+
+  // ===== Bare-ticker (no $) detection =====
+
+  it("detects bare ALL-CAPS tickers from the allowlist", () => {
+    const parts = linkifyText("buying AAPL today");
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toEqual({ type: "text", value: "buying " });
+    expect(parts[1]).toEqual({ type: "ticker", value: "AAPL", symbol: "AAPL" });
+    expect(parts[2]).toEqual({ type: "text", value: " today" });
+  });
+
+  it("detects multiple bare tickers in one message", () => {
+    const parts = linkifyText("BTC up, SPY flat, QQQ down");
+    const tickers = parts.filter((p) => p.type === "ticker").map((p) => p.symbol);
+    expect(tickers).toEqual(["BTC", "SPY", "QQQ"]);
+  });
+
+  it("does NOT match lowercase or mixed-case spellings", () => {
+    expect(linkifyText("tsla up")).toEqual([
+      { type: "text", value: "tsla up" },
+    ]);
+    expect(linkifyText("Meta announced")).toEqual([
+      { type: "text", value: "Meta announced" },
+    ]);
+  });
+
+  it("does NOT match ALL-CAPS words that aren't in the allowlist", () => {
+    expect(linkifyText("OMG this is LOL")).toEqual([
+      { type: "text", value: "OMG this is LOL" },
+    ]);
+  });
+
+  it("respects word boundaries (TSLAQ is not TSLA)", () => {
+    expect(linkifyText("TSLAQ rumors")).toEqual([
+      { type: "text", value: "TSLAQ rumors" },
+    ]);
+  });
+
+  it("strips trailing punctuation around bare tickers", () => {
+    const parts = linkifyText("loaded up on TSLA.");
+    expect(parts[0]).toEqual({ type: "text", value: "loaded up on " });
+    expect(parts[1]).toEqual({ type: "ticker", value: "TSLA", symbol: "TSLA" });
+    expect(parts[2]).toEqual({ type: "text", value: "." });
+  });
+
+  it("handles bare ticker + $ticker + URL together", () => {
+    const parts = linkifyText("AAPL vs $MSFT — see https://example.com");
+    const types = parts.map((p) => p.type);
+    expect(types).toEqual(["ticker", "text", "ticker", "text", "link"]);
+    expect(parts[0]).toEqual({ type: "ticker", value: "AAPL", symbol: "AAPL" });
+    expect(parts[2]).toEqual({ type: "ticker", value: "$MSFT", symbol: "MSFT" });
+  });
+
+  it("matches META even though it's a common English word (allowlist accepts the FP risk)", () => {
+    const parts = linkifyText("META beat earnings");
+    expect(parts[0]).toEqual({ type: "ticker", value: "META", symbol: "META" });
+  });
+
+  it("matches bare ticker inside a URL's surrounding text without breaking the URL", () => {
+    const parts = linkifyText("see https://example.com about TSLA");
+    expect(parts).toEqual([
+      { type: "text", value: "see " },
+      { type: "link", value: "https://example.com" },
+      { type: "text", value: " about " },
+      { type: "ticker", value: "TSLA", symbol: "TSLA" },
+    ]);
+  });
+
+  it("does NOT match tickers inside URLs (URL token wins)", () => {
+    const parts = linkifyText("https://aapl.com/news");
+    expect(parts).toEqual([
+      { type: "link", value: "https://aapl.com/news" },
+    ]);
+  });
 });
 
 describe("groupByAuthor", () => {
