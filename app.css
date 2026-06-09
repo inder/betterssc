@@ -1445,69 +1445,21 @@ button {
    $TICKER links + TradingView chart modal
    ============================================================ */
 
-/* Ticker group is rendered as 3 inline siblings sharing one symbol:
-   .msg-ticker-display (text)  .msg-ticker (chart icon)  .msg-ticker-price (chip)
-   Wrapped in .msg-ticker-group so we can spacing them as a unit
-   without affecting other inline content. */
-.msg-ticker-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  vertical-align: baseline;
-}
-/* The "display" half is the accent-pill text — what the user sees as
-   "this is a ticker." Clickable: opens the same TradingView modal as
-   the chart icon next to it (handler matches both .msg-ticker and
-   .msg-ticker-display via :is() in the closest() query). */
-.msg-ticker-display {
+.msg-ticker {
   display: inline-block;
   color: var(--accent);
   background: var(--accent-bg-soft);
   padding: 0 4px;
   border-radius: 3px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-.msg-ticker-display:hover {
-  background: var(--accent-bg-strong);
-}
-.msg-ticker-display:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-/* The chart icon — small, accent-colored, click opens TradingView via
-   the existing #messages delegated handler (matches .msg-ticker). */
-.msg-ticker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-  padding: 1px 3px;
-  border-radius: 3px;
   text-decoration: none;
   cursor: pointer;
-  line-height: 1;
   transition: background 0.12s ease;
 }
 .msg-ticker:hover {
-  background: var(--accent-bg-soft);
+  background: var(--accent-bg-strong);
   text-decoration: none;
 }
-.msg-ticker svg { display: block; }
-/* Live price chip — plain text, colored by direction. Empty until the
-   Yahoo fetch lands; the renderer queues a fetch on first paint. */
-.msg-ticker-price {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.msg-ticker-price:empty { display: none; }
-.msg-ticker-price.up   { color: var(--success); }
-.msg-ticker-price.down { color: var(--danger); }
 
 .ticker-modal-backdrop {
   position: fixed;
