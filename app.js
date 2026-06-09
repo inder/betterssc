@@ -3242,15 +3242,25 @@ function queueTickerPriceFetch(symbol) {
     const symbols = [..._tickerFetchQueue];
     _tickerFetchQueue.clear();
     _tickerFetchTimer = null;
+    // eslint-disable-next-line no-console
+    console.log("[BetterSSC] Yahoo quote: firing batch", { symbols });
     try {
       const results = await fetchYahooQuotes(symbols, proxyFetchAbsolute);
+      // eslint-disable-next-line no-console
+      console.log("[BetterSSC] Yahoo quote: got results", {
+        requested: symbols.length,
+        received: results.size,
+      });
       const now = Date.now();
       for (const [symbol, quote] of results) {
         state.tickerPrices.set(symbol, { ...quote, fetchedAt: now });
         paintAllTickerPriceChips(symbol);
       }
-    } catch (_) {
-      // Silent. Chips stay blank; next render will re-queue.
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[BetterSSC] Yahoo quote: outer catch", {
+        message: (e && e.message) || String(e),
+      });
     }
   }, TICKER_FETCH_DEBOUNCE_MS);
 }
