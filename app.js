@@ -3570,7 +3570,7 @@ function showHelpOverlay() {
     <dl>
       <dt>/</dt><dd>Focus search</dd>
       <dt>Esc</dt><dd>Clear search / close overlay</dd>
-      <dt>j / k</dt><dd>Next / previous message</dd>
+      <dt>j / k or ↓ / ↑</dt><dd>Next / previous message</dd>
       <dt>PageDn / PageUp</dt><dd>Full page down / up</dd>
       <dt>⌘D / ⌘U</dt><dd>Half page down / up (vim style)</dd>
       <dt>g</dt><dd>Page up (loads older history at the top)</dd>
@@ -4058,6 +4058,20 @@ function bindEventHandlers() {
       const symbol = ticker.dataset.symbol;
       if (symbol) openTickerModal(symbol);
     });
+
+    // Mouse hover sets focus on the hovered group, same state j/k uses.
+    // mouseover bubbles (mouseenter doesn't) so the delegated listener
+    // catches every group from one binding. The _viActiveId equality
+    // check makes repeated events within the same group a no-op — keeps
+    // CPU cost negligible across mouse movement. AI insights are
+    // .ai-msg with no .msg-group wrapper, so closest() returns null
+    // and the listener bails (their chat-cursor stays put).
+    messagesEl.addEventListener("mouseover", (e) => {
+      const group = e.target.closest && e.target.closest(".msg-group");
+      if (!group || group.classList.contains("search-hidden")) return;
+      if (group.dataset.firstId === _viActiveId) return;
+      setActiveGroup(group, { skipScroll: true });
+    });
   }
 
   const searchInput = document.getElementById("searchInput");
@@ -4131,10 +4145,10 @@ function bindEventHandlers() {
     // Vi navigation — gated to not interfere with typing.
     if (inInput) return;
 
-    if (e.key === "j") {
+    if (e.key === "j" || e.key === "ArrowDown") {
       e.preventDefault();
       moveActive(1);
-    } else if (e.key === "k") {
+    } else if (e.key === "k" || e.key === "ArrowUp") {
       e.preventDefault();
       moveActive(-1);
     } else if (e.key === "g") {

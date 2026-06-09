@@ -585,12 +585,14 @@ button {
   line-height: 1.4;
   position: relative;
 }
-/* Each message is its own hoverable row. Consecutive messages from the same
-   author are split by a faint divider so a run reads as separate blurbs —
-   each with its own react/reply toolbar — instead of one merged paragraph.
-   The divider only appears between two items (never under the author header,
-   which is not a .msg-item). */
-.msg-item:hover { background: var(--bg-hover); }
+/* Each message is its own row, split from the next by a faint divider so a run
+   reads as separate blurbs (each with its own react/reply toolbar on hover)
+   instead of one merged paragraph. The divider only appears between two items
+   (never under the author header, which is not a .msg-item).
+   Per-message hover background lived here until the focus-unification pass —
+   mouse hover now drives the same group-level .vi-active state as j/k, so the
+   gray .msg-item:hover bg is gone. The .msg-item:hover > .msg-toolbar rule
+   that reveals the floating + / ↩ toolbar (lower in this file) still lives. */
 .msg-item + .msg-item { border-top: 1px solid var(--border); }
 /* Inside a vi-active group the whole block is tinted with --accent-bg-soft;
    the near-black --border divider becomes a harsh slash on it (most visible
