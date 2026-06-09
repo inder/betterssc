@@ -371,3 +371,142 @@ describe("buildPreviewUserMessage", () => {
     expect(a).not.toBe(b);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Reply / quote linkage — the attribution fix
+// ---------------------------------------------------------------------------
+
+describe("formatMessagesForLLM — reply/quote linkage", () => {
+  it("annotates a quote-reply with the quoted author + snippet", () => {
+    const comments = [
+      {
+        id: 1, author: { name: "Bsmalls72" },
+        body: "The one that's shocking to me is Pltr. New highs before summer.",
+        created_at: "2026-06-08T12:00:00Z",
+      },
+      {
+        id: 2, author: { name: "Za" },
+        body: "I'll be out if it hits my cost. Very disappointing action",
+        created_at: "2026-06-08T12:01:00Z",
+        quote: {
+          id: 1, author: { name: "Bsmalls72" },
+          body: "The one that's shocking to me is Pltr. New highs before summer.",
+        },
+      },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain(
+      'Za (replying to Bsmalls72: "The one that\'s shocking to me is Pltr'
+    );
+    expect(context).toContain("I'll be out if it hits my cost");
+  });
+
+  it("resolves a threaded reply (parent_id) against the slice when no inline quote", () => {
+    const comments = [
+      { id: "a", author: { name: "Bsmalls72" }, body: "Pltr new highs before summer", created_at: "2026-06-08T12:00:00Z" },
+      { id: "b", author: { name: "Za" }, body: "I'll be out if it hits my cost", created_at: "2026-06-08T12:01:00Z", parent_id: "a" },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain('Za (replying to Bsmalls72: "Pltr new highs before summer")');
+  });
+
+  it("names the quoted author even with no quote body, no empty quotes", () => {
+    const comments = [
+      { id: 2, author: { name: "Za" }, body: "agreed", created_at: "2026-06-08T12:01:00Z", quote: { author: { name: "Bsmalls72" } } },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain("Za (replying to Bsmalls72):");
+    expect(context).not.toContain('replying to Bsmalls72: ""');
+  });
+
+  it("caps the quoted snippet at 120 chars with an ellipsis", () => {
+    const longBody = "x".repeat(200);
+    const comments = [
+      { id: 2, author: { name: "Za" }, body: "ok", created_at: "2026-06-08T12:00:00Z", quote: { author: { name: "P" }, body: longBody } },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain("x".repeat(120) + "…");
+    expect(context).not.toContain("x".repeat(121));
+  });
+
+  it("leaves a non-reply message as plain [time] Author: body (backward compatible)", () => {
+    const comments = [
+      { id: 1, author: { name: "Za" }, body: "This is big for RDDT", created_at: "2026-06-08T12:00:00Z" },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toMatch(/^\[\d{2}:\d{2}\] Za: This is big for RDDT$/);
+    expect(context).not.toContain("replying to");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reaction signal
+// ---------------------------------------------------------------------------
+
+describe("formatMessagesForLLM — reaction summary", () => {
+  it("appends a compact reaction tag (REST numeric shape)", () => {
+    const comments = [
+      { id: 1, author: { name: "Za" }, body: "mega bear flipping bullish", created_at: "2026-06-08T12:00:00Z", reactions: { thumbs_up: 2, red_heart: 1 } },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain("[reactions: 👍×2 ❤️×1]");
+  });
+
+  it("reads the WS {count} shape and skips zero counts", () => {
+    const comments = [
+      { id: 1, author: { name: "Za" }, body: "x", created_at: "2026-06-08T12:00:00Z", reactions: { fire: { count: 3 }, skull: { count: 0 } } },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).toContain("[reactions: 🔥×3]");
+    expect(context).not.toContain("skull");
+  });
+
+  it("emits no reaction tag when there are none", () => {
+    const comments = [
+      { id: 1, author: { name: "Za" }, body: "x", created_at: "2026-06-08T12:00:00Z", reactions: {} },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    expect(context).not.toContain("[reactions:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression — the NVTS/PLTR misattribution (real captured transcript)
+// ---------------------------------------------------------------------------
+
+describe("regression — Za's PLTR exit must not read as RDDT", () => {
+  it("links the exit comment to Bsmalls72's PLTR message, not Za's earlier RDDT message", () => {
+    const comments = [
+      { id: 1, author: { name: "Za" }, body: "This is big for RDDT. Cleveland research became very negative on Reddit near the top at 280.", created_at: "2026-06-08T08:00:00Z" },
+      { id: 2, author: { name: "Za" }, body: "Mega bear flipping bullish. Think that's why the reaction is so strong", created_at: "2026-06-08T08:01:00Z", reactions: { thumbs_up: 1 } },
+      { id: 3, author: { name: "Bsmalls72" }, body: "The one that's shocking to me is Pltr. I got in it before that move to $160. New highs before end of summer", created_at: "2026-06-08T08:02:00Z" },
+      { id: 4, author: { name: "Za" }, body: "I'll be out if it hits my cost. Very disappointing action", created_at: "2026-06-08T08:03:00Z",
+        quote: { id: 3, author: { name: "Bsmalls72" }, body: "The one that's shocking to me is Pltr. I got in it before that move to $160. New highs before end of summer" } },
+    ];
+    const { context } = formatMessagesForLLM(comments);
+    const exitLine = context.split("\n").find((l) => l.includes("I'll be out if it hits my cost"));
+    expect(exitLine).toBeTruthy();
+    // The disambiguating signal the model needs is now present in the line.
+    expect(exitLine).toContain("replying to Bsmalls72");
+    expect(exitLine).toContain("Pltr");
+    // ...and the pre-fix failure mode is gone: the exit line must NOT carry
+    // Za's earlier, unrelated RDDT topic that the model used to latch onto.
+    expect(exitLine).not.toContain("RDDT");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildSystemPrompt — anti-misattribution guidance
+// ---------------------------------------------------------------------------
+
+describe("buildSystemPrompt — reading guidance", () => {
+  it("includes the reply-attribution rule", () => {
+    const p = buildSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("replying to X");
+    expect(p).toContain("NOT to the speaker's own earlier messages");
+  });
+  it("warns against carrying a ticker from an earlier unrelated message", () => {
+    const p = buildSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("Never carry a ticker over from an earlier, unrelated message");
+  });
+});
