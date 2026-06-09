@@ -3336,20 +3336,20 @@ function showNewMessageJump() {
   const filtered =
     !!(state.searchQuery && state.searchQuery.trim()) ||
     !!state.threadFilter;
-  // Main text — "in filter" suffix only when a filter is active so the
-  // user knows the count is filter-scoped.
-  const suffix = filtered ? " in filter" : "";
+  // Main text is always plain "Latest" or "N new messages" — the filter
+  // context is implicit (you can see your filter is on), and the aside
+  // below carries the off-filter signal when it matters.
   if (main) {
     main.textContent = n > 0
-      ? `↓ ${n} new message${n > 1 ? "s" : ""}${suffix}`
-      : `↓ Latest${suffix}`;
+      ? `↓ ${n} new message${n > 1 ? "s" : ""}`
+      : "↓ Latest";
   }
-  // Aside ("elsewhere" suffix) only appears when a filter is active AND
+  // Aside ("N in chat" suffix) only appears when a filter is active AND
   // off-filter activity exists. It's a separate click target that clears
   // the filter and jumps to the absolute bottom of the chat.
   if (aside) {
     if (filtered && m > 0) {
-      aside.textContent = n > 0 ? `+${m} elsewhere` : `${m} elsewhere`;
+      aside.textContent = n > 0 ? `+${m} in chat` : `${m} in chat`;
       aside.classList.remove("hidden");
     } else {
       aside.classList.add("hidden");
