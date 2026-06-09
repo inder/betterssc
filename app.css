@@ -13,8 +13,10 @@
   --text-link: #0066cc;
   --accent: #4e5cdb;
   --accent-hover: #3e4ac0;
+  --accent-bg-card: rgba(78, 92, 219, 0.04);
   --accent-bg-soft: rgba(78, 92, 219, 0.10);
   --accent-bg-strong: rgba(78, 92, 219, 0.22);
+  --accent-bg-strongest: rgba(78, 92, 219, 0.34);
   --success: #1a8a44;
   --success-bg-soft: rgba(26, 138, 68, 0.12);
   --success-bg-strong: rgba(26, 138, 68, 0.22);
@@ -39,8 +41,10 @@
   --text-link: #00a8fc;
   --accent: #7b8aff;
   --accent-hover: #4752c4;
+  --accent-bg-card: rgba(123, 138, 255, 0.07);
   --accent-bg-soft: rgba(123, 138, 255, 0.16);
   --accent-bg-strong: rgba(123, 138, 255, 0.30);
+  --accent-bg-strongest: rgba(123, 138, 255, 0.42);
   --success: #23a559;
   --success-bg-soft: rgba(35, 165, 89, 0.18);
   --success-bg-strong: rgba(35, 165, 89, 0.32);
@@ -521,14 +525,20 @@ button {
   gap: 12px;
   padding: 8px 8px 4px;
   border-radius: 4px;
+  /* Every group reads as a soft card by default — search hits and search-
+     active rows escalate the tint, and vi-active focus adds an orthogonal
+     3px bar on top of whatever bg is showing. Tier table:
+       default        --accent-bg-card       (~4-7%)
+       search-hit     --accent-bg-strong     (~22-30%)
+       search-active  --accent-bg-strongest  (~34-42%)
+     The vi-active rule below sets ONLY the bar so it can compose with any
+     bg tier without overriding it — that way a focused search hit still
+     reads as "search hit" plus "this is the cursor." */
+  background: var(--accent-bg-card);
   transition: background 0.1s ease;
 }
-/* Hover highlight lives on .msg-item now (per-row), not the whole group, so
-   one message in a multi-message author run highlights on hover instead of
-   the whole block. The whole-group tints below (search / mention) and the
-   vi-active focus marker are intentional and stay at the group level. */
-.msg-group.search-hit { background: var(--accent-bg-soft); }
-.msg-group.search-active { background: var(--accent-bg-strong); }
+.msg-group.search-hit { background: var(--accent-bg-strong); }
+.msg-group.search-active { background: var(--accent-bg-strongest); }
 .msg-group.search-hidden { display: none; }
 .msg-group.mention-row { background: rgba(240, 178, 50, 0.06); border-left: 2px solid var(--warning); padding-left: 6px; }
 
@@ -695,7 +705,10 @@ button {
 
 /* Vi-style active message marker (used by j/k navigation). */
 .msg-group.vi-active {
-  background: var(--accent-bg-soft);
+  /* No background here — composes orthogonally over the per-tier bg from
+     the base .msg-group rule above (card / search-hit / search-active).
+     So a focused search hit shows the strong bg AND the bar; a focused
+     plain row shows the card bg AND the bar. The bar IS the focus signal. */
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
