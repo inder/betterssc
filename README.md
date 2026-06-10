@@ -25,27 +25,26 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.2.3)
+## What it does (v0.2.4)
 
-### Sending
+BetterSSC is primarily a **reader**. Most of the work is in the read side because that's where dense Substack chats actually fall apart. The send side is real and works, but it's not where you'll spend most of your time, so it comes last.
 
-- Type and send messages, with optimistic UI so your message lands instantly without waiting for the 12s poll cycle.
-- React with any emoji from Substack's full reaction library (the picker hides duplicates so you don't see two 👍 buttons for `thumbs_up` and `+1`).
-- @mention autocomplete pulls from the people you've already seen in chat.
-- Reply UI puts a Discord-style quoted block on your message locally so you can see what you're answering.
-- Failed sends keep your text and show a Retry button instead of making you re-type.
+What you get on the read side, in one paragraph:
+
+> Full keyboard navigation (vi keys + arrows + page up/down + half-page), full-text search and slash-command filters that respect each other (search + thread + author), `↓ Latest` that respects your filter, inline **`$TICKER`** and bare-ticker auto-linking that opens a real TradingView chart in a modal, **desktop notifications** when watched users post or you get @mentioned, browser-tab unread counters, jump-to-original on any quote-reply with an amber flash, inline image lightboxes, a member rail with 📌 pin and 🔔 watch on every name, AI Insights summarization of whatever's visible (BYOK), and light/dark themes. Everything below is the detail on each of those.
 
 ### Reading the chat
 
 - Two-pane Discord-style layout. Real names, real avatars, real emoji reactions (no more `:flexed_biceps:` showing up as text).
+- **Every message reads as a soft card.** A subtle accent tint on each author block makes message boundaries scannable; search hits intensify; the focused row gets a 3px accent bar on the left.
 - When someone quotes another message, the quoted block is a clickable accent-color card. Click it to jump to the original and watch it flash amber so you can find it.
 - Inline images, click for a full-screen lightbox. If an image fails to load it falls back to a "📎 image (click to open)" link.
-- **Click any `$TICKER` to open a free TradingView chart.** Detects $NASA, $DXYZ, $BRK.B style symbols in messages and renders them as accent-pill links. Click opens a modal with the daily chart and drawing tools (horizontal line, trend line, fib, etc.). $5 / $100 dollar amounts are skipped.
+- **Click any ticker symbol to open a free TradingView chart.** Both `$TICKER` syntax (`$NASA`, `$DXYZ`, `$BRK.B`) AND bare ALL-CAPS tickers from a curated allowlist (`AAPL`, `TSLA`, `BTC`, `SPY`, `QQQ`, etc.) render as accent-pill links. The modal embeds the daily chart with drawing tools (horizontal line, trend line, fib, etc.). `$5` / `$100` dollar amounts are skipped; `Meta` / `meta` lowercase stays text.
 - Light theme by default, dark theme one click away. Choice is remembered across reloads.
 
-### Finding stuff
+### Finding stuff (search + filter)
 
-- Full-text search across every message that's been loaded.
+- Full-text search across every message that's been loaded. Type in the box; the feed filters live.
 - Type `@boz` to see only that person's messages.
 - Slash commands (the leading `/` is optional, the `:` is what makes them unambiguous):
   - `/from:<name>` show one person's messages
@@ -55,11 +54,30 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
   - `/has:reaction` (or `/has:reactions`, `/has:emoji`, `/has:emojis`) messages with at least one reaction
   - `/since:3` everything from the last 3 days
   - `/help` the full reference
+- **`n` / `Shift+N` cycle through search hits.** Active match gets the strongest accent tint so you can find it as you cycle.
 - 💬 thread badge on any message that has replies (quote-replies count too). Click it to focus the stream on just that conversation.
+- **The "↓ Latest" pill respects your filter.** Click the main pill to jump to the bottom of the FILTERED view, not the unfiltered chat. When new messages arrive that don't match your filter, a muted `· N in chat` suffix appears — click it to clear the filter and see what you missed.
 
-### AI Insights (bring your own key)
+### Getting around (scrolling, paging, vi keys)
 
-Click the **✨ AI** button in the header to summarize the visible chat. Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights](#ai-insights)** section below for the full feature: Concise / Elaborate regenerate, model + budget + cost tuning, custom prompts, privacy.
+The whole feed is keyboard-driven. You can use it without ever touching the mouse.
+
+| Key | What it does |
+|---|---|
+| `j` / `k` or `↓` / `↑` | Next or previous message group |
+| `PageUp` / `PageDown` | Full page up or down |
+| `Ctrl+U` / `Ctrl+D` | Half page up or down (vim style) |
+| `g` | Page up — load older history at the top |
+| `Shift+G` | Jump to bottom (latest) — clears filter; takes you to absolute newest |
+| `n` / `Shift+N` | Cycle through search hits |
+| `r` | Refresh now (also a ⟳ button in the header) |
+| `/` | Focus the search box |
+| `Esc` | Clear search, close the thread view, close any overlay |
+| `?` | Show the help overlay |
+
+**Focus follows your cursor and your keys.** Mouse hover, `j` / `k`, arrow keys, and click all drive the same single focus state — the focused author block gets an accent-tinted background and a 3px bar on the left edge. No more "where is the cursor actually" disconnect between mouse and keyboard.
+
+**`g` is a two-tier state machine.** First press: scroll to the top of currently loaded messages. Second press (already at top): load one more page of older history and scroll to the new top. Each press does exactly ONE thing — you can keep pressing `g` to walk back through history indefinitely.
 
 ### Following specific people
 
@@ -68,25 +86,25 @@ Click the **✨ AI** button in the header to summarize the visible chat. Bring y
 - You're auto-pinned and auto-bell'd by default. Your own row sits at the top of the rail no matter the sort.
 - Sort the rail by most-active (default) or alphabetically.
 - The browser tab title shows an unread count while you're away: `(3) Your Chat Name · BetterSSC`.
-- Auto mark-viewed every 30 seconds, so your unread count in native Substack stays in sync.
+- Auto mark-viewed every 30 seconds (and instantly when you switch back to the tab), so your unread count in native Substack stays in sync.
 
-### Getting around
+### AI Insights (bring your own key)
 
-| Key | What it does |
-|---|---|
-| `j` / `k` | Next or previous message |
-| `PageUp` / `PageDown` | Full page up or down |
-| `Ctrl+U` / `Ctrl+D` | Half page up or down (vim style) |
-| `g` / `Shift+G` | Jump to top or bottom |
-| `n` / `Shift+N` | Cycle through search hits |
-| `r` | Refresh now (also a ⟳ button in the header) |
-| `/` | Focus the search box |
-| `Esc` | Clear search, close the thread view, close any overlay |
-| `?` | Show the help overlay |
+Click the **✨ AI** button in the header to summarize the visible chat. Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights](#ai-insights)** section below for the full feature: Concise / Elaborate regenerate, model + budget + cost tuning, custom prompts, privacy. The context the model receives now includes reply-target linkage (`replying to X: "..."`) and reaction summaries (`[reactions: 👍×2 ❤️×1]`) so it stops misattributing replies and can tell when a claim got group agreement.
 
 ### Live updates
 
 Polling once every 12 seconds, which is the same thing Substack's own native client does. The status pill in the header shows you what's live: 🟢 live poll or 🟢 ws on. WebSocket support is on the roadmap, polling handles things in the meantime.
+
+### Sending (when you do want to write)
+
+- Type and send messages, with optimistic UI so your message lands instantly without waiting for the 12s poll cycle.
+- React with any emoji from Substack's full ~392-emoji catalog — the picker has a search box, a "Frequently used" row derived from the reactions actually in this chat, and the complete catalog grouped into scrollable categories.
+- **Quick-react strip on hover.** Hovering any message shows the top 4 emojis used in the current chat right before the `+` (picker) and `↩` (reply) buttons. Click any to react directly, no picker dance.
+- **Click any existing reaction pill** under a message to add your own reaction of that type. The hover state + cursor pointer make it discoverable.
+- @mention autocomplete pulls from the people you've already seen in chat.
+- Reply UI puts a Discord-style quoted block on your message locally so you can see what you're answering.
+- Failed sends keep your text and show a Retry button instead of making you re-type.
 
 ## AI Insights
 
