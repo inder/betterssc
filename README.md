@@ -29,13 +29,11 @@ BetterSSC keeps your existing Substack account and reads from Substack's own API
 
 BetterSSC is primarily a **reader**. Most of the work is in the read side because that's where dense Substack chats actually fall apart. The send side is real and works, but it's not where you'll spend most of your time, so it comes last.
 
-What you get on the read side, in one paragraph:
-
-> Full keyboard navigation (vi keys + arrows + page up/down + half-page), full-text search and slash-command filters that respect each other (search + thread + author), `↓ Latest` that respects your filter, inline **`$TICKER`** and bare-ticker auto-linking that opens a real TradingView chart in a modal, **desktop notifications** when watched users post or you get @mentioned, browser-tab unread counters, jump-to-original on any quote-reply with an amber flash, inline image lightboxes, a member rail with 📌 pin and 🔔 watch on every name, AI Insights summarization of whatever's visible (BYOK), and light/dark themes. Everything below is the detail on each of those.
+Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries. Details below.
 
 ### Reading the chat
 
-- Two-pane Discord-style layout. Real names, real avatars, real emoji reactions (no more `:flexed_biceps:` showing up as text).
+- Two-pane Discord-style layout. Real names, real avatars, real emoji reactions.
 - **Every message reads as a soft card.** A subtle accent tint on each author block makes message boundaries scannable; search hits intensify; the focused row gets a 3px accent bar on the left.
 - When someone quotes another message, the quoted block is a clickable accent-color card. Click it to jump to the original and watch it flash amber so you can find it.
 - Inline images, click for a full-screen lightbox. If an image fails to load it falls back to a "📎 image (click to open)" link.
