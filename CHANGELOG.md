@@ -4,6 +4,22 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+- **Bare-ticker auto-linking.** Tickers without a `$` prefix (`AAPL`, `TSLA`, `BTC`, `SPY`, `QQQ`, etc.) now auto-link to the TradingView modal, same as `$TICKER` does. Backed by a curated ~300-symbol allowlist (S&P top, broad/sector/leveraged ETFs, top cryptos, indices). Case-sensitive ALL-CAPS only — `Meta` / `meta` stay as text; only `META` links. Single-letter and 2-letter tickers are excluded to keep the false-positive rate down.
+- **Quick-react strip in the hover toolbar.** Hovering a message now shows the top 4 emojis used in the current chat *before* the existing `+` (full picker) and `↩` (reply) buttons. Click any to react directly, no picker dance. Sourced from the same `topReactionsInChat()` helper that powers the picker's "Frequently used" row, so the strip and the picker top row agree.
+- **Click-to-react on existing reaction pills.** The reaction pills under each message are now click-targets — tap one to add your own reaction of that type without opening the picker. Discoverable via cursor pointer + accent-tinted hover + keyboard focus ring.
+
+### Changed
+- **Unified message focus into a single state.** Mouse hover, `j` / `k`, `Arrow Down` / `Arrow Up`, and click all drive the same focus class on the message group — accent-tinted background + 3px bar on the left edge. The old gray hover state on a per-message basis is gone; the entire author block lights up regardless of how you arrived at it. Help dialog row updated: `j / k or ↓ / ↑`.
+- **Latest pill respects the active filter.** Clicking `↓ Latest` (or `↓ N new messages`) used to clear your search/thread filter and jump to the absolute bottom of the chat. It now keeps the filter and lands you on the last filtered message. When off-filter activity arrives during a filter session, a muted suffix `· N in chat` shows next to the pill; clicking it clears the filter and jumps to absolute bottom. Two click targets, two distinct actions. Shift+G still clears the filter (keyboard "absolute latest" intent preserved).
+- **Bubble-card baseline visual.** Every `.msg-group` now reads as a subtle accent-tinted card by default (~4% accent in light, ~7% in dark). Search hits intensify the tint, search-active even more, so the visual hierarchy still tells you what's a match. The focus marker (`vi-active` 3px bar) is now orthogonal to the background tier — it composes over any state instead of overriding it, so a focused search hit reads as "search hit" plus "this is the cursor."
+- **Settings button is now a gear SVG icon.** Replaced the unicode `⋮` glyph with a Lucide-style gear, sized 18×18 with `currentColor` stroke so it reads consistently across themes.
+- **AI Insights context now includes reply linkage and reaction summaries.** Each line passed to the LLM is now `[time] Author (replying to X: "snippet"): body [reactions: 👍×2 ❤️×1]`. The `(replying to …)` clause resolves via the inline quote OR by walking `parent_id`/`quote_id` against an id→comment map, so the model stops misattributing replies to whatever the speaker themselves said earlier. Reaction summary tells the LLM when a claim got group agreement.
+- **Substack's `upvote` reaction now maps to ❤️.** Matches what Substack's native client shows for the same name; previously rendered as a different glyph.
+
+### Fixed
+- **Mousemove for hover focus, not mouseover.** First pass of the focus-unification used `mouseover`, which fires when the page scrolls under a stationary cursor. Result: pressing `j` repeatedly toggled between two messages instead of advancing, because each scroll slid a different group under the cursor and the mouseover handler set THAT as active. Switched to `mousemove` which only fires on real cursor motion in viewport coords.
+
 ## [0.2.4] — 2026-06-08
 
 ### Added
