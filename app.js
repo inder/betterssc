@@ -2060,8 +2060,12 @@ function maybeAlertAllMessages(newlyAdded) {
     try {
       chrome.runtime.sendMessage({
         type: "notify",
-        title: `New message in ${pubName}`,
-        message: `${author}: ${body}`,
+        // Author first — that's the triage signal. Chat name as a
+        // middot suffix gives context if it fits. Body is just the
+        // message text now (no "Author: " prefix duplicating the
+        // title's author).
+        title: `${author} · ${pubName}`,
+        message: body || "(message)",
         mentionRef: c.id,
         notificationId: `bssc-allmsg-${c.id}`,
       });
