@@ -26,6 +26,7 @@ import {
   escapeHtml,
   throttle,
   debounce,
+  chatNameAcronym,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -2058,13 +2059,14 @@ function maybeAlertAllMessages(newlyAdded) {
       `[BetterSSC notify-all] firing for ${c.id} — ${author}: ${body.slice(0, 60)}`
     );
     try {
+      // Chat acronym ("Za's Market Terminal" → "ZMT") leads so a quick
+      // glance disambiguates between BetterSSC tabs even when the title
+      // truncates. Author follows after a colon; body carries the
+      // message text only.
+      const tag = chatNameAcronym(pubName);
       chrome.runtime.sendMessage({
         type: "notify",
-        // Author first — that's the triage signal. Chat name as a
-        // middot suffix gives context if it fits. Body is just the
-        // message text now (no "Author: " prefix duplicating the
-        // title's author).
-        title: `${author} · ${pubName}`,
+        title: `${tag}: ${author}`,
         message: body || "(message)",
         mentionRef: c.id,
         notificationId: `bssc-allmsg-${c.id}`,

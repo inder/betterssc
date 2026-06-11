@@ -9,6 +9,7 @@ import {
   escapeHtml,
   mentionsUser,
   uuid,
+  chatNameAcronym,
 } from "../lib/util.js";
 
 describe("segmentBody", () => {
@@ -246,5 +247,60 @@ describe("uuid", () => {
     expect(id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
     );
+  });
+});
+
+describe("chatNameAcronym", () => {
+  it("multi-word possessive name produces initials, drops the suffix 's'", () => {
+    expect(chatNameAcronym("Za's Market Terminal")).toBe("ZMT");
+    expect(chatNameAcronym("Boz's Bullpen")).toBe("BB");
+  });
+
+  it("drops common articles + connectors", () => {
+    expect(chatNameAcronym("The Daily Stock")).toBe("DS");
+    expect(chatNameAcronym("Stocks and Options")).toBe("SO");
+    expect(chatNameAcronym("News of the Day")).toBe("ND");
+  });
+
+  it("preserves short ALL-CAPS tokens intact instead of taking just the first letter", () => {
+    expect(chatNameAcronym("ETH Discussion")).toBe("ETHD");
+    expect(chatNameAcronym("BTC Daily Talk")).toBe("BTCDT");
+  });
+
+  it("expands CamelCase into multi-word tokens", () => {
+    expect(chatNameAcronym("TechBros")).toBe("TB");
+    expect(chatNameAcronym("MarketWatchers")).toBe("MW");
+  });
+
+  it("single-word name returns the word as-is when short enough", () => {
+    expect(chatNameAcronym("Bullpen")).toBe("Bullpen");
+    expect(chatNameAcronym("ETH")).toBe("ETH");
+  });
+
+  it("single-word very long name gets truncated to 8 chars", () => {
+    expect(chatNameAcronym("Investorsalpha")).toBe("Investor");
+  });
+
+  it("handles empty / null / non-string input", () => {
+    expect(chatNameAcronym("")).toBe("Chat");
+    expect(chatNameAcronym(null)).toBe("Chat");
+    expect(chatNameAcronym(undefined)).toBe("Chat");
+    expect(chatNameAcronym(42)).toBe("Chat");
+  });
+
+  it("handles pure-punctuation names by falling back to truncated alnum or 'Chat'", () => {
+    expect(chatNameAcronym("!!!")).toBe("Chat");
+    expect(chatNameAcronym("...365")).toBe("365");
+  });
+
+  it("strips emoji and non-alnum noise, keeps real words", () => {
+    expect(chatNameAcronym("Stock Market 💰")).toBe("SM");
+    // "DeFi" is CamelCase, expands to "De Fi" → 4 initials.
+    expect(chatNameAcronym("Crypto / DeFi Talk")).toBe("CDFT");
+  });
+
+  it("is stable / deterministic across multiple calls", () => {
+    const name = "Za's Market Terminal";
+    expect(chatNameAcronym(name)).toBe(chatNameAcronym(name));
   });
 });
