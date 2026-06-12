@@ -593,9 +593,10 @@ describe("buildAskUserMessage", () => {
 describe("ASK_DEFAULT_BUDGET_CHARS", () => {
   it("is generous enough that Anthropic 200K fits whole chat", () => {
     // 200K tokens ≈ 800K chars at 4 chars/token. Budget at 750K leaves
-    // ~50K char headroom for the system prompt + response, which is
-    // about right for our prompt size (~1.2K chars) + cap headroom.
-    expect(ASK_DEFAULT_BUDGET_CHARS).toBeGreaterThan(500_000);
+    // ~50K char headroom for the system prompt + response. Tight lower
+    // bound at 700K guards against an accidental reduction landing the
+    // budget below OpenAI's 128K (512K chars) cliff and reading as "fits."
+    expect(ASK_DEFAULT_BUDGET_CHARS).toBeGreaterThan(700_000);
     expect(ASK_DEFAULT_BUDGET_CHARS).toBeLessThan(900_000);
   });
 });

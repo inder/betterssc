@@ -41,6 +41,7 @@ import {
   getModelInfo,
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
+  supportsWebSearch,
 } from "./lib/ai-providers.js";
 import {
   formatMessagesForLLM,
@@ -2655,9 +2656,17 @@ function openAiAskBox() {
   body.className = "ai-settings-body";
 
   const visible = getVisibleCommentsForAi();
+  const webOn =
+    supportsWebSearch(provider) &&
+    (state.aiAskWebSearch === false ? false : true);
   const note = document.createElement("p");
   note.className = "ai-settings-note";
-  note.textContent = `Your question goes to ${provider} with the full visible chat (${visible.length} message${visible.length === 1 ? "" : "s"}) attached. Web search is on by default — the model uses it only when the chat alone can't answer.`;
+  const webBlurb = webOn
+    ? "Web search is on — the model uses it only when the chat alone can't answer."
+    : supportsWebSearch(provider)
+      ? "Web search is off (toggle in Tune AI model)."
+      : "Web search isn't supported on this provider yet — the model will answer strictly from the chat.";
+  note.textContent = `Your question goes to ${provider} with the visible chat (${visible.length} message${visible.length === 1 ? "" : "s"}) attached, up to the provider's context limit. ${webBlurb}`;
   body.appendChild(note);
 
   const textarea = document.createElement("textarea");
@@ -2710,8 +2719,10 @@ function openAiAskBox() {
     if (e.target === backdrop) closeAiAskBox();
   });
   document.body.appendChild(backdrop);
-  // Defer focus so the modal is in the layout tree first.
-  setTimeout(() => textarea.focus(), 0);
+  // Wait for next animation frame so layout has settled (renderAll may
+  // have just run) before focusing — more reliable than setTimeout(0)
+  // when the page is under paint pressure.
+  requestAnimationFrame(() => textarea.focus());
 }
 
 function closeAiAskBox() {
@@ -2748,13 +2759,17 @@ async function runAiAsk(providerName, apiKey, question) {
   const { context, included, dropped } = formatMessagesForLLM(visible, {
     budget: ASK_DEFAULT_BUDGET_CHARS,
   });
+  // Web search is only on if the provider supports it (anthropic/google)
+  // AND the user hasn't disabled it via Tune dialog. Anthropic returns a
+  // validation error if the model emits a web_search tool call without
+  // the tool being attached — so the system-prompt instruction MUST track
+  // the actual tool attachment exactly.
+  const webSearchEnabled =
+    supportsWebSearch(providerName) &&
+    (state.aiAskWebSearch === false ? false : true);
   const systemPrompt = buildAskSystemPrompt(context, {
     lensHint: state.aiLensHint || undefined,
-    // Commit 4 actually wires the tool through callProvider; this flag
-    // controls the SYSTEM-PROMPT instruction either way so the model
-    // knows whether to invoke search.
-    webSearchEnabled:
-      state.aiAskWebSearch === false ? false : true,
+    webSearchEnabled,
   });
   const userMessage = buildAskUserMessage(question);
 
@@ -2772,6 +2787,7 @@ async function runAiAsk(providerName, apiKey, question) {
         typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
           ? state.aiAskMaxTokens
           : 4096,
+      webSearchEnabled,
     });
     const row = state.comments.get(aiId);
     if (!row) return; // dismissed mid-flight
@@ -2782,7 +2798,18 @@ async function runAiAsk(providerName, apiKey, question) {
       row._aiError = true;
       row.body = `**Q:** ${question}\n\n**Error:** ${result.error}`;
     } else {
-      row.body = `**Q:** ${question}\n\n${result.text}`;
+      // Stash citations for commit 6's sourced renderer; for now we
+      // append them as a "Citations" markdown list at the bottom so
+      // the user always sees attribution even before the parser ships.
+      row._aiAskCitations = result.citations || null;
+      let body = `**Q:** ${question}\n\n${result.text}`;
+      if (result.citations && result.citations.length) {
+        const list = result.citations
+          .map((c, i) => `${i + 1}. [${c.title || c.url}](${c.url})`)
+          .join("\n");
+        body += `\n\n**Citations**\n${list}`;
+      }
+      row.body = body;
     }
     renderAll();
   } finally {

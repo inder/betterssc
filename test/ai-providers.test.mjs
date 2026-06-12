@@ -16,6 +16,7 @@ import {
   getModelInfo,
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
+  supportsWebSearch,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -522,6 +523,183 @@ describe("output cap defaults + overrides", () => {
       maxTokens: "not-a-number",
     });
     expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(DEFAULT_MAX_TOKENS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Web search tool — native attachment per provider, citation parsing
+// ---------------------------------------------------------------------------
+
+describe("supportsWebSearch", () => {
+  it("returns true for anthropic (native web_search tool)", () => {
+    expect(supportsWebSearch("anthropic")).toBe(true);
+  });
+  it("returns true for google (googleSearch grounding)", () => {
+    expect(supportsWebSearch("google")).toBe(true);
+  });
+  it("returns false for openai (Responses API migration pending)", () => {
+    expect(supportsWebSearch("openai")).toBe(false);
+  });
+  it("returns false for unknown providers", () => {
+    expect(supportsWebSearch("xai")).toBe(false);
+    expect(supportsWebSearch("")).toBe(false);
+    expect(supportsWebSearch(null)).toBe(false);
+  });
+});
+
+describe("buildRequest with webSearchEnabled", () => {
+  it("anthropic attaches web_search_20250305 tool when enabled", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    const body = JSON.parse(init.body);
+    expect(Array.isArray(body.tools)).toBe(true);
+    expect(body.tools).toHaveLength(1);
+    expect(body.tools[0]).toEqual({
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: 5,
+    });
+  });
+
+  it("anthropic omits tools when webSearchEnabled is false", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: false,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("anthropic omits tools when webSearchEnabled is omitted", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("google attaches google_search tool when enabled", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    const body = JSON.parse(init.body);
+    expect(Array.isArray(body.tools)).toBe(true);
+    expect(body.tools[0]).toEqual({ google_search: {} });
+  });
+
+  it("google omits tools when webSearchEnabled is false", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: false,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("openai ignores webSearchEnabled (no native chat-completions tool)", () => {
+    // Even when caller passes webSearchEnabled:true, openai.buildRequest
+    // does NOT attach a tool — supportsWebSearch returns false so the
+    // call-site is supposed to gate this. Defense-in-depth: even if it
+    // got through, no broken tool config lands in the request.
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+});
+
+describe("anthropic.parseResponse — citations extraction", () => {
+  it("extracts text + citations from a web-search-aware response", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        { type: "server_tool_use", name: "web_search", input: { query: "spx today" } },
+        {
+          type: "web_search_tool_result",
+          content: [
+            { type: "web_search_result", url: "https://example.com/a", title: "A" },
+          ],
+        },
+        {
+          type: "text",
+          text: "SPX closed at 7400.",
+          citations: [
+            {
+              type: "web_search_result_location",
+              url: "https://example.com/a",
+              title: "A",
+              cited_text: "SPX closed at 7400 today",
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.text).toBe("SPX closed at 7400.");
+    expect(res.citations).toEqual([
+      {
+        url: "https://example.com/a",
+        title: "A",
+        snippet: "SPX closed at 7400 today",
+      },
+    ]);
+  });
+
+  it("dedupes citations by URL across multiple text blocks", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        {
+          type: "text",
+          text: "First. ",
+          citations: [{ url: "https://example.com/a", title: "A", cited_text: "first" }],
+        },
+        {
+          type: "text",
+          text: "Second.",
+          citations: [
+            { url: "https://example.com/a", title: "A (dup)", cited_text: "dup snippet" },
+            { url: "https://example.com/b", title: "B", cited_text: "b text" },
+          ],
+        },
+      ],
+    });
+    expect(res.text).toBe("First. Second.");
+    expect(res.citations).toHaveLength(2);
+    // First-seen wins for duplicates.
+    expect(res.citations[0]).toEqual({
+      url: "https://example.com/a",
+      title: "A",
+      snippet: "first",
+    });
+    expect(res.citations[1].url).toBe("https://example.com/b");
+  });
+
+  it("returns {text} with no citations key when none are present (backwards-compatible)", () => {
+    const res = anthropic.parseResponse({
+      content: [{ type: "text", text: "plain answer" }],
+    });
+    expect(res).toEqual({ text: "plain answer" });
+    expect(res.citations).toBeUndefined();
+  });
+
+  it("falls back to error when content has no text block", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        { type: "server_tool_use", name: "web_search", input: { query: "x" } },
+      ],
+    });
+    expect(res.error).toBeTruthy();
   });
 });
 
