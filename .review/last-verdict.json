@@ -1,12 +1,12 @@
 {
-  "sha": "staged",
-  "branch": "feat/bg-prefetch",
+  "sha": "8e9f3b67e0a1f86e9b0bb562576d265183f270fd",
+  "branch": "feat/bg-chat-prefetch",
   "ts": "2026-06-11T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "Diff is well over 200 lines of behavior code, touches a new feature with a stateful loop, and has a confirmed cursor-race bug between bgPrefetchOnePage and loadOlder that is a Critical finding.",
-  "critical_count": 1,
-  "should_fix_count": 3,
+  "retro_reasoning": "470 LOC diff, new stateful async loop, 2-commit series with prior critical finding, and moreBefore divergence between loadOlder and bgPrefetchOnePage is a should-fix that survived commit 2.",
+  "critical_count": 0,
+  "should_fix_count": 2,
   "nit_count": 2,
-  "files_reviewed": 4
+  "files_reviewed": 5
 }

@@ -567,7 +567,14 @@ async function loadOlder() {
     if (unwrappedReplies.length) {
       state.earliestISO = unwrappedReplies[0].created_at;
     }
-    state.moreBefore = res.moreBefore !== false && count > 0;
+    // Termination follows the API's moreBefore + whether THIS page
+    // returned any rows at all — NOT the local dedup count. With bg
+    // prefetch running, a user-`g` post-completion will routinely fetch
+    // pages whose rows are all already in state.comments (count=0); if
+    // we drove moreBefore off `count > 0`, that single user `g` would
+    // permanently latch moreBefore=false and silently disable `g` for
+    // the rest of the session.
+    state.moreBefore = res.moreBefore !== false && unwrappedReplies.length > 0;
     renderAll();
     // Preserve scroll position so we don't yank the user.
     const stream = document.getElementById("stream");
@@ -640,8 +647,13 @@ async function bgPrefetchOnePage() {
   if (!state.earliestISO) return { count: 0, more: false, rateLimited: false };
   if (state.loadingHistory) {
     // Defensive — should not happen because runChatBgPrefetch awaits
-    // waitForHistorySlot() before calling us, but a misuse from elsewhere
-    // should fail open rather than silently double-fetch.
+    // waitForHistorySlot() before calling us, but a misuse from
+    // elsewhere should fail open rather than silently double-fetch.
+    // Surface to console so a real recurrence is visible (the
+    // orchestrator would otherwise busy-loop calling us at slot-poll
+    // speed since waitForHistorySlot was already awaited above the
+    // call site).
+    console.warn("[BetterSSC] bgPrefetchOnePage called while loadingHistory is true; skipping");
     return { count: 0, more: true, rateLimited: false };
   }
   state.loadingHistory = true;
@@ -738,14 +750,27 @@ async function runChatBgPrefetch() {
     }
   } finally {
     state.bgPrefetchActive = false;
-    state.bgPrefetchDone = true;
+    // Only latch as "done for this session" if we completed naturally
+    // (moreBefore=false, 429-give-up, or fetch-error). A user-stop
+    // mid-run MUST NOT latch — otherwise re-enabling via the Chat
+    // preferences toggle within the same session would treat the
+    // partial prefetch as final and never resume the remaining pages.
+    if (!state.bgPrefetchStop) {
+      state.bgPrefetchDone = true;
+    }
     if (totalLoaded > 0 && !state.bgPrefetchStop) {
       // One renderAll at the end — preserves scroll because the user
       // is presumably at the bottom (loadInitial scrolled there) and
       // we only added rows ABOVE the current view. If they've already
       // scrolled mid-prefetch, renderAll's scroll preservation kicks in.
       renderAll();
-      showBgPrefetchPill(state.comments.size - startSize, totalLoaded);
+      // The delta is how many net-new rows appeared in state.comments
+      // (post-dedup), which is what the user actually sees added to the
+      // feed. totalLoaded is the dedup count from the loop — they agree
+      // when nothing else mutated state.comments mid-run, but the size
+      // delta is the more honest "how big did the chat just get" figure.
+      const delta = state.comments.size - startSize;
+      showBgPrefetchPill(delta);
     }
   }
 }
@@ -760,7 +785,7 @@ async function runChatBgPrefetch() {
 // inside the lifetime window (or a manual teardown) can cancel the
 // pending fade/remove timers. Without this, an old removed-from-DOM
 // node would still own dangling timers that fire on a detached node.
-function showBgPrefetchPill(_delta, totalLoaded) {
+function showBgPrefetchPill(delta) {
   const existing = document.getElementById("bgPrefetchPill");
   if (existing) {
     if (existing._fadeTimer) clearTimeout(existing._fadeTimer);
@@ -772,7 +797,7 @@ function showBgPrefetchPill(_delta, totalLoaded) {
   pill.className = "bg-prefetch-pill";
   pill.setAttribute("role", "status");
   pill.setAttribute("aria-live", "polite");
-  pill.textContent = `✓ Full chat loaded (${totalLoaded.toLocaleString()} message${totalLoaded === 1 ? "" : "s"})`;
+  pill.textContent = `✓ Full chat loaded (${delta.toLocaleString()} message${delta === 1 ? "" : "s"})`;
   document.body.appendChild(pill);
   pill._fadeTimer = setTimeout(
     () => pill.classList.add("is-leaving"),
