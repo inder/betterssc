@@ -745,6 +745,12 @@ async function runChatBgPrefetch() {
       retryDelay = null; // reset on success
       totalLoaded += result.count;
       state.moreBefore = result.more;
+      // Live counter: the footer's "N messages · M authors" indicator
+      // refreshes after each page so the user can watch the chat fill
+      // up in real time. Cheap — single textContent write, no chat-feed
+      // reflow. The feed itself stays silent (renderMessages doesn't
+      // fire until completion's renderAll).
+      renderFooterStats();
       if (!result.more) break;
       await sleep(PREFETCH_BASE_DELAY_MS);
     }
@@ -775,35 +781,35 @@ async function runChatBgPrefetch() {
   }
 }
 
-// Small bottom-left toast confirming completion. Auto-dismisses after
-// PREFETCH_PILL_REMOVE_MS. We intentionally don't reuse the "↓ N new
-// messages" pill because that one carries different semantics (unread
-// count → scroll-down affordance); reusing it would confuse the user
-// about what to click.
+// Completion pill that lives INSIDE the .stream sticky-bottom zone
+// right next to the "↓ Latest" button. Reads "+N loaded" so it pairs
+// naturally with Latest when the user is scrolled up at completion
+// time. We don't create the node on the fly — it's a permanent #stream
+// child marked .hidden so the same sticky layout machinery that holds
+// .new-message-jump in place handles the prefetch pill for free.
 //
 // Timer IDs are stored on the DOM node so a second completion landing
 // inside the lifetime window (or a manual teardown) can cancel the
-// pending fade/remove timers. Without this, an old removed-from-DOM
-// node would still own dangling timers that fire on a detached node.
+// pending fade/remove timers. Otherwise the prior call's timers would
+// fire on a still-attached element that the caller had already reset,
+// flipping the pill state back to hidden mid-flash.
 function showBgPrefetchPill(delta) {
-  const existing = document.getElementById("bgPrefetchPill");
-  if (existing) {
-    if (existing._fadeTimer) clearTimeout(existing._fadeTimer);
-    if (existing._removeTimer) clearTimeout(existing._removeTimer);
-    existing.remove();
-  }
-  const pill = document.createElement("div");
-  pill.id = "bgPrefetchPill";
-  pill.className = "bg-prefetch-pill";
-  pill.setAttribute("role", "status");
-  pill.setAttribute("aria-live", "polite");
-  pill.textContent = `✓ Full chat loaded (${delta.toLocaleString()} message${delta === 1 ? "" : "s"})`;
-  document.body.appendChild(pill);
+  const pill = document.getElementById("bgPrefetchPill");
+  if (!pill) return;
+  if (pill._fadeTimer) clearTimeout(pill._fadeTimer);
+  if (pill._removeTimer) clearTimeout(pill._removeTimer);
+  pill.classList.remove("is-leaving");
+  pill.classList.remove("hidden");
+  pill.textContent = `✓ +${delta.toLocaleString()} loaded`;
+  pill.title = `Background prefetch loaded ${delta.toLocaleString()} older message${delta === 1 ? "" : "s"}`;
   pill._fadeTimer = setTimeout(
     () => pill.classList.add("is-leaving"),
     PREFETCH_PILL_VISIBLE_MS
   );
-  pill._removeTimer = setTimeout(() => pill.remove(), PREFETCH_PILL_REMOVE_MS);
+  pill._removeTimer = setTimeout(() => {
+    pill.classList.add("hidden");
+    pill.classList.remove("is-leaving");
+  }, PREFETCH_PILL_REMOVE_MS);
 }
 
 // Unwraps the various shapes a Substack comment can arrive in.
