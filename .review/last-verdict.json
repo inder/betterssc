@@ -1,12 +1,12 @@
 {
-  "sha": "582dbabe85b09d93191cae900e5b8bdffbc5328d",
-  "branch": "feat/live-prefetch-counter",
+  "sha": "2341cf4bf8ec7995727d2dec8d2a5abf56a4f0ef",
+  "branch": "feat/chat-image-upload",
   "ts": "2026-06-11T00:00:00Z",
-  "verdict": "ship-it",
-  "retro_required": "no",
-  "retro_reasoning": "Diff is small (~60 LOC), no schema or API contract changes, no critical findings, single-feature UI polish on top of recently merged base.",
-  "critical_count": 0,
-  "should_fix_count": 1,
-  "nit_count": 1,
-  "files_reviewed": 3
+  "verdict": "fix-these",
+  "retro_required": "yes",
+  "retro_reasoning": "Diff is well over 200 lines, schema/wire-protocol contract changed (new upload flow from HAR captures), 1 critical finding and 3 should-fix issues found",
+  "critical_count": 1,
+  "should_fix_count": 3,
+  "nit_count": 2,
+  "files_reviewed": 5
 }

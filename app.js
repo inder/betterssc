@@ -5491,10 +5491,11 @@ const COMPOSER_ATTACH_MIMES = new Set([
   "image/gif",
   "image/webp",
 ]);
-// HAR-confirmed up to 1.8 MB (JPEG); 10 MB matches Substack's likely
-// server-side limit for image attachments. Files above this are
-// rejected client-side with a clear error rather than wasting an
-// upload round-trip.
+// Conservative client-side cap. HAR captures confirmed end-to-end at
+// 1.8 MB (JPEG); Substack's actual server-side limit is unverified.
+// 10 MB is a typical chat-attachment ceiling on similar platforms and
+// keeps us well clear of any plausible server cap. Worth raising if
+// users report rejected uploads under 10 MB.
 const COMPOSER_ATTACH_MAX_BYTES = 10 * 1024 * 1024;
 
 function mountComposer() {
@@ -6022,6 +6023,11 @@ async function submitComposer() {
   // the image immediately. After server reconciliation, the real CDN
   // URL replaces this — the blob URL then gets reclaimed when the
   // pending row's DOM node is discarded.
+  //
+  // We also stash the original File on `_stagedFile` so the retry path
+  // (retryFailedMessage) can re-run register+PUT if the first attempt
+  // failed BEFORE the upload landed. Without this, retry would silently
+  // skip the upload and the message would send as text-only.
   if (attachment) {
     pending.media_uploads = [
       {
@@ -6030,6 +6036,7 @@ async function submitComposer() {
         content_type: attachment.file.type,
         url: attachment.previewUrl,
         _localPreview: true,
+        _stagedFile: attachment.file,
       },
     ];
   }
@@ -6072,17 +6079,28 @@ async function submitComposer() {
     // step 1 (register) returns {url, id}; step 2 (PUT) uploads the
     // bytes; step 3 is the existing comment POST.
     if (stagedAttachment) {
-      const reg = await apiRegisterMedia({
-        publicationId: state.publicationId,
-        commentId: clientId,
-        contentType: stagedAttachment.file.type,
-      });
-      if (!reg || !reg.url) {
-        throw new Error("Upload registration returned no URL");
+      try {
+        const reg = await apiRegisterMedia({
+          publicationId: state.publicationId,
+          commentId: clientId,
+          contentType: stagedAttachment.file.type,
+        });
+        if (!reg || !reg.url) {
+          throw new Error("Upload registration returned no URL");
+        }
+        // Swap button to "Sending…" once the binary is up.
+        await apiPutMediaBinary(reg.url, stagedAttachment.blob);
+        sendBtn.textContent = "Sending…";
+      } catch (uploadErr) {
+        // Tag the error so the outer catch can show a UPLOAD-specific
+        // toast — "Upload failed" tells the user to check file size /
+        // format; the generic "Send failed" implies a network retry will
+        // help, which it won't if the upload itself is the problem.
+        if (uploadErr && typeof uploadErr === "object") {
+          uploadErr._isUploadError = true;
+        }
+        throw uploadErr;
       }
-      // Swap button to "Sending…" once the binary is up.
-      await apiPutMediaBinary(reg.url, stagedAttachment.blob);
-      sendBtn.textContent = "Sending…";
     }
     const res = await apiPostComment(state.postUuid, {
       id: clientId,
@@ -6111,17 +6129,30 @@ async function submitComposer() {
   } catch (e) {
     // Mark the optimistic message as failed in-place. The user can either
     // hit the Retry button on the message OR the Retry button next to the
-    // composer (which re-sends the same text).
+    // composer (which re-sends the same text + retries the upload).
     markPendingFailed(
       { comments: state.comments, order: state.order },
       clientId,
       (e && e.message) || "Send failed"
     );
     renderAll();
-    showComposerError(
-      "Send failed: " + (e && e.message ? e.message : "unknown error") +
-        " — click the message to retry."
-    );
+    // Upload-step failures get their own toast — "Send failed" implies a
+    // retry might work; "Upload failed" tells the user to check file
+    // size / format. The distinction matters because retryFailedMessage
+    // re-runs the upload from the stashed File, so a transient upload
+    // error IS retryable, but a file-too-big error never will be.
+    const isUploadError = e && e._isUploadError;
+    if (isUploadError) {
+      showComposerError(
+        "Upload failed: " + (e && e.message ? e.message : "unknown error") +
+          " — check file size / format, or click the message to retry."
+      );
+    } else {
+      showComposerError(
+        "Send failed: " + (e && e.message ? e.message : "unknown error") +
+          " — click the message to retry."
+      );
+    }
     state.composer._lastError = true;
     state.composer._lastFailedId = clientId;
   } finally {
@@ -6260,7 +6291,39 @@ async function retryFailedMessage(clientId) {
   const retryReply = {};
   if (c.parent_id) retryReply.parentId = c.parent_id;
   if (c.quote) retryReply.quote = c.quote;
+  // Critical: if this message had a staged attachment that we couldn't
+  // confirm landed on the server, we MUST re-run register+PUT before the
+  // comment POST. Otherwise the retry would land as a text-only message
+  // with no server-side media linked to it — silently dropping the
+  // attachment the user sees on their pending row. The File handle is
+  // stashed on the pending media_uploads entry at send time precisely
+  // for this case.
+  const stagedRetry =
+    c.media_uploads &&
+    c.media_uploads[0] &&
+    c.media_uploads[0]._stagedFile;
   try {
+    if (stagedRetry) {
+      const file = c.media_uploads[0]._stagedFile;
+      const reg = await apiRegisterMedia({
+        publicationId: state.publicationId,
+        commentId: clientId,
+        contentType: file.type,
+      });
+      if (!reg || !reg.url) {
+        const err = new Error("Upload registration returned no URL");
+        err._isUploadError = true;
+        throw err;
+      }
+      try {
+        await apiPutMediaBinary(reg.url, file);
+      } catch (uploadErr) {
+        if (uploadErr && typeof uploadErr === "object") {
+          uploadErr._isUploadError = true;
+        }
+        throw uploadErr;
+      }
+    }
     const res = await apiPostComment(state.postUuid, {
       id: clientId,
       body: c.body,
