@@ -160,6 +160,91 @@ describe("reconcilePending — guards", () => {
   });
 });
 
+describe("reconcilePending — media_uploads carry-forward (attachments)", () => {
+  it("carries forward media_uploads when the server echo omits them", () => {
+    // Scenario: optimistic pending row has the staged-attachment blob
+    // preview. Server's poll-fallback echo lacks media_uploads. The
+    // reconciled row should NOT lose the visible image.
+    const store = makeStore();
+    const pending = buildPendingComment("X", { id: 1 }, "hi", {});
+    pending.media_uploads = [
+      {
+        id: "X",
+        type: "image",
+        content_type: "image/gif",
+        url: "blob:chrome-extension://x/abc",
+        _localPreview: true,
+        _stagedFile: { name: "test.gif", type: "image/gif", size: 100 },
+      },
+    ];
+    seedPending(store, pending);
+    // Server echo with no media_uploads.
+    reconcilePending(store, {
+      id: "X",
+      body: "hi",
+      author: { id: 1 },
+      created_at: new Date().toISOString(),
+    });
+    const c = store.comments.get("X");
+    expect(c._pending).toBe(false);
+    expect(c.media_uploads).toHaveLength(1);
+    expect(c.media_uploads[0].url).toBe("blob:chrome-extension://x/abc");
+    // Internal flags MUST be stripped on carry-forward so we don't
+    // accidentally re-trigger retry-as-upload on a reconciled row.
+    expect(c.media_uploads[0]._localPreview).toBeUndefined();
+    expect(c.media_uploads[0]._stagedFile).toBeUndefined();
+  });
+
+  it("does NOT overwrite server-provided media_uploads with the pending preview", () => {
+    // Scenario: server echo DOES include the real CDN URL. The pending
+    // blob preview should be replaced, not preserved.
+    const store = makeStore();
+    const pending = buildPendingComment("X", { id: 1 }, "hi", {});
+    pending.media_uploads = [
+      {
+        id: "X",
+        type: "image",
+        content_type: "image/gif",
+        url: "blob:chrome-extension://x/abc",
+        _localPreview: true,
+      },
+    ];
+    seedPending(store, pending);
+    reconcilePending(store, {
+      id: "X",
+      body: "hi",
+      author: { id: 1 },
+      created_at: new Date().toISOString(),
+      media_uploads: [
+        {
+          id: "real-server-id",
+          type: "image",
+          content_type: "image/gif",
+          url: "https://substack-post-media.s3.amazonaws.com/.../real.gif",
+        },
+      ],
+    });
+    const c = store.comments.get("X");
+    expect(c.media_uploads).toHaveLength(1);
+    expect(c.media_uploads[0].url).toMatch(/^https:\/\//);
+    expect(c.media_uploads[0].id).toBe("real-server-id");
+  });
+
+  it("leaves media_uploads alone when neither pending nor server has them", () => {
+    const store = makeStore();
+    const pending = buildPendingComment("X", { id: 1 }, "no attachment", {});
+    seedPending(store, pending);
+    reconcilePending(store, {
+      id: "X",
+      body: "no attachment",
+      author: { id: 1 },
+      created_at: new Date().toISOString(),
+    });
+    const c = store.comments.get("X");
+    expect(c.media_uploads).toBeUndefined();
+  });
+});
+
 describe("markPendingFailed", () => {
   it("flips _pending to _failed in place and records the error", () => {
     const store = makeStore();

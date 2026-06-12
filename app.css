@@ -1219,6 +1219,109 @@ button {
 .composer-send.is-error {
   background: var(--danger);
 }
+
+/* Paperclip + hidden file input for attachment picker */
+.composer-attach {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  line-height: 22px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.composer-attach:hover { background: var(--bg-hover); color: var(--accent); }
+.composer-file-input { display: none; }
+
+/* Staged-attachment preview chip — sits above the composer row */
+.composer-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--accent-bg-soft);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+.composer-attachment-thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.composer-attachment-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.composer-attachment-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.composer-attachment-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-attachment-size {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.composer-attachment-remove {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.composer-attachment-remove:hover {
+  background: var(--bg-hover);
+  color: var(--danger);
+}
+
+/* Drag-drop affordance — entire composer area highlights when a file
+   is being dragged over the chat. The drop-hint text floats above the
+   composer row. */
+.composer.is-dragover .composer-row {
+  border-color: var(--accent);
+  background: var(--accent-bg-soft);
+}
+.composer-drop-hint {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: var(--accent);
+  color: white;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 5;
+}
 .composer-error {
   font-size: 12px;
   color: var(--danger);
