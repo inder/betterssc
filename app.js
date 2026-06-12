@@ -2985,13 +2985,41 @@ function wireAiMenu() {
     setOpen(!menu.classList.contains("is-open"));
   });
 
+  // Hard-close after item click: the CSS shows the popup on :hover OR
+  // :focus-within OR .is-open. Removing .is-open alone leaves the
+  // popup visible because the cursor is still hovering over the
+  // just-clicked button and the button still has focus.
+  // .is-suppressed wins via display:none !important. We also blur()
+  // the active element so :focus-within clears immediately.
+  // mouseleave on the menu drops the suppression so the next
+  // intentional hover re-opens cleanly; a 1500ms safety timer covers
+  // touch users who may never fire mouseleave.
+  let suppressTimer = null;
+  const clearSuppress = () => {
+    menu.classList.remove("is-suppressed");
+    if (suppressTimer) {
+      clearTimeout(suppressTimer);
+      suppressTimer = null;
+    }
+  };
+  const suppressMenu = () => {
+    setOpen(false);
+    menu.classList.add("is-suppressed");
+    if (document.activeElement && menu.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+    if (suppressTimer) clearTimeout(suppressTimer);
+    suppressTimer = setTimeout(clearSuppress, 1500);
+  };
+  menu.addEventListener("mouseleave", clearSuppress);
+
   // Dropdown item routing — delegated so a re-render of menu contents
   // (none today, but cheap insurance) doesn't strand listeners.
   menu.addEventListener("click", (e) => {
     const item = e.target.closest(".ai-menu-item");
     if (!item) return;
     const action = item.getAttribute("data-ai-action");
-    setOpen(false);
+    suppressMenu();
     if (action === "summary") {
       handleAiInsightsClick();
     } else if (action === "ask") {
