@@ -1976,6 +1976,24 @@ button {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.tune-radio-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tune-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.tune-radio input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
 .tune-cost-box {
   margin-top: 14px;
   padding: 10px 12px;

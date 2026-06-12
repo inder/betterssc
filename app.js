@@ -39,6 +39,8 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_OPTIONS,
 } from "./lib/ai-providers.js";
 import {
   formatMessagesForLLM,
@@ -144,6 +146,9 @@ const state = {
   aiProvider: null, // "openai" | "anthropic" | "google" | null
   aiKeys: {}, // {openai?: string, anthropic?: string, google?: string}
   aiBusy: false,
+  // Output token cap for summary mode. null = use provider default (2048).
+  // Persisted as bssc_ai_max_tokens. Tune dialog offers 1024 / 2048 / 4096.
+  aiMaxTokens: null,
 };
 
 // ============================================================
@@ -1881,6 +1886,7 @@ function restoreWatchedUsers() {
         "bssc_ai_keys",
         "bssc_ai_model",
         "bssc_ai_budget_chars",
+        "bssc_ai_max_tokens",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
       ],
@@ -1905,6 +1911,13 @@ function restoreWatchedUsers() {
           res.bssc_ai_budget_chars <= 1_000_000
         ) {
           state.aiBudgetChars = res.bssc_ai_budget_chars;
+        }
+        if (
+          typeof res.bssc_ai_max_tokens === "number" &&
+          res.bssc_ai_max_tokens >= 256 &&
+          res.bssc_ai_max_tokens <= 8192
+        ) {
+          state.aiMaxTokens = res.bssc_ai_max_tokens;
         }
         if (typeof res.bssc_ai_lens_hint === "string") {
           state.aiLensHint = res.bssc_ai_lens_hint;
@@ -2444,6 +2457,7 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
       apiKey,
       signal,
       model: state.aiModel || undefined,
+      maxTokens: state.aiMaxTokens || undefined,
     });
     const row = state.comments.get(aiId);
     if (!row) return; // dismissed mid-flight
@@ -2873,17 +2887,18 @@ function closeTunePromptModal() {
 // - See a live per-call cost estimate that updates on every change.
 //
 // Saves to chrome.storage.local: bssc_ai_provider, bssc_ai_model,
-// bssc_ai_budget_chars. Switching provider here ALSO updates
+// bssc_ai_budget_chars, bssc_ai_max_tokens. Switching provider here ALSO updates
 // state.aiProvider since the active provider IS one of the user-keyed
 // ones (the dropdown wouldn't show it otherwise).
 
 const TUNE_BUDGET_MIN = 6000;
 const TUNE_BUDGET_MAX = 200_000;
 const TUNE_BUDGET_DEFAULT = 60_000;
-// Assumed output tokens per call — capped via provider buildRequest's
-// max_tokens: 1024. We use a slightly conservative ~800 average for the
-// estimate (most summaries don't hit the cap).
-const TUNE_OUTPUT_TOKENS_EST = 800;
+// Cost-estimate output-token assumption. We scale this with the chosen
+// output cap (cap × 0.78) so the per-click figure tracks the user's
+// configured headroom — most summaries land near the cap when the cap
+// is generous, near 60-70% of cap when the cap is tight.
+const TUNE_OUTPUT_FILL_RATE = 0.78;
 const TUNE_CHARS_PER_TOKEN = 4;
 
 function listAvailableProviderModels() {
@@ -2903,13 +2918,14 @@ function listAvailableProviderModels() {
   return out;
 }
 
-function estimateCostUsd({ inputChars, modelInfo }) {
+function estimateCostUsd({ inputChars, modelInfo, maxTokens }) {
   if (!modelInfo) return null;
+  const cap = typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
   const inputTokens = inputChars / TUNE_CHARS_PER_TOKEN;
-  const outputTokens = TUNE_OUTPUT_TOKENS_EST;
+  const outputTokens = Math.round(cap * TUNE_OUTPUT_FILL_RATE);
   const inputUsd = (inputTokens / 1_000_000) * modelInfo.inputPer1M;
   const outputUsd = (outputTokens / 1_000_000) * modelInfo.outputPer1M;
-  return { inputUsd, outputUsd, totalUsd: inputUsd + outputUsd, inputTokens, outputTokens };
+  return { inputUsd, outputUsd, totalUsd: inputUsd + outputUsd, inputTokens, outputTokens, cap };
 }
 
 function formatUsd(n) {
@@ -3002,17 +3018,55 @@ function openTuneModelModal() {
   sliderRow.appendChild(budgetReadout);
   body.appendChild(sliderRow);
 
+  // Output cap selector — controls max_tokens sent to the provider for the
+  // ✨ AI Insights summary call. Default 2048; raise to 4096 for dense
+  // briefings, drop to 1024 to save cost on short summaries.
+  const capLabel = document.createElement("label");
+  capLabel.className = "tune-label";
+  capLabel.textContent = "Summary output cap (max tokens)";
+  body.appendChild(capLabel);
+
+  const capRow = document.createElement("div");
+  capRow.className = "tune-radio-row";
+  const initialCap =
+    typeof state.aiMaxTokens === "number" && state.aiMaxTokens > 0
+      ? state.aiMaxTokens
+      : DEFAULT_MAX_TOKENS;
+  const capRadios = [];
+  for (const opt of MAX_TOKENS_OPTIONS) {
+    const label = document.createElement("label");
+    label.className = "tune-radio";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "tune-max-tokens";
+    radio.value = String(opt);
+    if (opt === initialCap) radio.checked = true;
+    const txt = document.createElement("span");
+    txt.textContent = `${opt.toLocaleString()} tokens`;
+    label.appendChild(radio);
+    label.appendChild(txt);
+    capRow.appendChild(label);
+    capRadios.push(radio);
+  }
+  body.appendChild(capRow);
+
   // Live cost estimate
   const costBox = document.createElement("div");
   costBox.className = "tune-cost-box";
   body.appendChild(costBox);
+
+  function getSelectedCap() {
+    for (const r of capRadios) if (r.checked) return parseInt(r.value, 10);
+    return DEFAULT_MAX_TOKENS;
+  }
 
   function paintReadouts() {
     const budget = parseInt(slider.value, 10);
     const inputTokens = Math.round(budget / TUNE_CHARS_PER_TOKEN);
     budgetReadout.textContent = `${budget.toLocaleString()} chars (~${inputTokens.toLocaleString()} tokens)`;
     const combo = combos[select.selectedIndex];
-    const est = estimateCostUsd({ inputChars: budget, modelInfo: combo && combo.info });
+    const cap = getSelectedCap();
+    const est = estimateCostUsd({ inputChars: budget, modelInfo: combo && combo.info, maxTokens: cap });
     if (!est) {
       costBox.innerHTML = "<em>No pricing data for this model.</em>";
       return;
@@ -3020,16 +3074,17 @@ function openTuneModelModal() {
     costBox.innerHTML = `
       <div class="tune-cost-row"><span>Input</span>
         <span>${est.inputTokens.toLocaleString()} tokens · ${formatUsd(est.inputUsd)}</span></div>
-      <div class="tune-cost-row"><span>Output (est. ~${TUNE_OUTPUT_TOKENS_EST} tokens)</span>
+      <div class="tune-cost-row"><span>Output (est. ~${est.outputTokens.toLocaleString()} of ${est.cap.toLocaleString()} cap)</span>
         <span>${formatUsd(est.outputUsd)}</span></div>
       <div class="tune-cost-row tune-cost-total"><span>Per ✨ click</span>
         <span>${formatUsd(est.totalUsd)}</span></div>
-      <div class="tune-cost-note">Estimate uses the provider's public per-million-token input + output pricing. Output is capped at 1024 tokens; most summaries land lower.</div>
+      <div class="tune-cost-note">Estimate uses the provider's public per-million-token input + output pricing. Raise the output cap if briefings keep truncating mid-sentence.</div>
     `;
   }
   paintReadouts();
   slider.addEventListener("input", paintReadouts);
   select.addEventListener("change", paintReadouts);
+  for (const r of capRadios) r.addEventListener("change", paintReadouts);
 
   // Footer
   const footer = document.createElement("footer");
@@ -3046,10 +3101,12 @@ function openTuneModelModal() {
   save.addEventListener("click", () => {
     const combo = combos[select.selectedIndex];
     const budget = parseInt(slider.value, 10);
+    const cap = getSelectedCap();
     if (!combo) return closeTuneModelModal();
     state.aiProvider = combo.providerName;
     state.aiModel = combo.modelId;
     state.aiBudgetChars = budget;
+    state.aiMaxTokens = cap;
     try {
       chrome.storage &&
         chrome.storage.local &&
@@ -3057,6 +3114,7 @@ function openTuneModelModal() {
           bssc_ai_provider: combo.providerName,
           bssc_ai_model: combo.modelId,
           bssc_ai_budget_chars: budget,
+          bssc_ai_max_tokens: cap,
         });
     } catch (_) {}
     closeTuneModelModal();

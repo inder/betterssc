@@ -14,6 +14,8 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_OPTIONS,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -421,6 +423,107 @@ describe("getModelInfo", () => {
 // ---------------------------------------------------------------------------
 // model override via params.model — verifies the new Tune AI Model wiring
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Output cap (max_tokens) — default + override + clamp + per-provider field
+// ---------------------------------------------------------------------------
+
+describe("output cap defaults + overrides", () => {
+  it("DEFAULT_MAX_TOKENS is 2048 (raised from 1024 to cover long briefings)", () => {
+    expect(DEFAULT_MAX_TOKENS).toBe(2048);
+  });
+
+  it("MAX_TOKENS_OPTIONS is the UI selector set [1024, 2048, 4096]", () => {
+    expect(MAX_TOKENS_OPTIONS).toEqual([1024, 2048, 4096]);
+  });
+
+  it("openai max_tokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(2048);
+  });
+
+  it("openai max_tokens uses params.maxTokens when provided", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 4096,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(4096);
+  });
+
+  it("anthropic max_tokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(2048);
+  });
+
+  it("anthropic max_tokens uses params.maxTokens when provided", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 4096,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(4096);
+  });
+
+  it("google maxOutputTokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(2048);
+  });
+
+  it("google maxOutputTokens uses params.maxTokens when provided", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 1024,
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(1024);
+  });
+
+  it("clamps insanely high maxTokens to 8192 ceiling", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 999_999,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(8192);
+  });
+
+  it("clamps tiny maxTokens to 256 floor (prevents broken-response zero/negative)", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 0,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(256);
+  });
+
+  it("falls back to DEFAULT_MAX_TOKENS when maxTokens is non-numeric garbage", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: "not-a-number",
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(DEFAULT_MAX_TOKENS);
+  });
+});
 
 describe("buildRequest with params.model override", () => {
   it("openai uses params.model in the JSON body when provided", () => {
