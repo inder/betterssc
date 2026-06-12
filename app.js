@@ -2457,7 +2457,10 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
       apiKey,
       signal,
       model: state.aiModel || undefined,
-      maxTokens: state.aiMaxTokens || undefined,
+      maxTokens:
+        typeof state.aiMaxTokens === "number" && state.aiMaxTokens > 0
+          ? state.aiMaxTokens
+          : undefined,
     });
     const row = state.comments.get(aiId);
     if (!row) return; // dismissed mid-flight
@@ -2920,7 +2923,10 @@ function listAvailableProviderModels() {
 
 function estimateCostUsd({ inputChars, modelInfo, maxTokens }) {
   if (!modelInfo) return null;
-  const cap = typeof maxTokens === "number" && maxTokens > 0 ? maxTokens : DEFAULT_MAX_TOKENS;
+  // Mirror the provider clamp floor (256) so a stray sub-floor value can't
+  // produce a nonsense low estimate that disagrees with what the provider
+  // actually bills against the clamped 256-token request.
+  const cap = typeof maxTokens === "number" && maxTokens >= 256 ? maxTokens : DEFAULT_MAX_TOKENS;
   const inputTokens = inputChars / TUNE_CHARS_PER_TOKEN;
   const outputTokens = Math.round(cap * TUNE_OUTPUT_FILL_RATE);
   const inputUsd = (inputTokens / 1_000_000) * modelInfo.inputPer1M;
