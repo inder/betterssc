@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-306%2F306-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-366%2F366-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. 306/306 tests passing.
+Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. **Unreleased on `main`** (Jun 11–12, 2026): send images and GIFs, GIPHY GIF picker, Discord-style composer with icon cluster on the right, silent background prefetch of full chat history, emoji popover, composer reply attachments. 366/366 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,11 +25,11 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.3.0)
+## What it does (v0.3.0 + unreleased)
 
-BetterSSC is primarily a **reader**. Most of the work is in the read side because that's where dense Substack chats actually fall apart. The send side is real and works, but it's not where you'll spend most of your time, so it comes last.
+BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
-Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries. Details below.
+Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries + free-form Q&A, silent full-chat prefetch so scrolling-up history is instant. Details below.
 
 ### Reading the chat
 
@@ -77,6 +77,8 @@ The whole feed is keyboard-driven. You can use it without ever touching the mous
 
 **`g` is a two-tier state machine.** First press: scroll to the top of currently loaded messages. Second press (already at top): load one more page of older history and scroll to the new top. Each press does exactly ONE thing — you can keep pressing `g` to walk back through history indefinitely.
 
+**Silent background prefetch.** After the initial 25-message page lands, BetterSSC walks every older page in the background (300 ms between requests, exponential backoff on 429) until the chat's full history is in memory. The chat feed itself stays stable — no reflow, no scroll jump — but the footer's `N messages · M authors` counter ticks up live so you can watch it fill. When it's done, a small `✓ +N loaded` pill flashes next to where the Latest pill shows. After completion `g` is instant — no more network spinner on every page. Default ON; toggle in kebab → `Chat preferences`.
+
 ### Following specific people
 
 - 🔔 bell next to each name in the Active rail. Toggle it on and you'll get a desktop notification when that person posts, even if BetterSSC is in another tab.
@@ -102,12 +104,16 @@ Polling once every 12 seconds, which is the same thing Substack's own native cli
 ### Sending (when you do want to write)
 
 - Type and send messages, with optimistic UI so your message lands instantly without waiting for the 12s poll cycle.
+- **Discord-style composer** — icons sit on the right of the textarea (image, GIF, emoji, Send). The composer is constrained to the chat-feed width; the members rail extends the full height of the page. No `+` button — the image icon does what `+` would.
+- **Send images and GIFs** — paperclip-style image button (📷), drag-drop onto the composer, or paste from clipboard. PNG / JPEG / GIF / WebP up to 10 MB. Wire decoded from real captures: Substack's 3-step flow (register → PUT binary → comment POST with a shared client-generated UUID as an idempotency key). Optimistic preview chip via a local `blob:` URL renders instantly; the real CDN URL swaps in once the server reconciles.
+- **GIPHY GIF picker** — a `GIF` button opens a debounced search + 3-column grid. First time you click it, an inline onboarding walkthrough gets you a free GIPHY API key in about 30 seconds. Key is BYOK (stays in `chrome.storage.local`, BetterSSC never sees it). Picked GIFs re-upload as `image/gif` through the same Substack pipeline, so they render natively and animate in the browser. See **[GIPHY GIF picker setup](#giphy-gif-picker-setup)** below.
+- **Emoji popover** — 😊 button opens a small popover with 6 categories of common Unicode glyphs (Smileys / Hands / Hearts / Symbols / Markets / Food). Click to insert at the cursor. Re-click toggles closed.
 - React with any emoji from Substack's full ~392-emoji catalog — the picker has a search box, a "Frequently used" row derived from the reactions actually in this chat, and the complete catalog grouped into scrollable categories.
 - **Quick-react strip on hover.** Hovering any message shows the top 4 emojis used in the current chat right before the `+` (picker) and `↩` (reply) buttons. Click any to react directly, no picker dance.
 - **Click any existing reaction pill** under a message to add your own reaction of that type. The hover state + cursor pointer make it discoverable.
 - @mention autocomplete pulls from the people you've already seen in chat.
 - Reply UI puts a Discord-style quoted block on your message locally so you can see what you're answering.
-- Failed sends keep your text and show a Retry button instead of making you re-type.
+- Failed sends keep your text and show a Retry button. If the message had an attachment, the original `File` is stashed on the pending row so retry re-runs the full register + PUT, not just the comment POST — so a failed-then-retried GIF doesn't silently send as text-only.
 
 ## AI Insights
 
@@ -203,6 +209,31 @@ Already covered in the [Privacy](#privacy) section below, but the short version:
 ### Long-form write-up
 
 For a narrative version of the above — why I built this, the author-aware reframe in more depth, the cost / latency / quality tradeoff behind the budget slider — see **[posts/ai-insights.md](posts/ai-insights.md)**. Same story, different voice.
+
+## GIPHY GIF picker setup
+
+The GIF button in the composer is wired to [GIPHY's v1 API](https://developers.giphy.com/). BYOK so the privacy story matches the AI keys — your key stays in `chrome.storage.local`, BetterSSC never sees it.
+
+**Get a free key (~30 seconds, one-time):**
+
+1. Go to [developers.giphy.com/dashboard](https://developers.giphy.com/dashboard/) and sign in (free).
+2. Click **Create an App** → choose **API** (NOT SDK — they're different products) → fill in any name and description → submit.
+3. Copy the generated **API Key**.
+4. In BetterSSC, click the `GIF` button in the composer. First time you do this, an onboarding modal appears. Paste the key, click **Test & Save**. BetterSSC pings GIPHY with the key; if valid, it saves and opens the picker.
+
+**Use it:**
+
+- Click `GIF` → picker opens with trending GIFs.
+- Type to search — debounced 300 ms, hits GIPHY's `/search` endpoint.
+- Click any tile → BetterSSC downloads the GIF from GIPHY's CDN, then re-uploads it through Substack's media endpoint as `image/gif`. Same path as a clipboard-pasted GIF — appears inline and animates natively in the browser.
+- "Powered by GIPHY" + a "Change key" link in the footer.
+
+**Notes:**
+
+- Beta key tier (the default): 100 search calls/hour per IP, 1000/day per app, 42 results per search max. Way more than personal use needs.
+- Picker revalidates your key on every open. If the key was revoked or expired since last session, it bounces you back to the onboarding modal cleanly instead of surfacing an error inside the picker.
+- GIFs above 10 MB are filtered out client-side (the picker uses GIPHY's pre-disclosed `original.size` field — no wasted downloads).
+- If GIPHY is unreachable, the picker shows a clear status message; the composer still works for clipboard-paste / drag-drop GIF uploads.
 
 ## How it works under the hood
 
@@ -305,10 +336,12 @@ The roadmap below is my current wish list. What you actually need will reshape i
 ## Roadmap
 
 - **v0.2** ✅ Send messages, add reactions, reply, @mention autocomplete with optimistic UI.
-- **v0.3** ✅ (this release) Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
-- **v0.3.x** Multi-chat support. Left rail across every chat you're in, unread badges, Cmd-K quick switcher.
-- **v0.4** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Direct messages, image upload, edit and delete your own messages.
-- **WebSocket protocol** Right now the WS handshake returns "Invalid message" after auth and we fall back to polling. Cracking that protocol needs a side-by-side capture of a working native session vs ours. v0.2-ish.
+- **v0.3** ✅ Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
+- **Unreleased on `main`** ✅ Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
+- **v0.4** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
+- **v0.4.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
+- **DMs + Tenor parity** Direct messages. Tenor GIF picker as an alternative to GIPHY if a user prefers it (TOS allows; would need to recapture Substack DM wire shape since group-chat shape doesn't always match).
+- **WebSocket protocol** Right now the WS handshake returns "Invalid message" after auth and we fall back to polling. Cracking that protocol needs a side-by-side capture of a working native session vs ours. Polling at 12s matches Substack's own client so this is a latency win, not a correctness one.
 
 ## Privacy
 
@@ -332,6 +365,15 @@ When you choose to use the **✨ AI** feature (Summary or Ask), the privacy stor
 - Provider error strings are bounded at 200 chars and `sk-…` patterns are masked before rendering — defense-in-depth so an accidental key fragment in a verbose error body can't survive into the visible DOM.
 - The feature is fully opt-in. Until you open the dropdown and configure a key, none of these endpoints are contacted.
 - If you don't want any chat content reaching a third party, simply don't use AI. Everything else works exactly the same.
+
+### GIPHY picker — opt-in BYOK
+
+The GIF button in the composer is the same story, smaller surface:
+
+- **You bring your own GIPHY API key.** Free at [developers.giphy.com/dashboard](https://developers.giphy.com/dashboard/). Stored in `chrome.storage.local`. BetterSSC has no GIPHY app of its own.
+- **What GIPHY sees:** your search queries and the IP they're sent from. They do NOT see any of your Substack chat content — the search is independent of the chat. Once you pick a GIF, the binary downloads to your browser and is re-uploaded to Substack from your browser. GIPHY never knows which chat you sent the GIF in or who saw it.
+- **What Substack sees:** the same thing as if you'd dragged a GIF in from your desktop — an `image/gif` upload from your own session.
+- Fully opt-in. Until you click `GIF` and configure a key, GIPHY's API isn't contacted.
 
 ## Known issues
 

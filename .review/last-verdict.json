@@ -1,8 +1,8 @@
 {
-  "ts": "2026-06-12T06:47:11.392Z",
+  "ts": "2026-06-12T06:52:01.660Z",
   "retro_required": "no",
   "critical_count": 0,
   "should_fix_count": 0,
   "nit_count": 0,
-  "note": "two small composer bugs — sending… persisted on empty-body sends + GIF button height-override broke icon alignment"
+  "note": "docs only — README + CHANGELOG sync to reflect everything shipped since v0.3.0"
 }
