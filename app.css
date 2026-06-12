@@ -1655,6 +1655,16 @@ button {
 .ai-menu.is-open .ai-menu-pop {
   display: block;
 }
+/* After a click on a menu item, the cursor is still hovering over the
+   just-clicked button — :hover and :focus-within would re-open the
+   popup right after setOpen(false). .is-suppressed overrides all three
+   show-conditions so the popup stays gone until the user moves the
+   cursor out of the menu area (mouseleave clears the class). Without
+   this, clicking "Generate AI Summary" leaves the dropdown dangling
+   and the user can click again before the busy state catches up. */
+.ai-menu.is-suppressed .ai-menu-pop {
+  display: none !important;
+}
 .ai-menu-item {
   display: flex;
   align-items: flex-start;
