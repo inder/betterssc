@@ -922,7 +922,10 @@ button {
 }
 /* When Latest is also visible (newMessageJump not hidden), seat the
    prefetch pill JUST above so they don't collide. The Latest pill is
-   the immediate previous sibling. */
+   the immediate previous sibling. Relies on the global rule at line
+   95 (.hidden { display: none !important }) — when #newMessageJump
+   has .hidden, the parent itself is display:none so :not(.hidden)
+   correctly selects "Latest is actually on screen". */
 .new-message-jump:not(.hidden) + .bg-prefetch-pill {
   bottom: 60px;
 }

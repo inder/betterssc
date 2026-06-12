@@ -794,6 +794,10 @@ async function runChatBgPrefetch() {
 // fire on a still-attached element that the caller had already reset,
 // flipping the pill state back to hidden mid-flash.
 function showBgPrefetchPill(delta) {
+  // No-op on zero delta — "✓ +0 loaded" is a confusing success signal,
+  // and the only path that produces it is an empty completion (no rows
+  // were ever fetched). The user gains nothing from seeing the pill.
+  if (!delta || delta <= 0) return;
   const pill = document.getElementById("bgPrefetchPill");
   if (!pill) return;
   if (pill._fadeTimer) clearTimeout(pill._fadeTimer);
