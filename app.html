@@ -213,36 +213,23 @@
           ></div>
         </section>
 
-        <aside class="members" id="members">
-          <div class="members-header" id="membersHeader">Active</div>
-          <ul id="memberList" class="member-list"></ul>
-        </aside>
-      </main>
-
-      <div class="composer" id="composer">
-        <div class="composer-reply hidden" id="composerReply">
-          <span class="composer-reply-label" id="composerReplyLabel"></span>
-          <button
-            type="button"
-            class="composer-reply-close"
-            id="composerReplyClose"
-            title="Cancel reply"
-            aria-label="Cancel reply"
-          >×</button>
-        </div>
-        <div
-          class="composer-attachment hidden"
-          id="composerAttachment"
-          aria-live="polite"
-        ></div>
-        <div class="composer-row">
-          <button
-            type="button"
-            id="composerAttachBtn"
-            class="composer-attach"
-            title="Attach a file or image"
-            aria-label="Attach a file"
-          >📎</button>
+        <div class="composer" id="composer">
+          <div class="composer-reply hidden" id="composerReply">
+            <span class="composer-reply-label" id="composerReplyLabel"></span>
+            <button
+              type="button"
+              class="composer-reply-close"
+              id="composerReplyClose"
+              title="Cancel reply"
+              aria-label="Cancel reply"
+            >×</button>
+          </div>
+          <div
+            class="composer-attachment hidden"
+            id="composerAttachment"
+            aria-live="polite"
+          ></div>
+          <div class="composer-row">
           <input
             type="file"
             id="composerFileInput"
@@ -260,19 +247,46 @@
           ></textarea>
           <button
             type="button"
+            id="composerAttachBtn"
+            class="composer-icon-btn composer-attach"
+            title="Attach an image"
+            aria-label="Attach an image"
+          ><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path></svg></button>
+          <button
+            type="button"
+            id="composerGifBtn"
+            class="composer-icon-btn composer-gif"
+            title="Add a GIF"
+            aria-label="Add a GIF"
+          >GIF</button>
+          <button
+            type="button"
+            id="composerEmojiBtn"
+            class="composer-icon-btn composer-emoji"
+            title="Insert emoji"
+            aria-label="Insert emoji"
+          ><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg></button>
+          <button
+            type="button"
             id="composerSend"
             class="composer-send"
             disabled
             aria-label="Send message"
           >Send</button>
+          </div>
+          <div class="composer-mention hidden" id="composerMention" role="listbox"></div>
+          <div
+            class="composer-drop-hint hidden"
+            id="composerDropHint"
+            aria-hidden="true"
+          >Drop image to attach</div>
         </div>
-        <div class="composer-mention hidden" id="composerMention" role="listbox"></div>
-        <div
-          class="composer-drop-hint hidden"
-          id="composerDropHint"
-          aria-hidden="true"
-        >Drop image to attach</div>
-      </div>
+
+        <aside class="members" id="members">
+          <div class="members-header" id="membersHeader">Active</div>
+          <ul id="memberList" class="member-list"></ul>
+        </aside>
+      </main>
 
       <footer class="footer">
         <span class="footer-note" id="footerNote"></span>
