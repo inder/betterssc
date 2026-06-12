@@ -1329,14 +1329,31 @@ function renderAiMessageItem(c) {
 }
 
 // Tiny markdown subset for AI bodies: **bold**, _italic_, ## / ### headers,
-// "- " bullet lists, \n → <br>. Input is escapeHtml'd FIRST so no raw HTML
-// from the provider can land in the DOM.
+// "- " bullet lists, [text](url) links, \n → <br>. Input is escapeHtml'd
+// FIRST so no raw HTML from the provider can land in the DOM. URL is
+// validated against http/https only — javascript: and data: schemes
+// (the only practical XSS vectors through an anchor) are dropped.
 function renderAiMarkdownToHtml(raw) {
   let html = escapeHtml(raw);
   // Headers (operate on escaped text — pattern still matches "## " literally)
   html = html.replace(/^### (.+)$/gm, "<h4 class='ai-h4'>$1</h4>");
   html = html.replace(/^## (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
   html = html.replace(/^# (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
+  // [text](url) — must run BEFORE bold/italic so the bracket/paren
+  // characters in the link don't get chewed up. URL is restricted to
+  // http(s); anything else falls back to plain text. Text is the raw
+  // (already escaped) link label.
+  html = html.replace(
+    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (match, label, url) => {
+      // Re-escape the url for the attribute context — escapeHtml on the
+      // whole string ran earlier, but a URL with a literal `"` would
+      // break out of the attribute. The escapeHtml regex doesn't touch
+      // `"`, so re-encode here.
+      const safeUrl = url.replace(/"/g, "&quot;");
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`;
+    }
+  );
   // Bold (greedy-resistant: no asterisks inside the run)
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   // Italic — underscore-bounded with word-boundary guards so we don't
@@ -1897,6 +1914,8 @@ function restoreWatchedUsers() {
         "bssc_ai_model",
         "bssc_ai_budget_chars",
         "bssc_ai_max_tokens",
+        "bssc_ai_ask_max_tokens",
+        "bssc_ai_ask_web_search",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
       ],
@@ -1928,6 +1947,16 @@ function restoreWatchedUsers() {
           res.bssc_ai_max_tokens <= 8192
         ) {
           state.aiMaxTokens = res.bssc_ai_max_tokens;
+        }
+        if (
+          typeof res.bssc_ai_ask_max_tokens === "number" &&
+          res.bssc_ai_ask_max_tokens >= 256 &&
+          res.bssc_ai_ask_max_tokens <= 8192
+        ) {
+          state.aiAskMaxTokens = res.bssc_ai_ask_max_tokens;
+        }
+        if (typeof res.bssc_ai_ask_web_search === "boolean") {
+          state.aiAskWebSearch = res.bssc_ai_ask_web_search;
         }
         if (typeof res.bssc_ai_lens_hint === "string") {
           state.aiLensHint = res.bssc_ai_lens_hint;
@@ -3207,7 +3236,8 @@ function closeTunePromptModal() {
 // - See a live per-call cost estimate that updates on every change.
 //
 // Saves to chrome.storage.local: bssc_ai_provider, bssc_ai_model,
-// bssc_ai_budget_chars, bssc_ai_max_tokens. Switching provider here ALSO updates
+// bssc_ai_budget_chars, bssc_ai_max_tokens, bssc_ai_ask_max_tokens,
+// bssc_ai_ask_web_search. Switching provider here ALSO updates
 // state.aiProvider since the active provider IS one of the user-keyed
 // ones (the dropdown wouldn't show it otherwise).
 
@@ -3373,6 +3403,73 @@ function openTuneModelModal() {
   }
   body.appendChild(capRow);
 
+  // ----- Ask BetterSSC AI — separate output cap + web search toggle -----
+  // Ask responses run longer (3 sections + citations) so default is 4096.
+  // Web search is per-call and disabled on providers we can't wire (openai).
+
+  const askSectionLabel = document.createElement("label");
+  askSectionLabel.className = "tune-label";
+  askSectionLabel.textContent = "Ask output cap (max tokens)";
+  body.appendChild(askSectionLabel);
+
+  const askCapRow = document.createElement("div");
+  askCapRow.className = "tune-radio-row";
+  const ASK_DEFAULT_CAP = 4096;
+  const initialAskCap =
+    typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
+      ? state.aiAskMaxTokens
+      : ASK_DEFAULT_CAP;
+  const askCapRadios = [];
+  for (const opt of MAX_TOKENS_OPTIONS) {
+    const label = document.createElement("label");
+    label.className = "tune-radio";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "tune-ask-max-tokens";
+    radio.value = String(opt);
+    if (opt === initialAskCap) radio.checked = true;
+    const txt = document.createElement("span");
+    txt.textContent = `${opt.toLocaleString()} tokens`;
+    label.appendChild(radio);
+    label.appendChild(txt);
+    askCapRow.appendChild(label);
+    askCapRadios.push(radio);
+  }
+  body.appendChild(askCapRow);
+
+  const webLabel = document.createElement("label");
+  webLabel.className = "tune-label";
+  webLabel.textContent = "Ask web search";
+  body.appendChild(webLabel);
+
+  const webRow = document.createElement("div");
+  webRow.className = "tune-toggle-row";
+  const webCheckbox = document.createElement("input");
+  webCheckbox.type = "checkbox";
+  webCheckbox.id = "tuneAskWebSearch";
+  // Default ON; user-toggle persists via bssc_ai_ask_web_search.
+  const webInitial = state.aiAskWebSearch === false ? false : true;
+  webCheckbox.checked = webInitial;
+  const webText = document.createElement("label");
+  webText.htmlFor = "tuneAskWebSearch";
+  webText.className = "tune-toggle-label";
+  // Show provider-specific support state — Anthropic / Google supported,
+  // OpenAI not yet (requires Responses API migration).
+  const activeProvider = combos[select.selectedIndex] && combos[select.selectedIndex].providerName;
+  const renderWebSupportNote = () => {
+    const p = combos[select.selectedIndex] && combos[select.selectedIndex].providerName;
+    if (supportsWebSearch(p)) {
+      webCheckbox.disabled = false;
+      webText.textContent = `Allow the model to invoke web search (on ${p}, when chat alone can't answer).`;
+    } else {
+      webCheckbox.disabled = true;
+      webText.textContent = `Web search isn't supported on ${p} yet (Anthropic + Google only). The Ask call will answer strictly from the chat.`;
+    }
+  };
+  webRow.appendChild(webCheckbox);
+  webRow.appendChild(webText);
+  body.appendChild(webRow);
+
   // Live cost estimate
   const costBox = document.createElement("div");
   costBox.className = "tune-cost-box";
@@ -3381,6 +3478,10 @@ function openTuneModelModal() {
   function getSelectedCap() {
     for (const r of capRadios) if (r.checked) return parseInt(r.value, 10);
     return DEFAULT_MAX_TOKENS;
+  }
+  function getSelectedAskCap() {
+    for (const r of askCapRadios) if (r.checked) return parseInt(r.value, 10);
+    return ASK_DEFAULT_CAP;
   }
 
   function paintReadouts() {
@@ -3405,8 +3506,12 @@ function openTuneModelModal() {
     `;
   }
   paintReadouts();
+  renderWebSupportNote();
   slider.addEventListener("input", paintReadouts);
-  select.addEventListener("change", paintReadouts);
+  select.addEventListener("change", () => {
+    paintReadouts();
+    renderWebSupportNote();
+  });
   for (const r of capRadios) r.addEventListener("change", paintReadouts);
 
   // Footer
@@ -3425,11 +3530,18 @@ function openTuneModelModal() {
     const combo = combos[select.selectedIndex];
     const budget = parseInt(slider.value, 10);
     const cap = getSelectedCap();
+    const askCap = getSelectedAskCap();
+    // Web search: persist the checkbox state. We keep the value even
+    // when the checkbox is disabled (unsupported provider) so switching
+    // back to a supported provider later restores the user's intent.
+    const askWeb = !!webCheckbox.checked;
     if (!combo) return closeTuneModelModal();
     state.aiProvider = combo.providerName;
     state.aiModel = combo.modelId;
     state.aiBudgetChars = budget;
     state.aiMaxTokens = cap;
+    state.aiAskMaxTokens = askCap;
+    state.aiAskWebSearch = askWeb;
     try {
       chrome.storage &&
         chrome.storage.local &&
@@ -3438,6 +3550,8 @@ function openTuneModelModal() {
           bssc_ai_model: combo.modelId,
           bssc_ai_budget_chars: budget,
           bssc_ai_max_tokens: cap,
+          bssc_ai_ask_max_tokens: askCap,
+          bssc_ai_ask_web_search: askWeb,
         });
     } catch (_) {}
     closeTuneModelModal();

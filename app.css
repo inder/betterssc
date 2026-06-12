@@ -1748,6 +1748,14 @@ button {
   margin: 1px 0;
 }
 .ai-body strong { color: var(--text-primary); }
+.ai-body a.ai-link {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ai-body a.ai-link:hover {
+  text-decoration-thickness: 2px;
+}
 
 .ai-footer {
   display: flex;
@@ -2091,6 +2099,31 @@ button {
 .tune-radio input[type="radio"] {
   accent-color: var(--accent);
   margin: 0;
+}
+.tune-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+}
+.tune-toggle-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 3px 0 0 0;
+  flex-shrink: 0;
+}
+.tune-toggle-row input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tune-toggle-label {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  cursor: pointer;
+}
+.tune-toggle-row input[type="checkbox"]:disabled + .tune-toggle-label {
+  color: var(--text-secondary);
+  cursor: not-allowed;
 }
 .tune-cost-box {
   margin-top: 14px;

@@ -17,6 +17,7 @@ import {
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
+  ANTHROPIC_WEB_SEARCH_MAX_USES,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -561,8 +562,13 @@ describe("buildRequest with webSearchEnabled", () => {
     expect(body.tools[0]).toEqual({
       type: "web_search_20250305",
       name: "web_search",
-      max_uses: 5,
+      max_uses: ANTHROPIC_WEB_SEARCH_MAX_USES,
     });
+  });
+
+  it("ANTHROPIC_WEB_SEARCH_MAX_USES is a reasonable cap (3-10 range)", () => {
+    expect(ANTHROPIC_WEB_SEARCH_MAX_USES).toBeGreaterThanOrEqual(3);
+    expect(ANTHROPIC_WEB_SEARCH_MAX_USES).toBeLessThanOrEqual(10);
   });
 
   it("anthropic omits tools when webSearchEnabled is false", () => {
