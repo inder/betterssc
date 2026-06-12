@@ -765,11 +765,36 @@ async function runChatBgPrefetch() {
       state.bgPrefetchDone = true;
     }
     if (totalLoaded > 0 && !state.bgPrefetchStop) {
-      // One renderAll at the end — preserves scroll because the user
-      // is presumably at the bottom (loadInitial scrolled there) and
-      // we only added rows ABOVE the current view. If they've already
-      // scrolled mid-prefetch, renderAll's scroll preservation kicks in.
+      // Big-bang reveal: renderAll rebuilds the message DOM with all
+      // silently-ingested rows. The browser preserves scrollTop (the
+      // pixel value) but scrollHeight just grew dramatically, so a
+      // user who was anchored at the bottom of the 25-message initial
+      // render is now visually somewhere mid-chat. state.isAtBottom
+      // also stays stale because the scroll handler only fires on
+      // user-initiated scroll, not on programmatic DOM changes. We
+      // honor the user's pre-reveal intent: if they were at the
+      // bottom, snap to the NEW bottom; otherwise preserve their
+      // visible content (the loadOlder pattern) and re-evaluate the
+      // at-bottom tracker so the "↓ Latest" pill surfaces immediately
+      // instead of waiting for the user to scroll a few pixels first.
+      const stream = document.getElementById("stream");
+      const wasAtBottom = state.isAtBottom;
+      const prevScrollHeight = stream ? stream.scrollHeight : 0;
+      const prevScrollTop = stream ? stream.scrollTop : 0;
       renderAll();
+      if (stream) {
+        if (wasAtBottom) {
+          scrollToBottom();
+        } else {
+          stream.scrollTop =
+            prevScrollTop + (stream.scrollHeight - prevScrollHeight);
+          const nearBottom =
+            stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
+          state.isAtBottom = nearBottom;
+          if (nearBottom) hideNewMessageJump();
+          else showNewMessageJump();
+        }
+      }
       // The delta is how many net-new rows appeared in state.comments
       // (post-dedup), which is what the user actually sees added to the
       // feed. totalLoaded is the dedup count from the loop — they agree
