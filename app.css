@@ -1258,16 +1258,19 @@ button {
   outline-offset: 2px;
 }
 .composer-icon-btn svg { display: block; }
-/* GIF button has text — make it look like a badge */
+/* GIF button has text — make it look like a badge but inherit the
+   30px outer height + flex centering from .composer-icon-btn so it
+   sits on the same baseline as its image/emoji/Send neighbors when
+   the row is bottom-aligned (align-items: flex-end). The visible
+   border + smaller font give it visual distinction without changing
+   its layout footprint. */
 .composer-gif {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
-  padding: 3px 7px;
+  padding: 0 7px;
   border: 1.5px solid currentColor;
-  height: 22px;
   min-width: 0;
-  margin: 0 2px;
 }
 .composer-file-input { display: none; }
 

@@ -6679,7 +6679,15 @@ function extractFreshComment(res, clientId, user) {
       // on whether unwrapComment's condition fired). Belt-and-suspenders.
       if (c && !c.author && x.user) c.author = x.user;
       candidates.push(c);
-    } else if (x.body && x.id) candidates.push(x);
+    } else if (x.id != null) candidates.push(x);
+    // ^ The previous gate was `x.body && x.id`. That rejected
+    // attachment-only messages (e.g. a GIF send with no caption) because
+    // their body is the empty string — falsy. The fast-path reconcile
+    // then silently failed and the optimistic row's `_pending: true`
+    // stayed until something else triggered a re-render, leaving
+    // "sending…" stamped under the image indefinitely. The fresh-comment
+    // candidate just needs an id to be matchable; body content was never
+    // a real requirement.
   };
   // Try every shape we've seen in the wild.
   push(res.comment);
