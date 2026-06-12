@@ -5242,10 +5242,20 @@ function bindEventHandlers() {
   });
 
   document.addEventListener("keydown", (e) => {
+    // Suppress vi shortcuts whenever focus is inside ANY editable
+    // surface — not just the search box + TEXTAREAs. Previously this
+    // missed `<input type="text">` fields like the GIPHY API key
+    // input and the AI Insights settings inputs, so typing letters
+    // like `r` (refresh) into those fields fired the shortcut instead
+    // of inserting the character. Also catches `isContentEditable`
+    // for any future rich-text input.
+    const active = document.activeElement;
+    const tag = active && active.tagName;
     const inInput =
-      document.activeElement === searchInput ||
-      (document.activeElement &&
-        document.activeElement.tagName === "TEXTAREA");
+      active === searchInput ||
+      tag === "TEXTAREA" ||
+      tag === "INPUT" ||
+      (active && active.isContentEditable);
 
     // Escape — clear active overlays, then thread filter, then search.
     // v0.1.27: works from anywhere, not just when focused in the search box.
