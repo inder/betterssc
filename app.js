@@ -27,6 +27,8 @@ import {
   throttle,
   debounce,
   chatNameAcronym,
+  PREFETCH_BASE_DELAY_MS,
+  computeRetryDelay,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -122,6 +124,16 @@ const state = {
   authors: new Map(), // userId → {profile, lastSeenAt}
   moreBefore: true, // pagination flag
   loadingHistory: false,
+  // Background full-history prefetch — kicks off after loadInitial
+  // completes, sequentially walks older pages until moreBefore=false or
+  // user disables it via Chat preferences. ON by default. Persisted as
+  // bssc_auto_load_all. bgPrefetchActive guards re-entry; bgPrefetchStop
+  // is the cancel flag the toggle flips mid-run. bgPrefetchDone latches
+  // once the prefetch completes so we never re-kick it within a session.
+  autoLoadAll: true,
+  bgPrefetchActive: false,
+  bgPrefetchStop: false,
+  bgPrefetchDone: false,
   // Set true across the smooth-scroll window inside pageUpWithFocus so
   // the scroll handler doesn't fire loadOlder mid-animation and yank
   // scrollTop — that's the cancellation bug we kept hitting on `g`.
@@ -508,6 +520,11 @@ async function loadInitial() {
     // and the post author's avatar may also have been upgraded.
     renderChatHeader();
     scrollToBottom();
+    // Background-prefetch the rest of the chat history so `g` is
+    // instant from here on. Fire-and-forget: runChatBgPrefetch handles
+    // its own errors, pacing, and rate-limit backoff. Toggle in kebab
+    // → Chat preferences. Default ON.
+    void runChatBgPrefetch();
   } catch (e) {
     console.error("[BetterSSC] loadInitial failed:", e);
     showError(`Failed to load chat: ${e.message}`);
@@ -558,6 +575,172 @@ async function loadOlder() {
     state.loadingHistory = false;
     document.getElementById("historyLoading").classList.add("hidden");
   }
+}
+
+// ============================================================
+// BACKGROUND CHAT PREFETCH
+// ============================================================
+//
+// Once loadInitial settles, we silently walk older pages until the
+// API says we're out (moreBefore=false) or the user disables it via
+// the Chat preferences toggle. The point is to make `g` (scroll-up
+// history) feel instant on dense chats: every page is already in
+// state.comments, so `g` just re-renders from memory instead of
+// stuttering on each network round trip.
+//
+// Key design choices that keep this clean:
+// - Reuses the existing pagination cursor (state.earliestISO) and
+//   the existing fetchCommentsBefore / ingestComment plumbing.
+//   No parallel data path.
+// - Calls renderAll() exactly ONCE per session — at completion. While
+//   prefetching, ingestComment runs with {silent: true} so the feed
+//   never reflows mid-read. The user's scroll position stays put.
+// - Waits for state.loadingHistory to clear before each fetch, so a
+//   user-initiated `g` always wins the slot. `g` and the bg loop never
+//   issue overlapping requests against the same cursor.
+// - Dedupe is automatic via the existing state.comments.has() guard
+//   in loadOlder + bgPrefetchOnePage — if `g` already grabbed a page
+//   the bg loop would have hit, count comes back 0 and the loop ends.
+// - 429 backoff via the pure computeRetryDelay helper. Three attempts
+//   max, then we give up silently — this is best-effort prefetch, not
+//   load-bearing UX. A failed prefetch just means `g` is slower for
+//   that user, which is the prior behavior anyway.
+
+// Wait until state.loadingHistory clears, polling at a slow cadence so
+// the user's `g` keypress has full priority. Returns when the slot is
+// free OR when bgPrefetchStop flips (user disabled the toggle mid-run).
+function waitForHistorySlot() {
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (state.bgPrefetchStop) return resolve();
+      if (!state.loadingHistory) return resolve();
+      setTimeout(tick, 150);
+    };
+    tick();
+  });
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Fetch one page older silently — no DOM touch, no renderAll, no scroll
+// adjustment. Returns { count, more, rateLimited } so the orchestrator
+// can decide what to do next. Throws only on network/programmer errors;
+// rate limits come back as { rateLimited: true } so the loop can back
+// off without unwinding.
+async function bgPrefetchOnePage() {
+  if (!state.earliestISO) return { count: 0, more: false, rateLimited: false };
+  let res;
+  try {
+    res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
+  } catch (e) {
+    // The proxy fetch wrapper in lib/api.js throws Error messages of the
+    // form "<status> on <path> — <body>". Detect 429 by anchoring on the
+    // status PREFIX so a stray "429" buried in an unrelated error body
+    // doesn't false-trigger the backoff path.
+    if (e && typeof e.message === "string" && /^429\b/.test(e.message)) {
+      return { count: 0, more: true, rateLimited: true };
+    }
+    throw e;
+  }
+  if (res) {
+    if (Array.isArray(res.users)) registerUserObjects(res.users);
+    if (Array.isArray(res.recent_commenters))
+      registerUserObjects(res.recent_commenters);
+  }
+  const unwrappedReplies = flattenReplies(res.replies || [])
+    .map((r) => unwrapComment(r) || r)
+    .filter((r) => r && r.created_at && r.id);
+  unwrappedReplies.sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+  let count = 0;
+  for (const c of unwrappedReplies) {
+    if (!state.comments.has(c.id)) {
+      ingestComment(c, { silent: true });
+      count++;
+    }
+  }
+  if (unwrappedReplies.length) {
+    state.earliestISO = unwrappedReplies[0].created_at;
+  }
+  const more = res.moreBefore !== false && count > 0;
+  return { count, more, rateLimited: false };
+}
+
+// Top-level orchestrator. Idempotent across the session: bgPrefetchDone
+// latches once we complete, so a stray re-call (e.g. from a future
+// retry mechanism) doesn't re-walk pages that are already in state.
+async function runChatBgPrefetch() {
+  if (state.bgPrefetchActive || state.bgPrefetchDone) return;
+  if (!state.autoLoadAll) return;
+  if (!state.moreBefore || !state.earliestISO) {
+    state.bgPrefetchDone = true;
+    return;
+  }
+  state.bgPrefetchActive = true;
+  state.bgPrefetchStop = false;
+  const startSize = state.comments.size;
+  let totalLoaded = 0;
+  let retryDelay = null;
+  try {
+    while (state.moreBefore && !state.bgPrefetchStop) {
+      await waitForHistorySlot();
+      if (state.bgPrefetchStop) break;
+      let result;
+      try {
+        result = await bgPrefetchOnePage();
+      } catch (e) {
+        console.warn("[BetterSSC] bg prefetch aborted:", e && e.message);
+        break;
+      }
+      if (result.rateLimited) {
+        const nextDelay = computeRetryDelay(retryDelay);
+        if (nextDelay == null) {
+          console.warn("[BetterSSC] bg prefetch hit 429 ceiling; giving up");
+          break;
+        }
+        retryDelay = nextDelay;
+        await sleep(nextDelay);
+        continue;
+      }
+      retryDelay = null; // reset on success
+      totalLoaded += result.count;
+      state.moreBefore = result.more;
+      if (!result.more) break;
+      await sleep(PREFETCH_BASE_DELAY_MS);
+    }
+  } finally {
+    state.bgPrefetchActive = false;
+    state.bgPrefetchDone = true;
+    if (totalLoaded > 0 && !state.bgPrefetchStop) {
+      // One renderAll at the end — preserves scroll because the user
+      // is presumably at the bottom (loadInitial scrolled there) and
+      // we only added rows ABOVE the current view. If they've already
+      // scrolled mid-prefetch, renderAll's scroll preservation kicks in.
+      renderAll();
+      showBgPrefetchPill(state.comments.size - startSize, totalLoaded);
+    }
+  }
+}
+
+// Small bottom-left toast confirming completion. Auto-dismisses after
+// 3s. We intentionally don't reuse the "↓ N new messages" pill because
+// that one carries different semantics (unread count → scroll-down
+// affordance); reusing it would confuse the user about what to click.
+function showBgPrefetchPill(_delta, totalLoaded) {
+  const existing = document.getElementById("bgPrefetchPill");
+  if (existing) existing.remove();
+  const pill = document.createElement("div");
+  pill.id = "bgPrefetchPill";
+  pill.className = "bg-prefetch-pill";
+  pill.setAttribute("role", "status");
+  pill.setAttribute("aria-live", "polite");
+  pill.textContent = `✓ Full chat loaded (${totalLoaded.toLocaleString()} message${totalLoaded === 1 ? "" : "s"})`;
+  document.body.appendChild(pill);
+  // Fade out via CSS class after a short window, then remove from DOM.
+  setTimeout(() => pill.classList.add("is-leaving"), 2500);
+  setTimeout(() => pill.remove(), 3500);
 }
 
 // Unwraps the various shapes a Substack comment can arrive in.
@@ -2022,6 +2205,7 @@ function restoreWatchedUsers() {
           "bssc_pinned_users",
           "bssc_member_sort",
           "bssc_notify_all",
+          "bssc_auto_load_all",
         ],
         (res) => {
           if (res) {
@@ -2031,6 +2215,10 @@ function restoreWatchedUsers() {
               state.memberSort = res.bssc_member_sort;
             }
             state.notifyAllMessages = !!res.bssc_notify_all;
+            // Explicit `=== false` so an unset key keeps the default ON.
+            // Treating an absent storage value as "user disabled" would
+            // break the on-by-default contract.
+            if (res.bssc_auto_load_all === false) state.autoLoadAll = false;
           }
           ensureSelfDefaults();
           renderMembers();
@@ -3163,6 +3351,7 @@ function openKebabMenu() {
   const items = [
     { label: "Tune AI model", handler: openTuneModelModal },
     { label: "Tune prompt", handler: openTunePromptModal },
+    { label: "Chat preferences", handler: openChatPrefsModal },
     { label: "Reset all saved data", handler: openResetConfirmModal, danger: true },
   ];
   for (const item of items) {
@@ -3699,6 +3888,110 @@ function openTuneModelModal() {
 
 function closeTuneModelModal() {
   const el = document.getElementById("tuneModelBackdrop");
+  if (el) el.remove();
+}
+
+// ----- Chat preferences modal -----
+//
+// One option for now (auto-load full chat history). Future general
+// chat-side preferences slot in here. Keeps Tune AI model focused on
+// AI knobs and stops the kebab from sprouting one-off items every
+// time a small toggle ships.
+
+function openChatPrefsModal() {
+  const existing = document.getElementById("chatPrefsBackdrop");
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "chatPrefsBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Chat preferences");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "Chat preferences";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeChatPrefsModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const row = document.createElement("div");
+  row.className = "tune-toggle-row";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.id = "chatPrefsAutoLoadAll";
+  checkbox.checked = state.autoLoadAll !== false;
+  const label = document.createElement("label");
+  label.htmlFor = "chatPrefsAutoLoadAll";
+  label.className = "tune-toggle-label";
+  label.textContent =
+    "Auto-load the full chat history in the background after initial load. Makes scrolling up with g instant. Sequential, rate-limit-aware. Off means BetterSSC loads one page at a time on demand (the old behavior).";
+  row.appendChild(checkbox);
+  row.appendChild(label);
+  body.appendChild(row);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeChatPrefsModal);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "ai-settings-save";
+  save.textContent = "Save";
+  save.addEventListener("click", () => {
+    const next = !!checkbox.checked;
+    const prev = state.autoLoadAll !== false;
+    state.autoLoadAll = next;
+    // If the user toggled OFF while bg prefetch is currently running,
+    // flip the stop flag so the loop exits cleanly at the next slot.
+    if (prev && !next && state.bgPrefetchActive) {
+      state.bgPrefetchStop = true;
+    }
+    // If the user toggled ON within the SAME session and the prefetch
+    // had been gated off at session start, kick it off now. The latch
+    // (bgPrefetchDone) only flips on completion, so re-enabling a
+    // session that finished prefetching is a no-op.
+    if (!prev && next && !state.bgPrefetchDone && !state.bgPrefetchActive) {
+      void runChatBgPrefetch();
+    }
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({ bssc_auto_load_all: next });
+    } catch (_) {}
+    closeChatPrefsModal();
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(save);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeChatPrefsModal();
+  });
+  document.body.appendChild(backdrop);
+}
+
+function closeChatPrefsModal() {
+  const el = document.getElementById("chatPrefsBackdrop");
   if (el) el.remove();
 }
 
