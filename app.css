@@ -1757,6 +1757,84 @@ button {
   text-decoration-thickness: 2px;
 }
 
+/* Ask-mode structured rendering — question echo + 3 colored sections
+   + citation list. Sections share a left accent bar that signals which
+   one is which without needing four distinct color tokens. */
+.ai-ask-question {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px 0;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+.ai-ask-q-label {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ai-ask-q-text {
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+.ai-ask-preamble {
+  margin: 0 0 12px 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.ai-ask-section {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg-card);
+  border-radius: 0 6px 6px 0;
+}
+.ai-ask-section-chat { border-left-color: var(--accent); }
+.ai-ask-section-web  { border-left-color: var(--success); background: var(--success-bg-soft); }
+.ai-ask-section-synth { border-left-color: var(--warning); background: var(--warning-bg-soft); }
+.ai-ask-section-title {
+  margin: 0 0 6px 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+  text-transform: uppercase;
+}
+.ai-ask-section-body { font-size: 14px; line-height: 1.5; }
+.ai-ask-section-body p { margin: 4px 0; }
+.ai-ask-fallback { /* model ignored format — render as flat body */ }
+.ai-ask-citations {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.ai-ask-citations-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.ai-ask-citation-list {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ai-ask-citation-list li { margin: 2px 0; }
+.ai-ask-citation-list a.ai-link { color: var(--text-link); }
+
 .ai-footer {
   display: flex;
   align-items: center;

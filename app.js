@@ -49,6 +49,7 @@ import {
   buildPreviewUserMessage,
   buildAskSystemPrompt,
   buildAskUserMessage,
+  parseAskSections,
   ASK_DEFAULT_BUDGET_CHARS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
@@ -1261,11 +1262,20 @@ function renderAiMessageItem(c) {
 
   const bodyEl = document.createElement("div");
   bodyEl.className = "msg-body ai-body";
-  // innerHTML is safe here because renderAiMarkdownToHtml escapes the
-  // raw text via escapeHtml() BEFORE applying its narrow set of inline
-  // transforms (bold/italic/headers/bullets). No <script>, no event
-  // handler attributes can survive.
-  bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
+  // Ask-mode messages render as structured sections (From the chat /
+  // From the web / Synthesis + citation links). Summary messages render
+  // as one markdown blob. Pending / error states bypass section parsing
+  // because the body is a placeholder string ("_Thinking…_" / "Error: …")
+  // that wouldn't survive the parser.
+  if (c._aiVariant === "ask" && !c._aiPending && !c._aiError) {
+    renderAiAskBody(bodyEl, c);
+  } else {
+    // innerHTML is safe here because renderAiMarkdownToHtml escapes the
+    // raw text via escapeHtml() BEFORE applying its narrow set of inline
+    // transforms (bold/italic/headers/bullets). No <script>, no event
+    // handler attributes can survive.
+    bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
+  }
   wrap.appendChild(bodyEl);
 
   // Regenerate row: only on finished, non-error messages. Clicks
@@ -1341,18 +1351,15 @@ function renderAiMarkdownToHtml(raw) {
   html = html.replace(/^# (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
   // [text](url) — must run BEFORE bold/italic so the bracket/paren
   // characters in the link don't get chewed up. URL is restricted to
-  // http(s); anything else falls back to plain text. Text is the raw
-  // (already escaped) link label.
+  // http(s); anything else falls back to plain text. The URL match
+  // allows balanced parens one level deep so Wikipedia-style URLs like
+  // /wiki/Foo_(bar) don't get truncated at the first `)`. Anything
+  // beyond one paren pair is still terminated by `)` — acceptable
+  // because escapeHtml has already neutralized HTML; raw text in the
+  // un-linked tail just renders as plain markdown body.
   html = html.replace(
-    /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    (match, label, url) => {
-      // Re-escape the url for the attribute context — escapeHtml on the
-      // whole string ran earlier, but a URL with a literal `"` would
-      // break out of the attribute. The escapeHtml regex doesn't touch
-      // `"`, so re-encode here.
-      const safeUrl = url.replace(/"/g, "&quot;");
-      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`;
-    }
+    /\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)/g,
+    (_match, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`
   );
   // Bold (greedy-resistant: no asterisks inside the run)
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -1380,6 +1387,115 @@ function renderAiMarkdownToHtml(raw) {
   html = html.replace(/<br>\s*(?=<(?:h3|h4|ul)\b)/g, "");
   html = html.replace(/(<\/(?:h3|h4|ul)>)\s*<br>/g, "$1");
   return html;
+}
+
+// Render an Ask-mode AI message into structured sections. Echoes the
+// user's question at the top, then renders each non-empty section
+// (From the chat / From the web / Synthesis) with a labeled heading
+// and a small accent bar. Citations from _aiAskCitations render as a
+// numbered list of clickable links underneath the From-the-web section
+// (or at the bottom of the body if From-the-web is absent).
+//
+// All section bodies pass through renderAiMarkdownToHtml so [text](url)
+// links inside the model's prose are clickable, the same XSS escape
+// applies, and bold/italic/bullets all work consistently.
+function renderAiAskBody(container, c) {
+  const sections = parseAskSections(c.body || "");
+  // Question echo — distinct treatment so the user can scan multiple
+  // Ask responses in the feed and tell them apart.
+  if (c._aiAskQuestion) {
+    const q = document.createElement("div");
+    q.className = "ai-ask-question";
+    const label = document.createElement("span");
+    label.className = "ai-ask-q-label";
+    label.textContent = "Q";
+    const text = document.createElement("span");
+    text.className = "ai-ask-q-text";
+    text.textContent = c._aiAskQuestion;
+    q.appendChild(label);
+    q.appendChild(text);
+    container.appendChild(q);
+  }
+
+  // Preamble (rare — model occasionally opens with a framing sentence
+  // before the first section header).
+  if (sections.preamble) {
+    const p = document.createElement("div");
+    p.className = "ai-ask-preamble";
+    p.innerHTML = renderAiMarkdownToHtml(sections.preamble);
+    container.appendChild(p);
+  }
+
+  const sectionDefs = [
+    { key: "fromChat", title: "From the chat", icon: "💬", className: "ai-ask-section-chat" },
+    { key: "fromWeb", title: "From the web", icon: "🌐", className: "ai-ask-section-web" },
+    { key: "synthesis", title: "Synthesis", icon: "✦", className: "ai-ask-section-synth" },
+  ];
+
+  // Track whether From-the-web was rendered so we know where to attach
+  // citations (inside the section if present, otherwise as a tail block).
+  let webSectionEl = null;
+
+  for (const def of sectionDefs) {
+    const text = sections[def.key];
+    if (!text) continue;
+    const section = document.createElement("section");
+    section.className = `ai-ask-section ${def.className}`;
+    const heading = document.createElement("h3");
+    heading.className = "ai-ask-section-title";
+    heading.textContent = `${def.icon} ${def.title}`;
+    section.appendChild(heading);
+    const bodyDiv = document.createElement("div");
+    bodyDiv.className = "ai-ask-section-body";
+    bodyDiv.innerHTML = renderAiMarkdownToHtml(text);
+    section.appendChild(bodyDiv);
+    container.appendChild(section);
+    if (def.key === "fromWeb") webSectionEl = section;
+  }
+
+  // If the model ignored the format and dropped everything into the
+  // preamble, fall back to rendering the body as a single block. The
+  // preamble render above already handled this — we just need to
+  // surface that there was no section structure so the user can tell.
+  if (!sections.fromChat && !sections.fromWeb && !sections.synthesis && !sections.preamble) {
+    const fallback = document.createElement("div");
+    fallback.className = "ai-ask-fallback";
+    fallback.innerHTML = renderAiMarkdownToHtml(c.body || "");
+    container.appendChild(fallback);
+  }
+
+  // Citation list. Attaches to the bottom of From-the-web if that
+  // section rendered, else stands alone at the end of the body. Each
+  // entry is a numbered linked title; the numeric index lets the model's
+  // prose reference [1] / [2] / etc. (a follow-up could rewrite those
+  // citation markers in the section bodies, but it's not load-bearing).
+  if (c._aiAskCitations && c._aiAskCitations.length) {
+    const citeWrap = document.createElement("div");
+    citeWrap.className = "ai-ask-citations";
+    const citeLabel = document.createElement("div");
+    citeLabel.className = "ai-ask-citations-label";
+    citeLabel.textContent = `Sources (${c._aiAskCitations.length})`;
+    citeWrap.appendChild(citeLabel);
+    const list = document.createElement("ol");
+    list.className = "ai-ask-citation-list";
+    for (const cit of c._aiAskCitations) {
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.href = cit.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "ai-link";
+      a.textContent = cit.title || cit.url;
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+    citeWrap.appendChild(list);
+    if (webSectionEl) {
+      webSectionEl.appendChild(citeWrap);
+    } else {
+      container.appendChild(citeWrap);
+    }
+  }
 }
 
 // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
@@ -2827,18 +2943,13 @@ async function runAiAsk(providerName, apiKey, question) {
       row._aiError = true;
       row.body = `**Q:** ${question}\n\n**Error:** ${result.error}`;
     } else {
-      // Stash citations for commit 6's sourced renderer; for now we
-      // append them as a "Citations" markdown list at the bottom so
-      // the user always sees attribution even before the parser ships.
+      // Stash citations for the sourced renderer (renderAiMessageItem
+      // picks them up via _aiAskCitations on _aiVariant === "ask" rows).
+      // Body stays as the model's raw markdown — the section parser in
+      // ai-context handles structuring at render time.
       row._aiAskCitations = result.citations || null;
-      let body = `**Q:** ${question}\n\n${result.text}`;
-      if (result.citations && result.citations.length) {
-        const list = result.citations
-          .map((c, i) => `${i + 1}. [${c.title || c.url}](${c.url})`)
-          .join("\n");
-        body += `\n\n**Citations**\n${list}`;
-      }
-      row.body = body;
+      row._aiAskQuestion = question;
+      row.body = result.text;
     }
     renderAll();
   } finally {
@@ -3448,14 +3559,16 @@ function openTuneModelModal() {
   webCheckbox.type = "checkbox";
   webCheckbox.id = "tuneAskWebSearch";
   // Default ON; user-toggle persists via bssc_ai_ask_web_search.
-  const webInitial = state.aiAskWebSearch === false ? false : true;
-  webCheckbox.checked = webInitial;
+  // `!== false` is intentional: null / undefined / true → checked,
+  // explicit false → unchecked.
+  webCheckbox.checked = state.aiAskWebSearch !== false;
   const webText = document.createElement("label");
   webText.htmlFor = "tuneAskWebSearch";
   webText.className = "tune-toggle-label";
   // Show provider-specific support state — Anthropic / Google supported,
-  // OpenAI not yet (requires Responses API migration).
-  const activeProvider = combos[select.selectedIndex] && combos[select.selectedIndex].providerName;
+  // OpenAI not yet (requires Responses API migration). The closure
+  // re-reads the provider on every call so changes from the dropdown
+  // re-paint cleanly.
   const renderWebSupportNote = () => {
     const p = combos[select.selectedIndex] && combos[select.selectedIndex].providerName;
     if (supportsWebSearch(p)) {

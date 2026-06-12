@@ -10,6 +10,7 @@ import {
   buildPreviewUserMessage,
   buildAskSystemPrompt,
   buildAskUserMessage,
+  parseAskSections,
   ASK_DEFAULT_BUDGET_CHARS,
   ASK_FORMAT_INSTRUCTIONS,
   DEFAULT_LENS_HINT,
@@ -598,5 +599,109 @@ describe("ASK_DEFAULT_BUDGET_CHARS", () => {
     // budget below OpenAI's 128K (512K chars) cliff and reading as "fits."
     expect(ASK_DEFAULT_BUDGET_CHARS).toBeGreaterThan(700_000);
     expect(ASK_DEFAULT_BUDGET_CHARS).toBeLessThan(900_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseAskSections — extract the model's 3-section response
+// ---------------------------------------------------------------------------
+
+describe("parseAskSections", () => {
+  it("extracts all three sections from a well-formatted response", () => {
+    const text = `**From the chat**
+Za said CRWV looks strong above 220.
+
+**From the web**
+Per Reuters, CRWV closed at 224 yesterday.
+
+**Synthesis**
+Both sources align: above 220 is the bull case.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong above 220.");
+    expect(r.fromWeb).toBe("Per Reuters, CRWV closed at 224 yesterday.");
+    expect(r.synthesis).toBe("Both sources align: above 220 is the bull case.");
+    expect(r.preamble).toBe("");
+  });
+
+  it("tolerates a trailing colon after the section header", () => {
+    const text = `**From the chat**:
+Za said CRWV looks strong.
+
+**Synthesis**:
+Watch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
+  it("tolerates an em-dash after the section header", () => {
+    const text = `**From the chat** — Za said CRWV looks strong.\n\n**Synthesis** — Watch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
+  it("is case-insensitive on the header text", () => {
+    const text = `**FROM THE CHAT**\nZa said.\n\n**synthesis**\nBuy.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said.");
+    expect(r.synthesis).toBe("Buy.");
+  });
+
+  it("returns empty strings for sections the model omitted", () => {
+    const text = `**From the chat**\nZa said CRWV looks strong.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.fromWeb).toBe("");
+    expect(r.synthesis).toBe("");
+  });
+
+  it("captures a preamble before the first section header", () => {
+    const text = `Quick take on your question:\n\n**From the chat**\nZa said yes.`;
+    const r = parseAskSections(text);
+    expect(r.preamble).toBe("Quick take on your question:");
+    expect(r.fromChat).toBe("Za said yes.");
+  });
+
+  it("treats an entirely format-less response as a preamble", () => {
+    const text = `The chat doesn't have enough information to answer that question.`;
+    const r = parseAskSections(text);
+    expect(r.preamble).toBe(text);
+    expect(r.fromChat).toBe("");
+    expect(r.fromWeb).toBe("");
+    expect(r.synthesis).toBe("");
+  });
+
+  it("returns an all-empty result for null / empty input", () => {
+    expect(parseAskSections(null)).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+    expect(parseAskSections("")).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+    expect(parseAskSections(undefined)).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+  });
+
+  it("preserves markdown inside section bodies (bullets, bold)", () => {
+    const text = `**From the chat**
+- **Za** said CRWV looks strong
+- **Mike** is bearish below 215
+
+**Synthesis**
+Range is 215-225.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toContain("- **Za** said CRWV looks strong");
+    expect(r.fromChat).toContain("- **Mike** is bearish below 215");
+    expect(r.synthesis).toBe("Range is 215-225.");
+  });
+
+  it("handles a response where the model only used Synthesis", () => {
+    const text = `**Synthesis**\nNo chat coverage of this; treat as out-of-scope.`;
+    const r = parseAskSections(text);
+    expect(r.synthesis).toBe("No chat coverage of this; treat as out-of-scope.");
+    expect(r.fromChat).toBe("");
+    expect(r.fromWeb).toBe("");
   });
 });

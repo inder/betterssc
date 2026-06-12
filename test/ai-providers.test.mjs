@@ -627,6 +627,90 @@ describe("buildRequest with webSearchEnabled", () => {
   });
 });
 
+describe("google.parseResponse — groundingMetadata citations", () => {
+  it("extracts text + citations from a grounded response", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "SPX closed at 7400." }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "A" } },
+              { web: { uri: "https://example.com/b", title: "B" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.text).toBe("SPX closed at 7400.");
+    expect(res.citations).toEqual([
+      { url: "https://example.com/a", title: "A", snippet: "" },
+      { url: "https://example.com/b", title: "B", snippet: "" },
+    ]);
+  });
+
+  it("dedupes citations by URL", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "First seen" } },
+              { web: { uri: "https://example.com/a", title: "Duplicate" } },
+              { web: { uri: "https://example.com/b", title: "B" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(2);
+    expect(res.citations[0].title).toBe("First seen");
+    expect(res.citations[1].url).toBe("https://example.com/b");
+  });
+
+  it("falls back to url as title when title is missing", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [{ web: { uri: "https://example.com/x" } }],
+          },
+        },
+      ],
+    });
+    expect(res.citations[0].title).toBe("https://example.com/x");
+  });
+
+  it("skips chunks with no web object or no uri", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "A" } },
+              {}, // no web
+              { web: {} }, // web with no uri
+              { web: { uri: "", title: "empty uri" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(1);
+  });
+
+  it("returns {text} without citations when groundingMetadata is absent", () => {
+    const res = google.parseResponse({
+      candidates: [{ content: { parts: [{ text: "plain answer" }] } }],
+    });
+    expect(res).toEqual({ text: "plain answer" });
+    expect(res.citations).toBeUndefined();
+  });
+});
+
 describe("anthropic.parseResponse — citations extraction", () => {
   it("extracts text + citations from a web-search-aware response", () => {
     const res = anthropic.parseResponse({
