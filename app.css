@@ -2003,6 +2003,26 @@ button {
   cursor: pointer;
   border: 1px solid var(--border);
 }
+.ai-ask-modal {
+  max-width: 600px;
+}
+.ai-ask-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+.ai-ask-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg-soft);
+}
 .ai-settings-btn-secondary {
   background: transparent;
   color: var(--text-secondary);

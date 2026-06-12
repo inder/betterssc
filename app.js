@@ -46,6 +46,9 @@ import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  buildAskSystemPrompt,
+  buildAskUserMessage,
+  ASK_DEFAULT_BUDGET_CHARS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
 } from "./lib/ai-context.js";
@@ -149,6 +152,12 @@ const state = {
   // Output token cap for summary mode. null = use provider default (2048).
   // Persisted as bssc_ai_max_tokens. Tune dialog offers 1024 / 2048 / 4096.
   aiMaxTokens: null,
+  // Ask mode runs concurrently with summary mode — separate busy flag so
+  // they don't disable each other's buttons. Commit 5 adds tunable Ask
+  // output cap + web-search toggle; for now we use generous defaults.
+  aiAskBusy: false,
+  aiAskMaxTokens: null, // commit 5 wires the Tune dialog row
+  aiAskWebSearch: null, // commit 5; null = default-on at call site
 };
 
 // ============================================================
@@ -2594,10 +2603,191 @@ function wireAiMenu() {
   });
 }
 
-// Stub — commit 3 wires the actual input box + LLM call. We define it
-// now so the dropdown router has something to call without throwing.
+// ----- 💬 Ask BetterSSC AI -----
+//
+// Free-form Q&A grounded in the chat. The user types a question; we
+// stuff the entire chat into the system prompt (subject only to the
+// provider's context-window limit) and dispatch to their configured
+// provider. The model answers in 3 sections: From the chat / From the
+// web (commit 4 wires the web tool) / Synthesis.
+//
+// Default budget is ASK_DEFAULT_BUDGET_CHARS (750k chars ≈ 187K tokens)
+// so Anthropic 200K fits whole, OpenAI 128K may truncate oldest-first
+// (formatMessagesForLLM emits "[earlier messages omitted…]"), Gemini
+// 1M is wildly under. We never silently drop without surfacing it.
+
 function openAiAskBox() {
-  showError("Ask BetterSSC AI is coming online — ship the rest of the build first.");
+  if (state.aiAskBusy) return;
+  const provider = state.aiProvider;
+  const key = provider ? state.aiKeys[provider] : null;
+  if (!provider || !key) {
+    openAiSettingsModal();
+    return;
+  }
+  // Replace any prior modal — no stacking.
+  const existing = document.getElementById("aiAskBackdrop");
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "aiAskBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Ask BetterSSC AI");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal ai-ask-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "💬 Ask BetterSSC AI";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeAiAskBox);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const visible = getVisibleCommentsForAi();
+  const note = document.createElement("p");
+  note.className = "ai-settings-note";
+  note.textContent = `Your question goes to ${provider} with the full visible chat (${visible.length} message${visible.length === 1 ? "" : "s"}) attached. Web search is on by default — the model uses it only when the chat alone can't answer.`;
+  body.appendChild(note);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "ai-ask-textarea";
+  textarea.placeholder = "e.g. What's the bull thesis on CRWV? Who's been bearish on SPX this week?";
+  textarea.rows = 3;
+  body.appendChild(textarea);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeAiAskBox);
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "ai-settings-save";
+  submit.textContent = "Ask";
+  const dispatch = () => {
+    const question = textarea.value.trim();
+    if (!question) {
+      textarea.focus();
+      return;
+    }
+    closeAiAskBox();
+    void runAiAsk(provider, key, question);
+  };
+  submit.addEventListener("click", dispatch);
+  // Enter submits; Shift+Enter inserts a newline. Matches what users expect
+  // from chat-style input boxes.
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      dispatch();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeAiAskBox();
+    }
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(submit);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeAiAskBox();
+  });
+  document.body.appendChild(backdrop);
+  // Defer focus so the modal is in the layout tree first.
+  setTimeout(() => textarea.focus(), 0);
+}
+
+function closeAiAskBox() {
+  const el = document.getElementById("aiAskBackdrop");
+  if (el) el.remove();
+}
+
+async function runAiAsk(providerName, apiKey, question) {
+  const providerObj = PROVIDERS[providerName];
+  if (!providerObj) {
+    showError("Ask BetterSSC AI: unknown provider");
+    return;
+  }
+  state.aiAskBusy = true;
+
+  const aiId = `ai_ask_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const pending = buildAiMessage(
+    aiId,
+    `**Q:** ${question}\n\n_Thinking…_`,
+    providerName,
+    { pending: true }
+  );
+  pending._aiAskQuestion = question;
+  state.comments.set(aiId, pending);
+  insertInOrder(pending);
+  renderAll();
+  scrollToBottom();
+
+  const visible = getVisibleCommentsForAi();
+  // Ask mode stuffs the entire chat — formatMessagesForLLM still does
+  // oldest-first truncation if the chat exceeds the budget, and surfaces
+  // the drop count in the footer via _aiContextInfo. Generous default
+  // (750k chars) means Anthropic 200K rarely truncates.
+  const { context, included, dropped } = formatMessagesForLLM(visible, {
+    budget: ASK_DEFAULT_BUDGET_CHARS,
+  });
+  const systemPrompt = buildAskSystemPrompt(context, {
+    lensHint: state.aiLensHint || undefined,
+    // Commit 4 actually wires the tool through callProvider; this flag
+    // controls the SYSTEM-PROMPT instruction either way so the model
+    // knows whether to invoke search.
+    webSearchEnabled:
+      state.aiAskWebSearch === false ? false : true,
+  });
+  const userMessage = buildAskUserMessage(question);
+
+  try {
+    // 60s — Ask mode chats are longer and may invoke web search, so we
+    // double the summary-mode timeout.
+    const signal = AbortSignal.timeout(60_000);
+    const result = await callProvider(providerObj, {
+      systemPrompt,
+      conversation: [{ role: "user", content: userMessage }],
+      apiKey,
+      signal,
+      model: state.aiModel || undefined,
+      maxTokens:
+        typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
+          ? state.aiAskMaxTokens
+          : 4096,
+    });
+    const row = state.comments.get(aiId);
+    if (!row) return; // dismissed mid-flight
+    row._aiPending = false;
+    row._aiContextInfo = { included, dropped };
+    row._aiVariant = "ask";
+    if (result.error) {
+      row._aiError = true;
+      row.body = `**Q:** ${question}\n\n**Error:** ${result.error}`;
+    } else {
+      row.body = `**Q:** ${question}\n\n${result.text}`;
+    }
+    renderAll();
+  } finally {
+    state.aiAskBusy = false;
+  }
 }
 
 // ----- Settings modal -----

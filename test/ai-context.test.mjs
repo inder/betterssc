@@ -8,6 +8,10 @@ import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  buildAskSystemPrompt,
+  buildAskUserMessage,
+  ASK_DEFAULT_BUDGET_CHARS,
+  ASK_FORMAT_INSTRUCTIONS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
 } from "../lib/ai-context.js";
@@ -508,5 +512,90 @@ describe("buildSystemPrompt — reading guidance", () => {
   it("warns against carrying a ticker from an earlier unrelated message", () => {
     const p = buildSystemPrompt("[12:00] A: hi");
     expect(p).toContain("Never carry a ticker over from an earlier, unrelated message");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAskSystemPrompt — free-form Q&A grounded in the chat
+// ---------------------------------------------------------------------------
+
+describe("buildAskSystemPrompt", () => {
+  it("embeds the chat context between fence markers", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hello");
+    expect(p).toContain("CHAT CONTEXT (oldest → newest):");
+    expect(p).toContain("[12:00] A: hello");
+  });
+
+  it("includes the 3-section format instructions", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("**From the chat**");
+    expect(p).toContain("**From the web**");
+    expect(p).toContain("**Synthesis**");
+  });
+
+  it("embeds the same instruction block exported as ASK_FORMAT_INSTRUCTIONS", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain(ASK_FORMAT_INSTRUCTIONS);
+  });
+
+  it("with webSearchEnabled:true tells the model it has a web_search tool", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", { webSearchEnabled: true });
+    expect(p).toContain("web_search tool");
+    expect(p).toContain("ONLY when the chat alone cannot answer");
+    // Should NOT instruct it to refuse web lookups.
+    expect(p).not.toMatch(/do NOT have access to web search/);
+  });
+
+  it("with webSearchEnabled:false tells the model to stay strictly in-chat", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", { webSearchEnabled: false });
+    expect(p).toContain("do NOT have access to web search");
+    expect(p).toContain("do NOT invent facts from your training data");
+  });
+
+  it("defaults to the trading lens hint when lensHint omitted", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("uses a custom lens hint when provided", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", {
+      lensHint: "This is a Substack writers' room. Focus on craft and editorial decisions.",
+    });
+    expect(p).toContain("Substack writers' room");
+    expect(p).not.toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("preserves the same reply-attribution rule used in summary mode", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("replying to X");
+    expect(p).toContain("NOT to the speaker's own earlier messages");
+  });
+
+  it("tells the model to say so when the chat can't answer (no fabricating)", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("don't fabricate");
+  });
+});
+
+describe("buildAskUserMessage", () => {
+  it("returns the trimmed question", () => {
+    expect(buildAskUserMessage("  what's the thesis on CRWV?  ")).toBe(
+      "what's the thesis on CRWV?"
+    );
+  });
+  it("returns empty string for nullish input (caller catches before submit)", () => {
+    expect(buildAskUserMessage(null)).toBe("");
+    expect(buildAskUserMessage(undefined)).toBe("");
+    expect(buildAskUserMessage("")).toBe("");
+  });
+});
+
+describe("ASK_DEFAULT_BUDGET_CHARS", () => {
+  it("is generous enough that Anthropic 200K fits whole chat", () => {
+    // 200K tokens ≈ 800K chars at 4 chars/token. Budget at 750K leaves
+    // ~50K char headroom for the system prompt + response, which is
+    // about right for our prompt size (~1.2K chars) + cap headroom.
+    expect(ASK_DEFAULT_BUDGET_CHARS).toBeGreaterThan(500_000);
+    expect(ASK_DEFAULT_BUDGET_CHARS).toBeLessThan(900_000);
   });
 });
