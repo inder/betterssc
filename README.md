@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-233%2F233-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-306%2F306-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.2.4** (Jun 8, 2026). 16 polish commits since the tag, on main. 233/233 tests passing.
+Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. 306/306 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.2.4)
+## What it does (v0.3.0)
 
 BetterSSC is primarily a **reader**. Most of the work is in the read side because that's where dense Substack chats actually fall apart. The send side is real and works, but it's not where you'll spend most of your time, so it comes last.
 
@@ -86,9 +86,14 @@ The whole feed is keyboard-driven. You can use it without ever touching the mous
 - The browser tab title shows an unread count while you're away: `(3) Your Chat Name · BetterSSC`.
 - Auto mark-viewed every 30 seconds (and instantly when you switch back to the tab), so your unread count in native Substack stays in sync.
 
-### AI Insights (bring your own key)
+### AI: Summary + Ask (bring your own key)
 
-Click the **✨ AI** button in the header to summarize the visible chat. Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights](#ai-insights)** section below for the full feature: Concise / Elaborate regenerate, model + budget + cost tuning, custom prompts, privacy. The context the model receives now includes reply-target linkage (`replying to X: "..."`) and reaction summaries (`[reactions: 👍×2 ❤️×1]`) so it stops misattributing replies and can tell when a claim got group agreement.
+The **✨ AI** button in the header is a hover dropdown with two actions:
+
+- **Generate AI Summary** — one-click structured summary of the visible chat (themes / takeaways / trades / open questions). The same flow that's been here since v0.1.
+- **Ask BetterSSC AI** (v0.3.0) — opens a textarea, type any question, and the entire visible chat is sent to the configured provider as context. The model answers in three labeled sections: **From the chat** (with attribution), **From the web** (with citations, when web search is on), and **Synthesis** (combined answer). On Anthropic and Google, the model has access to native server-side web search; OpenAI is text-only for now (Responses API migration pending).
+
+Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights](#ai-insights)** section below for the full feature: regenerate at length, model + budget + cost + output cap tuning, web search toggle, custom prompts, privacy. The context the model receives now includes reply-target linkage (`replying to X: "..."`) and reaction summaries (`[reactions: 👍×2 ❤️×1]`) so it stops misattributing replies and can tell when a claim got group agreement.
 
 ### Live updates
 
@@ -110,16 +115,23 @@ A one-click summarizer for whatever's currently visible in the chat. Built BYOK 
 
 ![A BetterSSC AI insight summary in the feed showing TLDR, Themes, Key takeaways, and Notable trades sections generated from a markets chat](assets/ai-summary.png)
 
-### What it does
+### Two modes — Summary and Ask
 
-Click **✨ AI** in the header. The model reads the messages you're currently seeing (respecting your active search filter and thread filter) and emits a structured summary with these sections:
+Hover (or click, or focus) the **✨ AI** button in the header to reveal the dropdown:
 
-- **Themes** — what's being discussed
-- **Key takeaways** — most important claims or conclusions
-- **Notable trades / ideas** — specific tickers, entries, theses (default lens is trading; editable)
-- **Open questions** — what's unresolved or being asked
+- **Generate AI Summary** — the one-click structured summary. The model reads the messages you're currently seeing (respecting your active search filter and thread filter) and emits these sections:
+  - **Themes** — what's being discussed
+  - **Key takeaways** — most important claims or conclusions
+  - **Notable trades / ideas** — specific tickers, entries, theses (default lens is trading; editable)
+  - **Open questions** — what's unresolved or being asked
+- **Ask BetterSSC AI** — opens a textarea. Type a free-form question (e.g. *"What's the bull thesis on CRWV?"* or *"Who's been bearish on SPX this week?"*). The full visible chat is stuffed into the system prompt and sent to your configured provider. Responses render in three labeled sections:
+  - **💬 From the chat** — what was actually said, with attribution to specific authors and direct quotes when load-bearing
+  - **🌐 From the web** — facts pulled in via web search (on Anthropic + Google; OpenAI not yet wired). The model only invokes search when the chat alone can't answer. Citations appear as a numbered "Sources" list of clickable links.
+  - **✦ Synthesis** — the combined answer addressing your question directly
+  
+  Your question echoes in a `Q` badge at the top so multiple Ask responses in the feed stay distinguishable. The response is local-only — same privacy story as Summary.
 
-The summary appears as a special accent-tinted message authored by **"✨ BetterSSC AI"**, with a footer like `Only visible to you · anthropic · 342 messages analyzed`. It's local-only — nothing gets POSTed back to Substack, the message never appears for other people, and it isn't included in the polling cursor (so it doesn't break the live-update path).
+Both modes appear in the feed as accent-tinted messages authored by **"✨ BetterSSC AI"**, with a footer like `Only visible to you · anthropic · 342 messages analyzed`. Nothing gets POSTed back to Substack, the message never appears for other people, and it isn't included in the polling cursor (so it doesn't break the live-update path).
 
 Dismiss any AI message with the Dismiss button. All AI messages clear on a reload (in-memory only for now).
 
@@ -145,26 +157,29 @@ Top-right of the header, next to your avatar.
 #### 1. Tune AI model
 
 - **Provider · Model dropdown** — every (provider, model) combo where you have a configured API key, no others.
-- **Input context budget slider** — 6K to 200K characters. Defaults to 60K (~15K tokens, under 12% of every supported provider's context window). Bigger budget = more chat history reaches the model = more accurate summary, at higher latency and higher per-call cost.
-- **Live per-call cost estimate** — updates on every change. Uses each model's published per-1M-token pricing for both input + output (output capped at 1024 tokens; estimate assumes ~800).
+- **Input context budget slider** — 6K to 200K characters. Defaults to 60K (~15K tokens, under 12% of every supported provider's context window). Bigger budget = more chat history reaches the model = more accurate summary, at higher latency and higher per-call cost. **Ask mode bypasses this slider** — Ask sends the entire visible chat, capped only by the provider's context window.
+- **Summary output cap** (v0.3.0) — radio: `1024 / 2048 / 4096 tokens`. Default `2048`. Controls `max_tokens` for the Summary call. Raise to 4096 if long briefings (multi-stock + Open Questions tail) keep truncating mid-sentence; drop to 1024 to save cost on short summaries.
+- **Ask output cap** (v0.3.0) — same options, default `4096` since sectioned Ask responses with citations run longer.
+- **Ask web search** (v0.3.0) — checkbox, default on. Auto-disabled when the active provider is OpenAI (native web search requires the Responses API, not yet wired). On Anthropic the tool is `web_search_20250305` with a 5-call cap; on Google it's `google_search` grounding.
+- **Live per-call cost estimate** — updates on every change. Uses each model's published per-1M-token pricing for both input + output (output cost scales with the chosen cap × 0.78 fill rate).
 
 Default models are the cheap-fast tier for each provider:
 
-| Provider | Default model | Upgrade option |
-|---|---|---|
-| OpenAI | gpt-4o-mini | gpt-4o (~17× cost) |
-| Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 (~3× cost) |
-| Google | gemini-2.5-flash | gemini-2.5-pro (~17× cost) |
+| Provider | Default model | Upgrade option | Web search |
+|---|---|---|---|
+| OpenAI | gpt-4o-mini | gpt-4o (~17× cost) | Not yet (Responses API migration pending) |
+| Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 (~3× cost) | ✅ native `web_search_20250305` |
+| Google | gemini-2.5-flash | gemini-2.5-pro (~17× cost) | ✅ native `google_search` grounding |
 
-Per-call cost at the 60K char default (~15K input tokens + ~800 output tokens) computes to:
+Per-call cost at the 60K char default (~15K input tokens) computes to (Summary mode, 2048 cap → ~1600 output tokens at the 0.78 fill rate):
 
 | Provider | Cheap model | Capable model |
 |---|---|---|
-| OpenAI | ~$0.003 | ~$0.046 |
-| Anthropic | ~$0.019 | ~$0.057 |
-| Google | ~$0.001 | ~$0.027 |
+| OpenAI | ~$0.003 | ~$0.054 |
+| Anthropic | ~$0.023 | ~$0.069 |
+| Google | ~$0.002 | ~$0.035 |
 
-These are static estimates against each provider's published per-million-token rates at the time of writing. The dialog shows the live computed number on every slider tweak — trust the dialog, not this table, if pricing has moved.
+Ask mode runs ~2× this when the whole chat fits (no input-budget cap) + ~2× output cap. These are static estimates against each provider's published per-million-token rates at the time of writing. The dialog shows the live computed number on every change — trust the dialog, not this table, if pricing has moved.
 
 #### 2. Tune prompt
 
@@ -289,9 +304,10 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 ## Roadmap
 
-- **v0.2** Send messages, add reactions, reply, @mention autocomplete with optimistic UI.
-- **v0.3** Multi-chat support. Left rail across every chat you're in, unread badges, Cmd-K quick switcher.
-- **v0.4** Direct messages, image upload, edit and delete your own messages.
+- **v0.2** ✅ Send messages, add reactions, reply, @mention autocomplete with optimistic UI.
+- **v0.3** ✅ (this release) Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
+- **v0.3.x** Multi-chat support. Left rail across every chat you're in, unread badges, Cmd-K quick switcher.
+- **v0.4** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Direct messages, image upload, edit and delete your own messages.
 - **WebSocket protocol** Right now the WS handshake returns "Invalid message" after auth and we fall back to polling. Cracking that protocol needs a side-by-side capture of a working native session vs ours. v0.2-ish.
 
 ## Privacy
@@ -307,17 +323,19 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 ### AI Insights — opt-in BYOK
 
-When you choose to use the **✨ AI Insights** feature, the privacy story changes only for that feature, and only when you trigger it:
+When you choose to use the **✨ AI** feature (Summary or Ask), the privacy story changes only for that feature, and only when you trigger it:
 
 - **You bring your own API key** for OpenAI, Anthropic, or Google. Your key stays in `chrome.storage.local` on this device.
-- **The chat content you choose to analyze** (whatever is currently visible in the feed at click time) is sent **directly from your browser to your chosen AI provider's API** using your key. BetterSSC has no server in this path either — but the provider sees what you send.
+- **The chat content you choose to analyze** (whatever is currently visible in the feed at click time) is sent **directly from your browser to your chosen AI provider's API** using your key. BetterSSC has no server in this path either — but the provider sees what you send. **Ask mode sends the full visible chat** (subject to the provider's context window); Summary mode sends up to the budget you set in the Tune dialog.
 - BetterSSC does NOT route AI calls through the Substack proxy tab. We use a separate fetch to `api.openai.com` / `api.anthropic.com` / `generativelanguage.googleapis.com` so Substack's network trail doesn't contain any AI traffic.
-- The feature is fully opt-in. Until you click the AI Insights button and configure a key, none of these endpoints are contacted.
-- If you don't want any chat content reaching a third party, simply don't use AI Insights. Everything else works exactly the same.
+- **Web search (Ask mode, Anthropic + Google only)** invokes the provider's native server-side search tool when you have the toggle on. Search queries are constructed by the model and run inside the provider's infrastructure; the URLs and titles of the results come back as citations rendered in the response. The chat content + your question + the search queries + the search results all live with the provider for the duration of the call. Toggle off in the Tune dialog if you don't want this.
+- Provider error strings are bounded at 200 chars and `sk-…` patterns are masked before rendering — defense-in-depth so an accidental key fragment in a verbose error body can't survive into the visible DOM.
+- The feature is fully opt-in. Until you open the dropdown and configure a key, none of these endpoints are contacted.
+- If you don't want any chat content reaching a third party, simply don't use AI. Everything else works exactly the same.
 
 ## Known issues
 
-Things I know are broken or unfinished as of v0.2.1. PRs welcome. Bug reports help me prioritize.
+Things I know are broken or unfinished as of v0.3.0. PRs welcome. Bug reports help me prioritize.
 
 - **Reply quotes are local-only.** When you click Reply and send, BetterSSC shows the quoted parent message above yours. The actual wire payload sent to Substack is just plain text, so anyone else (including you on your phone in native Substack) sees a first-class message with no quote. Substack's reply API needs a fresh wire capture before this is shippable end-to-end.
 - **Image upload isn't built yet.** Incoming images render inline with a lightbox. Sending an image from BetterSSC isn't implemented. Use native Substack to upload for now. WS capture confirmed Substack creates a separate `type: "media"` post, so the architecture is known. Implementation pending.
