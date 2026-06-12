@@ -894,14 +894,18 @@ button {
   font-size: 11px;
 }
 
-/* Background-prefetch completion toast. Bottom-left so it doesn't
-   compete with the bottom-center "↓ N new messages" pill or the
-   header status. Fades out via the .is-leaving modifier. */
+/* Background-prefetch completion pill. Sits in the same sticky-bottom
+   row as the "↓ Latest" pill so it appears right next to where Latest
+   shows up — when Latest is visible the two flow side-by-side; when
+   Latest is hidden the prefetch pill still anchors at the same spot.
+   Display:none via .hidden so its sticky slot collapses cleanly when
+   inactive; the fade-out uses .is-leaving on the visible state. */
 .bg-prefetch-pill {
-  position: fixed;
-  left: 16px;
+  position: sticky;
   bottom: 16px;
-  z-index: 60;
+  align-self: center;
+  z-index: 5;
+  margin-top: auto;
   background: var(--success-bg-strong, rgba(26, 138, 68, 0.22));
   color: var(--success, #1a8a44);
   border: 1px solid var(--success, #1a8a44);
@@ -915,6 +919,15 @@ button {
   transform: translateY(0);
   transition: opacity 600ms ease, transform 600ms ease;
   pointer-events: none;
+}
+/* When Latest is also visible (newMessageJump not hidden), seat the
+   prefetch pill JUST above so they don't collide. The Latest pill is
+   the immediate previous sibling. Relies on the global rule at line
+   95 (.hidden { display: none !important }) — when #newMessageJump
+   has .hidden, the parent itself is display:none so :not(.hidden)
+   correctly selects "Latest is actually on screen". */
+.new-message-jump:not(.hidden) + .bg-prefetch-pill {
+  bottom: 60px;
 }
 .bg-prefetch-pill.is-leaving {
   opacity: 0;
