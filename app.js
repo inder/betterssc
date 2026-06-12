@@ -1389,6 +1389,19 @@ function renderAiMarkdownToHtml(raw) {
   return html;
 }
 
+// Bound + scrub provider error strings before they hit the rendered
+// DOM. Anthropic / OpenAI / Google all return verbose server errors
+// that occasionally echo request fragments; truncating + masking
+// `sk-…` patterns keeps any accidental key fragment out of the visible
+// surface. Cap at 200 chars — long enough to be useful, short enough
+// that an embedded key can't survive intact.
+function sanitizeProviderError(raw) {
+  if (typeof raw !== "string") return "Unknown error";
+  const masked = raw.replace(/sk-[A-Za-z0-9_-]{6,}/g, "sk-[redacted]");
+  if (masked.length <= 200) return masked;
+  return masked.slice(0, 200) + "…";
+}
+
 // Render an Ask-mode AI message into structured sections. Echoes the
 // user's question at the top, then renders each non-empty section
 // (From the chat / From the web / Synthesis) with a labeled heading
@@ -1480,12 +1493,14 @@ function renderAiAskBody(container, c) {
     list.className = "ai-ask-citation-list";
     for (const cit of c._aiAskCitations) {
       const li = document.createElement("li");
+      const safeHref =
+        cit.url && /^https?:\/\//i.test(cit.url) ? cit.url : "#";
       const a = document.createElement("a");
-      a.href = cit.url;
+      a.href = safeHref;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       a.className = "ai-link";
-      a.textContent = cit.title || cit.url;
+      a.textContent = cit.title || cit.url || "(untitled source)";
       li.appendChild(a);
       list.appendChild(li);
     }
@@ -2624,7 +2639,7 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
     row._aiVariant = variant;
     if (result.error) {
       row._aiError = true;
-      row.body = `**Error:** ${result.error}`;
+      row.body = `**Error:** ${sanitizeProviderError(result.error)}`;
     } else {
       row.body = result.text;
     }
@@ -2941,7 +2956,7 @@ async function runAiAsk(providerName, apiKey, question) {
     row._aiVariant = "ask";
     if (result.error) {
       row._aiError = true;
-      row.body = `**Q:** ${question}\n\n**Error:** ${result.error}`;
+      row.body = `**Q:** ${question}\n\n**Error:** ${sanitizeProviderError(result.error)}`;
     } else {
       // Stash citations for the sourced renderer (renderAiMessageItem
       // picks them up via _aiAskCitations on _aiVariant === "ask" rows).

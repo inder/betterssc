@@ -709,6 +709,24 @@ describe("google.parseResponse — groundingMetadata citations", () => {
     expect(res).toEqual({ text: "plain answer" });
     expect(res.citations).toBeUndefined();
   });
+
+  it("rejects javascript: and data: URIs at the parse boundary", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "javascript:alert(1)", title: "Pwn" } },
+              { web: { uri: "https://example.com/ok", title: "OK" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(1);
+    expect(res.citations[0].url).toBe("https://example.com/ok");
+  });
 });
 
 describe("anthropic.parseResponse — citations extraction", () => {
@@ -773,6 +791,25 @@ describe("anthropic.parseResponse — citations extraction", () => {
       snippet: "first",
     });
     expect(res.citations[1].url).toBe("https://example.com/b");
+  });
+
+  it("rejects javascript: and data: URLs at the parse boundary", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        {
+          type: "text",
+          text: "Look here.",
+          citations: [
+            { url: "javascript:alert(1)", title: "Pwn", cited_text: "" },
+            { url: "data:text/html,<script>x</script>", title: "Data", cited_text: "" },
+            { url: "https://example.com/ok", title: "OK", cited_text: "" },
+          ],
+        },
+      ],
+    });
+    // Only the https URL survives.
+    expect(res.citations).toHaveLength(1);
+    expect(res.citations[0].url).toBe("https://example.com/ok");
   });
 
   it("returns {text} with no citations key when none are present (backwards-compatible)", () => {

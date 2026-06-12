@@ -697,6 +697,14 @@ Range is 215-225.`;
     expect(r.synthesis).toBe("Range is 215-225.");
   });
 
+  it("handles double-newline after the section header", () => {
+    // Standard markdown paragraph separation — header, blank line, body.
+    const text = `**From the chat**\n\nZa said CRWV is strong.\n\n**Synthesis**\n\nWatch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV is strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
   it("handles a response where the model only used Synthesis", () => {
     const text = `**Synthesis**\nNo chat coverage of this; treat as out-of-scope.`;
     const r = parseAskSections(text);
