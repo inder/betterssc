@@ -1,8 +1,8 @@
 {
-  "ts": "2026-06-12T06:52:01.660Z",
+  "ts": "2026-06-12T06:54:09.101Z",
   "retro_required": "no",
   "critical_count": 0,
   "should_fix_count": 0,
   "nit_count": 0,
-  "note": "docs only — README + CHANGELOG sync to reflect everything shipped since v0.3.0"
+  "note": "one-line broadening of vi-key suppression to all input/contenteditable"
 }
