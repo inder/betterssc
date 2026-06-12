@@ -2341,6 +2341,7 @@ function restoreWatchedUsers() {
         "bssc_ai_ask_web_search",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
+        "bssc_giphy_api_key",
       ],
       (res) => {
         if (!res) return;
@@ -2386,6 +2387,9 @@ function restoreWatchedUsers() {
         }
         if (typeof res.bssc_ai_format_template === "string") {
           state.aiFormatTemplate = res.bssc_ai_format_template;
+        }
+        if (typeof res.bssc_giphy_api_key === "string" && res.bssc_giphy_api_key) {
+          state.giphyApiKey = res.bssc_giphy_api_key;
         }
       }
     );
@@ -5456,6 +5460,12 @@ import {
   registerChatMediaUpload as apiRegisterMedia,
   putChatMediaBinary as apiPutMediaBinary,
 } from "./lib/api.js";
+import {
+  fetchGiphyTrending,
+  fetchGiphySearch,
+  pickGifsFromResponse,
+  testGiphyKey,
+} from "./lib/giphy.js";
 import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
 import {
   reactionEmojiFor as composerReactionEmojiFor,
@@ -5470,6 +5480,10 @@ state.composer = state.composer || {
   pending: null,         // outgoing send in flight (commit 2)
   mentions: {},          // @name → { user_id, text } map for the buffer
   replyingTo: null,      // {id, authorName, body} when replying (commit 6)
+  // Giphy BYOK API key for the GIF picker. Persisted as
+  // bssc_giphy_api_key. The picker hides itself behind the onboarding
+  // modal until the user has configured a key.
+  giphyApiKey: null,
   // Single staged attachment for v1 — paperclip / paste / drag-drop all
   // funnel into this slot. Shape: {file: File, blob: Blob, previewUrl:
   // string-or-null}. Cleared on send-success, on user dismiss, or on
@@ -5590,6 +5604,10 @@ function mountComposer() {
 function wireComposerAttachments(composer, input) {
   const attachBtn = document.getElementById("composerAttachBtn");
   const fileInput = document.getElementById("composerFileInput");
+  // Wire the NEW Discord-style icon buttons (GIF + emoji). Paperclip
+  // stays under wireComposerAttachments because its drag-drop / paste
+  // path is the same code.
+  wireComposerGifAndEmoji(input);
   if (!attachBtn || !fileInput) return;
 
   attachBtn.addEventListener("click", (e) => {
@@ -5759,6 +5777,432 @@ function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ============================================================
+// GIF PICKER (Giphy) + COMPOSER EMOJI BUTTON
+// ============================================================
+
+function wireComposerGifAndEmoji(input) {
+  const gifBtn = document.getElementById("composerGifBtn");
+  if (gifBtn) {
+    gifBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!state.giphyApiKey) {
+        openGiphyOnboardingModal();
+      } else {
+        openGiphyPickerModal();
+      }
+    });
+  }
+  const emojiBtn = document.getElementById("composerEmojiBtn");
+  if (emojiBtn && input) {
+    emojiBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      openComposerEmojiPopover(input, emojiBtn);
+    });
+  }
+}
+
+// ----- Giphy onboarding (first-time key setup) -----
+
+function openGiphyOnboardingModal() {
+  closeGiphyOnboardingModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "giphyOnboardingBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Set up GIPHY");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal giphy-onboarding-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "Set up the GIF picker";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeGiphyOnboardingModal);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const intro = document.createElement("p");
+  intro.className = "ai-settings-note";
+  intro.innerHTML =
+    "GIFs run on <strong>GIPHY</strong>. Free for personal use — get a key in about 30 seconds. " +
+    "Your key stays in <code>chrome.storage.local</code> on this device. BetterSSC never sees it.";
+  body.appendChild(intro);
+
+  // Three numbered steps with clickable link to GIPHY dashboard.
+  const steps = document.createElement("ol");
+  steps.className = "giphy-onboarding-steps";
+  const stepTexts = [
+    'Open <a href="https://developers.giphy.com/dashboard/" target="_blank" rel="noopener noreferrer">developers.giphy.com/dashboard</a> and sign in (free).',
+    'Click <strong>Create an App</strong> → choose <strong>API</strong> (not SDK) → fill in any name + description → submit.',
+    'Copy the generated <strong>API Key</strong>, paste it below, and click <strong>Test &amp; Save</strong>.',
+  ];
+  for (const t of stepTexts) {
+    const li = document.createElement("li");
+    li.innerHTML = t;
+    steps.appendChild(li);
+  }
+  body.appendChild(steps);
+
+  const inputRow = document.createElement("div");
+  inputRow.className = "giphy-onboarding-input-row";
+  const keyInput = document.createElement("input");
+  keyInput.type = "text";
+  keyInput.className = "giphy-onboarding-key";
+  keyInput.placeholder = "Paste your GIPHY API key here";
+  keyInput.autocomplete = "off";
+  keyInput.spellcheck = false;
+  if (state.giphyApiKey) keyInput.value = state.giphyApiKey;
+  inputRow.appendChild(keyInput);
+  body.appendChild(inputRow);
+
+  const status = document.createElement("div");
+  status.className = "giphy-onboarding-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  body.appendChild(status);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeGiphyOnboardingModal);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "ai-settings-save";
+  save.textContent = "Test & Save";
+  save.addEventListener("click", async () => {
+    const key = (keyInput.value || "").trim();
+    if (!key) {
+      status.textContent = "Paste a key first.";
+      status.className = "giphy-onboarding-status is-error";
+      keyInput.focus();
+      return;
+    }
+    save.disabled = true;
+    save.textContent = "Testing…";
+    status.textContent = "Asking GIPHY if this key is valid…";
+    status.className = "giphy-onboarding-status";
+    const result = await testGiphyKey(key);
+    save.disabled = false;
+    save.textContent = "Test & Save";
+    if (!result.ok) {
+      status.textContent = "✗ " + (result.error || "Test failed");
+      status.className = "giphy-onboarding-status is-error";
+      return;
+    }
+    state.giphyApiKey = key;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({ bssc_giphy_api_key: key });
+    } catch (_) {}
+    status.textContent = "✓ Saved. Opening the GIF picker…";
+    status.className = "giphy-onboarding-status is-ok";
+    setTimeout(() => {
+      closeGiphyOnboardingModal();
+      openGiphyPickerModal();
+    }, 400);
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(save);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeGiphyOnboardingModal();
+  });
+  document.body.appendChild(backdrop);
+  requestAnimationFrame(() => keyInput.focus());
+}
+
+function closeGiphyOnboardingModal() {
+  const el = document.getElementById("giphyOnboardingBackdrop");
+  if (el) el.remove();
+}
+
+// ----- Giphy picker modal -----
+
+function openGiphyPickerModal() {
+  closeGiphyPickerModal();
+  const backdrop = document.createElement("div");
+  backdrop.id = "giphyPickerBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Pick a GIF");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal giphy-picker-modal";
+
+  const header = document.createElement("header");
+  header.className = "giphy-picker-header";
+  const search = document.createElement("input");
+  search.type = "text";
+  search.id = "giphyPickerSearch";
+  search.className = "giphy-picker-search";
+  search.placeholder = "Search GIPHY…";
+  search.autocomplete = "off";
+  header.appendChild(search);
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close picker");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeGiphyPickerModal);
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const grid = document.createElement("div");
+  grid.id = "giphyPickerGrid";
+  grid.className = "giphy-picker-grid";
+  modal.appendChild(grid);
+
+  const status = document.createElement("div");
+  status.id = "giphyPickerStatus";
+  status.className = "giphy-picker-status";
+  modal.appendChild(status);
+
+  const footer = document.createElement("footer");
+  footer.className = "giphy-picker-footer";
+  const attribution = document.createElement("span");
+  attribution.className = "giphy-attribution";
+  attribution.textContent = "Powered by GIPHY";
+  footer.appendChild(attribution);
+  const changeKey = document.createElement("button");
+  changeKey.type = "button";
+  changeKey.className = "giphy-picker-changekey";
+  changeKey.textContent = "Change key";
+  changeKey.addEventListener("click", () => {
+    closeGiphyPickerModal();
+    openGiphyOnboardingModal();
+  });
+  footer.appendChild(changeKey);
+  modal.appendChild(footer);
+
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeGiphyPickerModal();
+  });
+  document.body.appendChild(backdrop);
+
+  // Esc closes the picker
+  const onKey = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeGiphyPickerModal();
+    }
+  };
+  document.addEventListener("keydown", onKey);
+  modal._onKey = onKey;
+
+  // Debounce search input — 300ms balances responsiveness vs API cost.
+  let searchTimer = null;
+  let activeFetchAbort = null;
+  const doFetch = async (query) => {
+    if (activeFetchAbort) activeFetchAbort.abort();
+    activeFetchAbort = new AbortController();
+    status.textContent = "Loading…";
+    grid.innerHTML = "";
+    try {
+      const fn = query
+        ? () => fetchGiphySearch(state.giphyApiKey, query, { signal: activeFetchAbort.signal })
+        : () => fetchGiphyTrending(state.giphyApiKey, { signal: activeFetchAbort.signal });
+      const json = await fn();
+      const picks = pickGifsFromResponse(json);
+      renderGiphyGrid(grid, picks);
+      if (picks.length === 0) {
+        status.textContent = query ? `No GIFs for "${query}"` : "No GIFs found";
+      } else {
+        status.textContent = "";
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+      grid.innerHTML = "";
+      status.textContent = "✗ " + ((e && e.message) || "Failed to load GIFs");
+    }
+  };
+
+  search.addEventListener("input", () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    const q = search.value.trim();
+    searchTimer = setTimeout(() => doFetch(q), 300);
+  });
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (searchTimer) clearTimeout(searchTimer);
+      doFetch(search.value.trim());
+    }
+  });
+
+  requestAnimationFrame(() => search.focus());
+  doFetch("");
+}
+
+function closeGiphyPickerModal() {
+  const el = document.getElementById("giphyPickerBackdrop");
+  if (el) {
+    const modal = el.querySelector(".giphy-picker-modal");
+    if (modal && modal._onKey) document.removeEventListener("keydown", modal._onKey);
+    el.remove();
+  }
+}
+
+function renderGiphyGrid(grid, picks) {
+  grid.innerHTML = "";
+  for (const pick of picks) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "giphy-picker-tile";
+    tile.title = pick.title;
+    tile.setAttribute("aria-label", pick.title);
+    const img = document.createElement("img");
+    img.src = pick.thumbnailUrl;
+    img.alt = "";
+    img.loading = "lazy";
+    img.className = "giphy-picker-tile-img";
+    tile.appendChild(img);
+    tile.addEventListener("click", (e) => {
+      e.preventDefault();
+      void stageGiphyPick(pick);
+    });
+    grid.appendChild(tile);
+  }
+}
+
+async function stageGiphyPick(pick) {
+  // Fetch the binary, stage it through the same path the paperclip /
+  // paste / drag-drop intake uses. Visual feedback while the binary
+  // downloads — typically <1s but can be 2-3s on slow connections.
+  const status = document.getElementById("giphyPickerStatus");
+  if (status) status.textContent = "Downloading the GIF…";
+  try {
+    const res = await fetch(pick.originalUrl);
+    if (!res.ok) throw new Error(`Giphy CDN ${res.status}`);
+    const blob = await res.blob();
+    // Force image/gif MIME so Substack's content_type field is what
+    // its CDN expects (the Giphy URL always serves image/gif, but
+    // some servers strip Content-Type — coerce defensively).
+    const file = new File([blob], `giphy-${pick.id}.gif`, { type: "image/gif" });
+    closeGiphyPickerModal();
+    tryStageAttachment(file);
+  } catch (e) {
+    if (status) status.textContent = "✗ Download failed: " + ((e && e.message) || e);
+  }
+}
+
+// ----- Composer emoji popover -----
+//
+// Minimal popover with categories of common Unicode emojis. Click an
+// emoji → inserts at cursor in the composer textarea, closes popover.
+// We DON'T reuse the reaction picker because it returns reaction names
+// (e.g. "thumbs_up") that map to glyphs — composer needs the raw glyph.
+
+const COMPOSER_EMOJI_CATALOG = [
+  { label: "Smileys", glyphs: ["😀","😄","😁","😂","🤣","😊","😉","😍","😘","😎","🤩","🥳","😜","🤔","🤨","😐","😶","🙄","😴","🤤","😪","😭","😢","😤","😡","🤬","🤯","😱","🥵","🥶"] },
+  { label: "Hands", glyphs: ["👍","👎","👏","🙌","🤝","🙏","💪","✊","🤘","👌","👋","🤙","✋","🤲","☝️","🫶"] },
+  { label: "Hearts", glyphs: ["❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❤️‍🔥","💖","💘","💝","💞","💕"] },
+  { label: "Symbols", glyphs: ["🔥","✨","⭐","🌟","💯","✅","❌","⚠️","🚀","🎉","🎯","💡","💎","🏆","🏅","🥇","🥈","🥉"] },
+  { label: "Markets", glyphs: ["📈","📉","💰","💸","💵","💴","💶","💷","🪙","💳","🧾","🏦","📊","🔔"] },
+  { label: "Food", glyphs: ["☕","🍕","🍔","🌮","🍩","🍪","🍰","🎂","🍿","🍫","🍦","🍺","🍷","🥂","🍾","🥃"] },
+];
+
+let _composerEmojiPopoverEl = null;
+
+function openComposerEmojiPopover(input, anchorBtn) {
+  closeComposerEmojiPopover();
+  const pop = document.createElement("div");
+  pop.id = "composerEmojiPopover";
+  pop.className = "composer-emoji-popover";
+  pop.setAttribute("role", "dialog");
+  pop.setAttribute("aria-label", "Insert emoji");
+
+  for (const cat of COMPOSER_EMOJI_CATALOG) {
+    const header = document.createElement("div");
+    header.className = "composer-emoji-cat";
+    header.textContent = cat.label;
+    pop.appendChild(header);
+    const row = document.createElement("div");
+    row.className = "composer-emoji-row";
+    for (const g of cat.glyphs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "composer-emoji-glyph";
+      btn.textContent = g;
+      btn.title = g;
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        insertEmojiAtCursor(input, g);
+      });
+      row.appendChild(btn);
+    }
+    pop.appendChild(row);
+  }
+
+  // Position above the anchor button.
+  document.body.appendChild(pop);
+  const rect = anchorBtn.getBoundingClientRect();
+  // Right-align to button, pop up above it.
+  pop.style.position = "fixed";
+  pop.style.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+  pop.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+  _composerEmojiPopoverEl = pop;
+
+  // Outside-click + Esc close.
+  setTimeout(() => {
+    document.addEventListener("click", composerEmojiOutsideClick, true);
+    document.addEventListener("keydown", composerEmojiEscape);
+  }, 0);
+}
+
+function composerEmojiOutsideClick(e) {
+  if (!_composerEmojiPopoverEl) return;
+  const btn = document.getElementById("composerEmojiBtn");
+  if (_composerEmojiPopoverEl.contains(e.target)) return;
+  if (btn && btn.contains(e.target)) return;
+  closeComposerEmojiPopover();
+}
+function composerEmojiEscape(e) {
+  if (e.key === "Escape") closeComposerEmojiPopover();
+}
+function closeComposerEmojiPopover() {
+  if (_composerEmojiPopoverEl) {
+    _composerEmojiPopoverEl.remove();
+    _composerEmojiPopoverEl = null;
+  }
+  document.removeEventListener("click", composerEmojiOutsideClick, true);
+  document.removeEventListener("keydown", composerEmojiEscape);
+}
+
+function insertEmojiAtCursor(input, glyph) {
+  if (!input) return;
+  const start = input.selectionStart || 0;
+  const end = input.selectionEnd || 0;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  input.value = before + glyph + after;
+  const newPos = start + glyph.length;
+  try {
+    input.focus();
+    input.setSelectionRange(newPos, newPos);
+  } catch (_) {}
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 // Renders the "Replying to X" bar above the textarea based on

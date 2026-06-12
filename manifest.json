@@ -17,7 +17,14 @@
     "https://substackcdn.com/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.giphy.com/*",
+    "https://media.giphy.com/*",
+    "https://media0.giphy.com/*",
+    "https://media1.giphy.com/*",
+    "https://media2.giphy.com/*",
+    "https://media3.giphy.com/*",
+    "https://media4.giphy.com/*"
   ],
   "declarative_net_request": {
     "rule_resources": [

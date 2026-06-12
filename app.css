@@ -153,7 +153,10 @@ button {
 
 .app {
   display: grid;
-  grid-template-rows: var(--header-h) 1fr auto var(--footer-h);
+  /* Composer now lives INSIDE .main so the members rail can extend the
+     full height of the chat column. The old auto-row for composer is
+     gone — .main carries it. */
+  grid-template-rows: var(--header-h) 1fr var(--footer-h);
   height: 100vh;
 }
 
@@ -448,12 +451,23 @@ button {
   50% { opacity: 0.4; }
 }
 
-/* MAIN */
+/* MAIN — Discord-style layout. Two columns; the stream + composer
+   stack in column 1, the members rail occupies column 2 across both
+   rows. Composer is now constrained to the chat-feed width instead
+   of spanning the whole page. */
 .main {
   display: grid;
   grid-template-columns: 1fr var(--members-w);
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "stream  members"
+    "compose members";
   overflow: hidden;
+  min-height: 0;
 }
+.stream { grid-area: stream; }
+.composer { grid-area: compose; }
+.members { grid-area: members; }
 
 /* STREAM */
 .stream {
@@ -1220,21 +1234,219 @@ button {
   background: var(--danger);
 }
 
-/* Paperclip + hidden file input for attachment picker */
-.composer-attach {
+/* Discord-style icon cluster — image / GIF / emoji buttons sit on the
+   RIGHT of the textarea, with Send on the far right. Shared styling
+   via .composer-icon-btn keeps the cluster visually coherent. */
+.composer-icon-btn {
   flex-shrink: 0;
   background: transparent;
   border: 0;
-  font-size: 18px;
-  line-height: 22px;
-  padding: 4px 6px;
+  padding: 4px 8px;
   cursor: pointer;
   color: var(--text-secondary);
   border-radius: 4px;
   transition: background 0.15s ease, color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  min-width: 30px;
 }
-.composer-attach:hover { background: var(--bg-hover); color: var(--accent); }
+.composer-icon-btn:hover { background: var(--bg-hover); color: var(--accent); }
+.composer-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.composer-icon-btn svg { display: block; }
+/* GIF button has text — make it look like a badge */
+.composer-gif {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 3px 7px;
+  border: 1.5px solid currentColor;
+  height: 22px;
+  min-width: 0;
+  margin: 0 2px;
+}
 .composer-file-input { display: none; }
+
+/* ============================================================
+   GIPHY PICKER + ONBOARDING + COMPOSER EMOJI POPOVER
+   ============================================================ */
+
+.giphy-onboarding-modal {
+  max-width: 540px;
+}
+.giphy-onboarding-steps {
+  margin: 12px 0 16px 0;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.giphy-onboarding-steps li { margin: 6px 0; }
+.giphy-onboarding-steps a {
+  color: var(--text-link);
+  text-decoration: underline;
+}
+.giphy-onboarding-input-row {
+  margin-top: 8px;
+}
+.giphy-onboarding-key {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: ui-monospace, SF Mono, Menlo, monospace;
+  font-size: 13px;
+}
+.giphy-onboarding-key:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg-soft);
+}
+.giphy-onboarding-status {
+  margin-top: 10px;
+  font-size: 12px;
+  min-height: 16px;
+  color: var(--text-secondary);
+}
+.giphy-onboarding-status.is-error { color: var(--danger); }
+.giphy-onboarding-status.is-ok { color: var(--success); }
+
+.giphy-picker-modal {
+  width: min(680px, 95vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.giphy-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.giphy-picker-search {
+  flex: 1;
+  padding: 7px 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+}
+.giphy-picker-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg-soft);
+}
+.giphy-picker-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: var(--bg-primary);
+}
+.giphy-picker-tile {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+  display: block;
+  min-height: 100px;
+}
+.giphy-picker-tile:hover,
+.giphy-picker-tile:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+  transform: translateY(-1px);
+}
+.giphy-picker-tile-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.giphy-picker-status {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-height: 16px;
+}
+.giphy-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.giphy-attribution {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.giphy-picker-changekey {
+  background: transparent;
+  border: 0;
+  color: var(--text-link);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.giphy-picker-changekey:hover { text-decoration: underline; }
+
+/* Emoji popover for the composer emoji button */
+.composer-emoji-popover {
+  width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  padding: 10px;
+  z-index: 60;
+}
+.composer-emoji-cat {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin: 8px 4px 4px 4px;
+}
+.composer-emoji-cat:first-child { margin-top: 0; }
+.composer-emoji-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 32px);
+  gap: 4px;
+}
+.composer-emoji-glyph {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.1s ease;
+}
+.composer-emoji-glyph:hover { background: var(--bg-hover); }
 
 /* Staged-attachment preview chip — sits above the composer row */
 .composer-attachment {
