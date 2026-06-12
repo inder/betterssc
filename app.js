@@ -5939,7 +5939,22 @@ function closeGiphyOnboardingModal() {
 
 // ----- Giphy picker modal -----
 
-function openGiphyPickerModal() {
+async function openGiphyPickerModal() {
+  // Revalidate the stored key BEFORE building the picker UI. If the key
+  // was revoked / expired since last session, the user would otherwise
+  // see a 401 error string buried inside the picker's status bar — and
+  // would have to find the small "Change key" link to recover. A 1-call
+  // /trending ping (~100ms) bounces them to onboarding cleanly instead.
+  if (state.giphyApiKey) {
+    const check = await testGiphyKey(state.giphyApiKey);
+    if (!check.ok) {
+      openGiphyOnboardingModal();
+      return;
+    }
+  } else {
+    openGiphyOnboardingModal();
+    return;
+  }
   closeGiphyPickerModal();
   const backdrop = document.createElement("div");
   backdrop.id = "giphyPickerBackdrop";
@@ -5980,6 +5995,10 @@ function openGiphyPickerModal() {
 
   const footer = document.createElement("footer");
   footer.className = "giphy-picker-footer";
+  // TODO: verify GIPHY attribution policy for public distribution —
+  // their dev guidelines may require the GIPHY logo image asset (not
+  // just text). Drop in https://developers.giphy.com/branch/master/docs/sdk/branding-guidelines/
+  // before Chrome Web Store submission and swap to <img> if required.
   const attribution = document.createElement("span");
   attribution.className = "giphy-attribution";
   attribution.textContent = "Powered by GIPHY";
@@ -6010,6 +6029,11 @@ function openGiphyPickerModal() {
   };
   document.addEventListener("keydown", onKey);
   modal._onKey = onKey;
+  // Picker-lifecycle AbortController. Both the search fetches AND any
+  // in-flight stageGiphyPick binary download check this signal — if the
+  // user closes the picker mid-download we cancel rather than letting
+  // the file silently stage in the composer after the modal is gone.
+  modal._pickerAbort = new AbortController();
 
   // Debounce search input — 300ms balances responsiveness vs API cost.
   let searchTimer = null;
@@ -6060,6 +6084,9 @@ function closeGiphyPickerModal() {
   if (el) {
     const modal = el.querySelector(".giphy-picker-modal");
     if (modal && modal._onKey) document.removeEventListener("keydown", modal._onKey);
+    if (modal && modal._pickerAbort) {
+      try { modal._pickerAbort.abort(); } catch (_) {}
+    }
     el.remove();
   }
 }
@@ -6090,10 +6117,17 @@ async function stageGiphyPick(pick) {
   // Fetch the binary, stage it through the same path the paperclip /
   // paste / drag-drop intake uses. Visual feedback while the binary
   // downloads — typically <1s but can be 2-3s on slow connections.
+  //
+  // The abort signal is sourced from the picker modal so a user who
+  // closes the picker mid-download cancels the fetch — otherwise the
+  // download would complete and silently stage a file in the composer
+  // after the picker is already gone, surprising the user with a chip.
   const status = document.getElementById("giphyPickerStatus");
+  const modal = document.querySelector(".giphy-picker-modal");
+  const signal = modal && modal._pickerAbort ? modal._pickerAbort.signal : undefined;
   if (status) status.textContent = "Downloading the GIF…";
   try {
-    const res = await fetch(pick.originalUrl);
+    const res = await fetch(pick.originalUrl, { signal });
     if (!res.ok) throw new Error(`Giphy CDN ${res.status}`);
     const blob = await res.blob();
     // Force image/gif MIME so Substack's content_type field is what
@@ -6103,6 +6137,7 @@ async function stageGiphyPick(pick) {
     closeGiphyPickerModal();
     tryStageAttachment(file);
   } catch (e) {
+    if (e && e.name === "AbortError") return; // picker closed mid-fetch
     if (status) status.textContent = "✗ Download failed: " + ((e && e.message) || e);
   }
 }
@@ -6126,7 +6161,14 @@ const COMPOSER_EMOJI_CATALOG = [
 let _composerEmojiPopoverEl = null;
 
 function openComposerEmojiPopover(input, anchorBtn) {
-  closeComposerEmojiPopover();
+  // Re-click on the emoji button must TOGGLE the popover closed, not
+  // close-then-reopen. The outside-click handler's btn.contains() guard
+  // intentionally lets the button's own click reach this function; we
+  // catch the "already open" case here and bail.
+  if (_composerEmojiPopoverEl) {
+    closeComposerEmojiPopover();
+    return;
+  }
   const pop = document.createElement("div");
   pop.id = "composerEmojiPopover";
   pop.className = "composer-emoji-popover";
