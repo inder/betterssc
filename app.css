@@ -1577,6 +1577,83 @@ button {
   cursor: progress;
 }
 
+/* AI dropdown — wraps the *AI button and reveals the action menu on
+   hover/focus. The pop is absolutely positioned just below the button
+   with a transparent bridge so the cursor can travel from button to
+   menu without losing hover. Click on the button ALSO toggles the menu
+   via the `.is-open` class for touch / keyboard users. */
+.ai-menu {
+  position: relative;
+  display: inline-block;
+}
+.ai-menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: none;
+  z-index: 50;
+}
+/* Invisible hover bridge so cursor crossing the gap between button and
+   menu doesn't dismiss the pop. */
+.ai-menu-pop::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 10px;
+}
+.ai-menu:hover .ai-menu-pop,
+.ai-menu:focus-within .ai-menu-pop,
+.ai-menu.is-open .ai-menu-pop {
+  display: block;
+}
+.ai-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+}
+.ai-menu-item:hover,
+.ai-menu-item:focus-visible {
+  background: var(--accent-bg-soft);
+  outline: none;
+}
+.ai-menu-icon {
+  font-size: 16px;
+  line-height: 20px;
+  flex-shrink: 0;
+}
+.ai-menu-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ai-menu-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.ai-menu-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
 /* AI message in the feed — accent-tinted, no clickable interactions
    beyond Dismiss. Sits in the same group flow as a normal author
    but renders distinctly so the user always knows it's local-only. */

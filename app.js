@@ -2500,6 +2500,70 @@ function setAiButtonBusy(busy) {
   btn.textContent = busy ? "✨ Thinking…" : "✨ AI";
 }
 
+// ----- ✨ AI hover dropdown -----
+//
+// The header *AI button reveals a 2-item menu on hover/focus (CSS-only)
+// AND on click for touch / keyboard users (we toggle .is-open). The two
+// items dispatch to:
+//   action="summary" → existing one-click insights flow
+//   action="ask"     → opens the Ask BetterSSC AI input box (commit 3+)
+//
+// We close on outside-click and on Esc. The hover CSS handles its own
+// open state; the .is-open class is the touch-friendly persistence so
+// the menu stays put after a tap.
+
+function wireAiMenu() {
+  const menu = document.getElementById("aiMenu");
+  const btn = document.getElementById("aiInsightsBtn");
+  if (!menu || !btn) return;
+
+  const setOpen = (open) => {
+    menu.classList.toggle("is-open", !!open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  btn.addEventListener("click", (e) => {
+    // Don't fire the legacy "run summary on click" behavior — clicking
+    // the button now toggles the menu. Users pick an action explicitly.
+    e.preventDefault();
+    setOpen(!menu.classList.contains("is-open"));
+  });
+
+  // Dropdown item routing — delegated so a re-render of menu contents
+  // (none today, but cheap insurance) doesn't strand listeners.
+  menu.addEventListener("click", (e) => {
+    const item = e.target && e.target.closest && e.target.closest(".ai-menu-item");
+    if (!item) return;
+    const action = item.getAttribute("data-ai-action");
+    setOpen(false);
+    if (action === "summary") {
+      handleAiInsightsClick();
+    } else if (action === "ask") {
+      openAiAskBox();
+    }
+  });
+
+  // Outside-click closes the menu. Hover-only would leave the menu
+  // dangling on touch devices that don't fire hover-out.
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target)) setOpen(false);
+  });
+
+  // Esc closes — match the modal / picker convention.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu.classList.contains("is-open")) {
+      setOpen(false);
+      btn.focus();
+    }
+  });
+}
+
+// Stub — commit 3 wires the actual input box + LLM call. We define it
+// now so the dropdown router has something to call without throwing.
+function openAiAskBox() {
+  showError("Ask BetterSSC AI is coming online — ship the rest of the build first.");
+}
+
 // ----- Settings modal -----
 
 function openAiSettingsModal() {
@@ -4177,12 +4241,7 @@ function bindEventHandlers() {
       goToLatest({ clearFilters: true });
     });
 
-  const aiBtn = document.getElementById("aiInsightsBtn");
-  if (aiBtn) {
-    aiBtn.addEventListener("click", () => {
-      handleAiInsightsClick();
-    });
-  }
+  wireAiMenu();
 
   const kebabBtn = document.getElementById("kebabMenuBtn");
   if (kebabBtn) {

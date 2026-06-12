@@ -59,13 +59,43 @@
           ><polyline points="3.5 6 8 10.5 12.5 6"></polyline></svg>
         </button>
         <div class="header-right">
-          <button
-            id="aiInsightsBtn"
-            type="button"
-            class="header-btn ai-insights-btn"
-            title="AI Insights — analyze visible chat"
-            aria-label="AI Insights"
-          >✨ AI</button>
+          <div class="ai-menu" id="aiMenu">
+            <button
+              id="aiInsightsBtn"
+              type="button"
+              class="header-btn ai-insights-btn"
+              title="AI — hover for options"
+              aria-label="AI options"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >✨ AI</button>
+            <div class="ai-menu-pop" role="menu" aria-label="AI options">
+              <button
+                type="button"
+                class="ai-menu-item"
+                data-ai-action="summary"
+                role="menuitem"
+              >
+                <span class="ai-menu-icon">✨</span>
+                <span class="ai-menu-label">
+                  <span class="ai-menu-title">Generate AI Summary</span>
+                  <span class="ai-menu-sub">Sections: themes, takeaways, trades, questions</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="ai-menu-item"
+                data-ai-action="ask"
+                role="menuitem"
+              >
+                <span class="ai-menu-icon">💬</span>
+                <span class="ai-menu-label">
+                  <span class="ai-menu-title">Ask BetterSSC AI</span>
+                  <span class="ai-menu-sub">Free-form question about the chat (web search on)</span>
+                </span>
+              </button>
+            </div>
+          </div>
           <div class="search-wrap">
             <input
               id="searchInput"
