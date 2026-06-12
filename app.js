@@ -39,11 +39,18 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_OPTIONS,
+  supportsWebSearch,
 } from "./lib/ai-providers.js";
 import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  buildAskSystemPrompt,
+  buildAskUserMessage,
+  parseAskSections,
+  ASK_DEFAULT_BUDGET_CHARS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
 } from "./lib/ai-context.js";
@@ -144,6 +151,15 @@ const state = {
   aiProvider: null, // "openai" | "anthropic" | "google" | null
   aiKeys: {}, // {openai?: string, anthropic?: string, google?: string}
   aiBusy: false,
+  // Output token cap for summary mode. null = use provider default (2048).
+  // Persisted as bssc_ai_max_tokens. Tune dialog offers 1024 / 2048 / 4096.
+  aiMaxTokens: null,
+  // Ask mode runs concurrently with summary mode — separate busy flag so
+  // they don't disable each other's buttons. Commit 5 adds tunable Ask
+  // output cap + web-search toggle; for now we use generous defaults.
+  aiAskBusy: false,
+  aiAskMaxTokens: null, // commit 5 wires the Tune dialog row
+  aiAskWebSearch: null, // commit 5; null = default-on at call site
 };
 
 // ============================================================
@@ -1246,11 +1262,20 @@ function renderAiMessageItem(c) {
 
   const bodyEl = document.createElement("div");
   bodyEl.className = "msg-body ai-body";
-  // innerHTML is safe here because renderAiMarkdownToHtml escapes the
-  // raw text via escapeHtml() BEFORE applying its narrow set of inline
-  // transforms (bold/italic/headers/bullets). No <script>, no event
-  // handler attributes can survive.
-  bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
+  // Ask-mode messages render as structured sections (From the chat /
+  // From the web / Synthesis + citation links). Summary messages render
+  // as one markdown blob. Pending / error states bypass section parsing
+  // because the body is a placeholder string ("_Thinking…_" / "Error: …")
+  // that wouldn't survive the parser.
+  if (c._aiVariant === "ask" && !c._aiPending && !c._aiError) {
+    renderAiAskBody(bodyEl, c);
+  } else {
+    // innerHTML is safe here because renderAiMarkdownToHtml escapes the
+    // raw text via escapeHtml() BEFORE applying its narrow set of inline
+    // transforms (bold/italic/headers/bullets). No <script>, no event
+    // handler attributes can survive.
+    bodyEl.innerHTML = renderAiMarkdownToHtml(c.body || "");
+  }
   wrap.appendChild(bodyEl);
 
   // Regenerate row: only on finished, non-error messages. Clicks
@@ -1314,14 +1339,28 @@ function renderAiMessageItem(c) {
 }
 
 // Tiny markdown subset for AI bodies: **bold**, _italic_, ## / ### headers,
-// "- " bullet lists, \n → <br>. Input is escapeHtml'd FIRST so no raw HTML
-// from the provider can land in the DOM.
+// "- " bullet lists, [text](url) links, \n → <br>. Input is escapeHtml'd
+// FIRST so no raw HTML from the provider can land in the DOM. URL is
+// validated against http/https only — javascript: and data: schemes
+// (the only practical XSS vectors through an anchor) are dropped.
 function renderAiMarkdownToHtml(raw) {
   let html = escapeHtml(raw);
   // Headers (operate on escaped text — pattern still matches "## " literally)
   html = html.replace(/^### (.+)$/gm, "<h4 class='ai-h4'>$1</h4>");
   html = html.replace(/^## (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
   html = html.replace(/^# (.+)$/gm, "<h3 class='ai-h3'>$1</h3>");
+  // [text](url) — must run BEFORE bold/italic so the bracket/paren
+  // characters in the link don't get chewed up. URL is restricted to
+  // http(s); anything else falls back to plain text. The URL match
+  // allows balanced parens one level deep so Wikipedia-style URLs like
+  // /wiki/Foo_(bar) don't get truncated at the first `)`. Anything
+  // beyond one paren pair is still terminated by `)` — acceptable
+  // because escapeHtml has already neutralized HTML; raw text in the
+  // un-linked tail just renders as plain markdown body.
+  html = html.replace(
+    /\[([^\]\n]+)\]\((https?:\/\/(?:[^\s()]|\([^\s()]*\))+)\)/g,
+    (_match, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`
+  );
   // Bold (greedy-resistant: no asterisks inside the run)
   html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   // Italic — underscore-bounded with word-boundary guards so we don't
@@ -1348,6 +1387,130 @@ function renderAiMarkdownToHtml(raw) {
   html = html.replace(/<br>\s*(?=<(?:h3|h4|ul)\b)/g, "");
   html = html.replace(/(<\/(?:h3|h4|ul)>)\s*<br>/g, "$1");
   return html;
+}
+
+// Bound + scrub provider error strings before they hit the rendered
+// DOM. Anthropic / OpenAI / Google all return verbose server errors
+// that occasionally echo request fragments; truncating + masking
+// `sk-…` patterns keeps any accidental key fragment out of the visible
+// surface. Cap at 200 chars — long enough to be useful, short enough
+// that an embedded key can't survive intact.
+function sanitizeProviderError(raw) {
+  if (typeof raw !== "string") return "Unknown error";
+  const masked = raw.replace(/sk-[A-Za-z0-9_-]{6,}/g, "sk-[redacted]");
+  if (masked.length <= 200) return masked;
+  return masked.slice(0, 200) + "…";
+}
+
+// Render an Ask-mode AI message into structured sections. Echoes the
+// user's question at the top, then renders each non-empty section
+// (From the chat / From the web / Synthesis) with a labeled heading
+// and a small accent bar. Citations from _aiAskCitations render as a
+// numbered list of clickable links underneath the From-the-web section
+// (or at the bottom of the body if From-the-web is absent).
+//
+// All section bodies pass through renderAiMarkdownToHtml so [text](url)
+// links inside the model's prose are clickable, the same XSS escape
+// applies, and bold/italic/bullets all work consistently.
+function renderAiAskBody(container, c) {
+  const sections = parseAskSections(c.body || "");
+  // Question echo — distinct treatment so the user can scan multiple
+  // Ask responses in the feed and tell them apart.
+  if (c._aiAskQuestion) {
+    const q = document.createElement("div");
+    q.className = "ai-ask-question";
+    const label = document.createElement("span");
+    label.className = "ai-ask-q-label";
+    label.textContent = "Q";
+    const text = document.createElement("span");
+    text.className = "ai-ask-q-text";
+    text.textContent = c._aiAskQuestion;
+    q.appendChild(label);
+    q.appendChild(text);
+    container.appendChild(q);
+  }
+
+  // Preamble (rare — model occasionally opens with a framing sentence
+  // before the first section header).
+  if (sections.preamble) {
+    const p = document.createElement("div");
+    p.className = "ai-ask-preamble";
+    p.innerHTML = renderAiMarkdownToHtml(sections.preamble);
+    container.appendChild(p);
+  }
+
+  const sectionDefs = [
+    { key: "fromChat", title: "From the chat", icon: "💬", className: "ai-ask-section-chat" },
+    { key: "fromWeb", title: "From the web", icon: "🌐", className: "ai-ask-section-web" },
+    { key: "synthesis", title: "Synthesis", icon: "✦", className: "ai-ask-section-synth" },
+  ];
+
+  // Track whether From-the-web was rendered so we know where to attach
+  // citations (inside the section if present, otherwise as a tail block).
+  let webSectionEl = null;
+
+  for (const def of sectionDefs) {
+    const text = sections[def.key];
+    if (!text) continue;
+    const section = document.createElement("section");
+    section.className = `ai-ask-section ${def.className}`;
+    const heading = document.createElement("h3");
+    heading.className = "ai-ask-section-title";
+    heading.textContent = `${def.icon} ${def.title}`;
+    section.appendChild(heading);
+    const bodyDiv = document.createElement("div");
+    bodyDiv.className = "ai-ask-section-body";
+    bodyDiv.innerHTML = renderAiMarkdownToHtml(text);
+    section.appendChild(bodyDiv);
+    container.appendChild(section);
+    if (def.key === "fromWeb") webSectionEl = section;
+  }
+
+  // If the model ignored the format and dropped everything into the
+  // preamble, fall back to rendering the body as a single block. The
+  // preamble render above already handled this — we just need to
+  // surface that there was no section structure so the user can tell.
+  if (!sections.fromChat && !sections.fromWeb && !sections.synthesis && !sections.preamble) {
+    const fallback = document.createElement("div");
+    fallback.className = "ai-ask-fallback";
+    fallback.innerHTML = renderAiMarkdownToHtml(c.body || "");
+    container.appendChild(fallback);
+  }
+
+  // Citation list. Attaches to the bottom of From-the-web if that
+  // section rendered, else stands alone at the end of the body. Each
+  // entry is a numbered linked title; the numeric index lets the model's
+  // prose reference [1] / [2] / etc. (a follow-up could rewrite those
+  // citation markers in the section bodies, but it's not load-bearing).
+  if (c._aiAskCitations && c._aiAskCitations.length) {
+    const citeWrap = document.createElement("div");
+    citeWrap.className = "ai-ask-citations";
+    const citeLabel = document.createElement("div");
+    citeLabel.className = "ai-ask-citations-label";
+    citeLabel.textContent = `Sources (${c._aiAskCitations.length})`;
+    citeWrap.appendChild(citeLabel);
+    const list = document.createElement("ol");
+    list.className = "ai-ask-citation-list";
+    for (const cit of c._aiAskCitations) {
+      const li = document.createElement("li");
+      const safeHref =
+        cit.url && /^https?:\/\//i.test(cit.url) ? cit.url : "#";
+      const a = document.createElement("a");
+      a.href = safeHref;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "ai-link";
+      a.textContent = cit.title || cit.url || "(untitled source)";
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+    citeWrap.appendChild(list);
+    if (webSectionEl) {
+      webSectionEl.appendChild(citeWrap);
+    } else {
+      container.appendChild(citeWrap);
+    }
+  }
 }
 
 // Reactions row. v0.1.11: REST shape is {name: <count number>}; WS event
@@ -1881,6 +2044,9 @@ function restoreWatchedUsers() {
         "bssc_ai_keys",
         "bssc_ai_model",
         "bssc_ai_budget_chars",
+        "bssc_ai_max_tokens",
+        "bssc_ai_ask_max_tokens",
+        "bssc_ai_ask_web_search",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
       ],
@@ -1905,6 +2071,23 @@ function restoreWatchedUsers() {
           res.bssc_ai_budget_chars <= 1_000_000
         ) {
           state.aiBudgetChars = res.bssc_ai_budget_chars;
+        }
+        if (
+          typeof res.bssc_ai_max_tokens === "number" &&
+          res.bssc_ai_max_tokens >= 256 &&
+          res.bssc_ai_max_tokens <= 8192
+        ) {
+          state.aiMaxTokens = res.bssc_ai_max_tokens;
+        }
+        if (
+          typeof res.bssc_ai_ask_max_tokens === "number" &&
+          res.bssc_ai_ask_max_tokens >= 256 &&
+          res.bssc_ai_ask_max_tokens <= 8192
+        ) {
+          state.aiAskMaxTokens = res.bssc_ai_ask_max_tokens;
+        }
+        if (typeof res.bssc_ai_ask_web_search === "boolean") {
+          state.aiAskWebSearch = res.bssc_ai_ask_web_search;
         }
         if (typeof res.bssc_ai_lens_hint === "string") {
           state.aiLensHint = res.bssc_ai_lens_hint;
@@ -2444,6 +2627,10 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
       apiKey,
       signal,
       model: state.aiModel || undefined,
+      maxTokens:
+        typeof state.aiMaxTokens === "number" && state.aiMaxTokens > 0
+          ? state.aiMaxTokens
+          : undefined,
     });
     const row = state.comments.get(aiId);
     if (!row) return; // dismissed mid-flight
@@ -2452,7 +2639,7 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
     row._aiVariant = variant;
     if (result.error) {
       row._aiError = true;
-      row.body = `**Error:** ${result.error}`;
+      row.body = `**Error:** ${sanitizeProviderError(result.error)}`;
     } else {
       row.body = result.text;
     }
@@ -2481,6 +2668,308 @@ function setAiButtonBusy(busy) {
   // back to the long label after every insight finished, growing the
   // header again.
   btn.textContent = busy ? "✨ Thinking…" : "✨ AI";
+}
+
+// ----- ✨ AI hover dropdown -----
+//
+// The header *AI button reveals a 2-item menu on hover/focus (CSS-only)
+// AND on click for touch / keyboard users (we toggle .is-open). The two
+// items dispatch to:
+//   action="summary" → existing one-click insights flow
+//   action="ask"     → opens the Ask BetterSSC AI input box (commit 3+)
+//
+// We close on outside-click and on Esc. The hover CSS handles its own
+// open state; the .is-open class is the touch-friendly persistence so
+// the menu stays put after a tap.
+
+function wireAiMenu() {
+  const menu = document.getElementById("aiMenu");
+  const btn = document.getElementById("aiInsightsBtn");
+  if (!menu || !btn) return;
+
+  const setOpen = (open) => {
+    menu.classList.toggle("is-open", !!open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  btn.addEventListener("click", (e) => {
+    // Don't fire the legacy "run summary on click" behavior — clicking
+    // the button now toggles the menu. Users pick an action explicitly.
+    e.preventDefault();
+    setOpen(!menu.classList.contains("is-open"));
+  });
+
+  // Dropdown item routing — delegated so a re-render of menu contents
+  // (none today, but cheap insurance) doesn't strand listeners.
+  menu.addEventListener("click", (e) => {
+    const item = e.target.closest(".ai-menu-item");
+    if (!item) return;
+    const action = item.getAttribute("data-ai-action");
+    setOpen(false);
+    if (action === "summary") {
+      handleAiInsightsClick();
+    } else if (action === "ask") {
+      openAiAskBox();
+    }
+  });
+
+  // Outside-click closes the menu. Hover-only would leave the menu
+  // dangling on touch devices that don't fire hover-out.
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target)) setOpen(false);
+  });
+
+  // Keyboard contract for role=menu / role=menuitem: ArrowDown / ArrowUp
+  // cycle focus between items; Esc closes and returns focus to the trigger.
+  // Without this, a keyboard-only user who opened the menu via Enter/Space
+  // on the trigger has no way to reach the items — the WAI-ARIA menu role
+  // advertises a contract we have to honor.
+  const getItems = () =>
+    Array.from(menu.querySelectorAll(".ai-menu-item"));
+
+  btn.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setOpen(true);
+      const items = getItems();
+      if (items[0]) items[0].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      const items = getItems();
+      if (items.length) items[items.length - 1].focus();
+    }
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = getItems();
+    if (!items.length) return;
+    const active = document.activeElement;
+    const idx = items.indexOf(active);
+    e.preventDefault();
+    const next =
+      e.key === "ArrowDown"
+        ? items[(idx + 1 + items.length) % items.length]
+        : items[(idx - 1 + items.length) % items.length];
+    next.focus();
+  });
+
+  // Esc closes — match the modal / picker convention.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menu.classList.contains("is-open")) {
+      setOpen(false);
+      btn.focus();
+    }
+  });
+}
+
+// ----- 💬 Ask BetterSSC AI -----
+//
+// Free-form Q&A grounded in the chat. The user types a question; we
+// stuff the entire chat into the system prompt (subject only to the
+// provider's context-window limit) and dispatch to their configured
+// provider. The model answers in 3 sections: From the chat / From the
+// web (commit 4 wires the web tool) / Synthesis.
+//
+// Default budget is ASK_DEFAULT_BUDGET_CHARS (750k chars ≈ 187K tokens)
+// so Anthropic 200K fits whole, OpenAI 128K may truncate oldest-first
+// (formatMessagesForLLM emits "[earlier messages omitted…]"), Gemini
+// 1M is wildly under. We never silently drop without surfacing it.
+
+function openAiAskBox() {
+  if (state.aiAskBusy) return;
+  const provider = state.aiProvider;
+  const key = provider ? state.aiKeys[provider] : null;
+  if (!provider || !key) {
+    openAiSettingsModal();
+    return;
+  }
+  // Replace any prior modal — no stacking.
+  const existing = document.getElementById("aiAskBackdrop");
+  if (existing) existing.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "aiAskBackdrop";
+  backdrop.className = "ai-settings-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-label", "Ask BetterSSC AI");
+
+  const modal = document.createElement("div");
+  modal.className = "ai-settings-modal ai-ask-modal";
+
+  const header = document.createElement("header");
+  header.className = "ai-settings-header";
+  const title = document.createElement("h2");
+  title.className = "ai-settings-title";
+  title.textContent = "💬 Ask BetterSSC AI";
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ai-settings-close";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.textContent = "✕";
+  closeBtn.addEventListener("click", closeAiAskBox);
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const body = document.createElement("div");
+  body.className = "ai-settings-body";
+
+  const visible = getVisibleCommentsForAi();
+  const webOn =
+    supportsWebSearch(provider) &&
+    (state.aiAskWebSearch === false ? false : true);
+  const note = document.createElement("p");
+  note.className = "ai-settings-note";
+  const webBlurb = webOn
+    ? "Web search is on — the model uses it only when the chat alone can't answer."
+    : supportsWebSearch(provider)
+      ? "Web search is off (toggle in Tune AI model)."
+      : "Web search isn't supported on this provider yet — the model will answer strictly from the chat.";
+  note.textContent = `Your question goes to ${provider} with the visible chat (${visible.length} message${visible.length === 1 ? "" : "s"}) attached, up to the provider's context limit. ${webBlurb}`;
+  body.appendChild(note);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "ai-ask-textarea";
+  textarea.placeholder = "e.g. What's the bull thesis on CRWV? Who's been bearish on SPX this week?";
+  textarea.rows = 3;
+  body.appendChild(textarea);
+
+  const footer = document.createElement("footer");
+  footer.className = "ai-settings-footer";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ai-settings-btn ai-settings-btn-secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", closeAiAskBox);
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "ai-settings-save";
+  submit.textContent = "Ask";
+  const dispatch = () => {
+    const question = textarea.value.trim();
+    if (!question) {
+      textarea.focus();
+      return;
+    }
+    closeAiAskBox();
+    void runAiAsk(provider, key, question);
+  };
+  submit.addEventListener("click", dispatch);
+  // Enter submits; Shift+Enter inserts a newline. Matches what users expect
+  // from chat-style input boxes.
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      dispatch();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeAiAskBox();
+    }
+  });
+  footer.appendChild(cancel);
+  footer.appendChild(submit);
+
+  modal.appendChild(header);
+  modal.appendChild(body);
+  modal.appendChild(footer);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeAiAskBox();
+  });
+  document.body.appendChild(backdrop);
+  // Wait for next animation frame so layout has settled (renderAll may
+  // have just run) before focusing — more reliable than setTimeout(0)
+  // when the page is under paint pressure.
+  requestAnimationFrame(() => textarea.focus());
+}
+
+function closeAiAskBox() {
+  const el = document.getElementById("aiAskBackdrop");
+  if (el) el.remove();
+}
+
+async function runAiAsk(providerName, apiKey, question) {
+  const providerObj = PROVIDERS[providerName];
+  if (!providerObj) {
+    showError("Ask BetterSSC AI: unknown provider");
+    return;
+  }
+  state.aiAskBusy = true;
+
+  const aiId = `ai_ask_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const pending = buildAiMessage(
+    aiId,
+    `**Q:** ${question}\n\n_Thinking…_`,
+    providerName,
+    { pending: true }
+  );
+  pending._aiAskQuestion = question;
+  state.comments.set(aiId, pending);
+  insertInOrder(pending);
+  renderAll();
+  scrollToBottom();
+
+  const visible = getVisibleCommentsForAi();
+  // Ask mode stuffs the entire chat — formatMessagesForLLM still does
+  // oldest-first truncation if the chat exceeds the budget, and surfaces
+  // the drop count in the footer via _aiContextInfo. Generous default
+  // (750k chars) means Anthropic 200K rarely truncates.
+  const { context, included, dropped } = formatMessagesForLLM(visible, {
+    budget: ASK_DEFAULT_BUDGET_CHARS,
+  });
+  // Web search is only on if the provider supports it (anthropic/google)
+  // AND the user hasn't disabled it via Tune dialog. Anthropic returns a
+  // validation error if the model emits a web_search tool call without
+  // the tool being attached — so the system-prompt instruction MUST track
+  // the actual tool attachment exactly.
+  const webSearchEnabled =
+    supportsWebSearch(providerName) &&
+    (state.aiAskWebSearch === false ? false : true);
+  const systemPrompt = buildAskSystemPrompt(context, {
+    lensHint: state.aiLensHint || undefined,
+    webSearchEnabled,
+  });
+  const userMessage = buildAskUserMessage(question);
+
+  try {
+    // 60s — Ask mode chats are longer and may invoke web search, so we
+    // double the summary-mode timeout.
+    const signal = AbortSignal.timeout(60_000);
+    const result = await callProvider(providerObj, {
+      systemPrompt,
+      conversation: [{ role: "user", content: userMessage }],
+      apiKey,
+      signal,
+      model: state.aiModel || undefined,
+      maxTokens:
+        typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
+          ? state.aiAskMaxTokens
+          : 4096,
+      webSearchEnabled,
+    });
+    const row = state.comments.get(aiId);
+    if (!row) return; // dismissed mid-flight
+    row._aiPending = false;
+    row._aiContextInfo = { included, dropped };
+    row._aiVariant = "ask";
+    if (result.error) {
+      row._aiError = true;
+      row.body = `**Q:** ${question}\n\n**Error:** ${sanitizeProviderError(result.error)}`;
+    } else {
+      // Stash citations for the sourced renderer (renderAiMessageItem
+      // picks them up via _aiAskCitations on _aiVariant === "ask" rows).
+      // Body stays as the model's raw markdown — the section parser in
+      // ai-context handles structuring at render time.
+      row._aiAskCitations = result.citations || null;
+      row._aiAskQuestion = question;
+      row.body = result.text;
+    }
+    renderAll();
+  } finally {
+    state.aiAskBusy = false;
+  }
 }
 
 // ----- Settings modal -----
@@ -2873,17 +3362,19 @@ function closeTunePromptModal() {
 // - See a live per-call cost estimate that updates on every change.
 //
 // Saves to chrome.storage.local: bssc_ai_provider, bssc_ai_model,
-// bssc_ai_budget_chars. Switching provider here ALSO updates
+// bssc_ai_budget_chars, bssc_ai_max_tokens, bssc_ai_ask_max_tokens,
+// bssc_ai_ask_web_search. Switching provider here ALSO updates
 // state.aiProvider since the active provider IS one of the user-keyed
 // ones (the dropdown wouldn't show it otherwise).
 
 const TUNE_BUDGET_MIN = 6000;
 const TUNE_BUDGET_MAX = 200_000;
 const TUNE_BUDGET_DEFAULT = 60_000;
-// Assumed output tokens per call — capped via provider buildRequest's
-// max_tokens: 1024. We use a slightly conservative ~800 average for the
-// estimate (most summaries don't hit the cap).
-const TUNE_OUTPUT_TOKENS_EST = 800;
+// Cost-estimate output-token assumption. We scale this with the chosen
+// output cap (cap × 0.78) so the per-click figure tracks the user's
+// configured headroom — most summaries land near the cap when the cap
+// is generous, near 60-70% of cap when the cap is tight.
+const TUNE_OUTPUT_FILL_RATE = 0.78;
 const TUNE_CHARS_PER_TOKEN = 4;
 
 function listAvailableProviderModels() {
@@ -2903,13 +3394,17 @@ function listAvailableProviderModels() {
   return out;
 }
 
-function estimateCostUsd({ inputChars, modelInfo }) {
+function estimateCostUsd({ inputChars, modelInfo, maxTokens }) {
   if (!modelInfo) return null;
+  // Mirror the provider clamp floor (256) so a stray sub-floor value can't
+  // produce a nonsense low estimate that disagrees with what the provider
+  // actually bills against the clamped 256-token request.
+  const cap = typeof maxTokens === "number" && maxTokens >= 256 ? maxTokens : DEFAULT_MAX_TOKENS;
   const inputTokens = inputChars / TUNE_CHARS_PER_TOKEN;
-  const outputTokens = TUNE_OUTPUT_TOKENS_EST;
+  const outputTokens = Math.round(cap * TUNE_OUTPUT_FILL_RATE);
   const inputUsd = (inputTokens / 1_000_000) * modelInfo.inputPer1M;
   const outputUsd = (outputTokens / 1_000_000) * modelInfo.outputPer1M;
-  return { inputUsd, outputUsd, totalUsd: inputUsd + outputUsd, inputTokens, outputTokens };
+  return { inputUsd, outputUsd, totalUsd: inputUsd + outputUsd, inputTokens, outputTokens, cap };
 }
 
 function formatUsd(n) {
@@ -3002,17 +3497,128 @@ function openTuneModelModal() {
   sliderRow.appendChild(budgetReadout);
   body.appendChild(sliderRow);
 
+  // Output cap selector — controls max_tokens sent to the provider for the
+  // ✨ AI Insights summary call. Default 2048; raise to 4096 for dense
+  // briefings, drop to 1024 to save cost on short summaries.
+  const capLabel = document.createElement("label");
+  capLabel.className = "tune-label";
+  capLabel.textContent = "Summary output cap (max tokens)";
+  body.appendChild(capLabel);
+
+  const capRow = document.createElement("div");
+  capRow.className = "tune-radio-row";
+  const initialCap =
+    typeof state.aiMaxTokens === "number" && state.aiMaxTokens > 0
+      ? state.aiMaxTokens
+      : DEFAULT_MAX_TOKENS;
+  const capRadios = [];
+  for (const opt of MAX_TOKENS_OPTIONS) {
+    const label = document.createElement("label");
+    label.className = "tune-radio";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "tune-max-tokens";
+    radio.value = String(opt);
+    if (opt === initialCap) radio.checked = true;
+    const txt = document.createElement("span");
+    txt.textContent = `${opt.toLocaleString()} tokens`;
+    label.appendChild(radio);
+    label.appendChild(txt);
+    capRow.appendChild(label);
+    capRadios.push(radio);
+  }
+  body.appendChild(capRow);
+
+  // ----- Ask BetterSSC AI — separate output cap + web search toggle -----
+  // Ask responses run longer (3 sections + citations) so default is 4096.
+  // Web search is per-call and disabled on providers we can't wire (openai).
+
+  const askSectionLabel = document.createElement("label");
+  askSectionLabel.className = "tune-label";
+  askSectionLabel.textContent = "Ask output cap (max tokens)";
+  body.appendChild(askSectionLabel);
+
+  const askCapRow = document.createElement("div");
+  askCapRow.className = "tune-radio-row";
+  const ASK_DEFAULT_CAP = 4096;
+  const initialAskCap =
+    typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
+      ? state.aiAskMaxTokens
+      : ASK_DEFAULT_CAP;
+  const askCapRadios = [];
+  for (const opt of MAX_TOKENS_OPTIONS) {
+    const label = document.createElement("label");
+    label.className = "tune-radio";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "tune-ask-max-tokens";
+    radio.value = String(opt);
+    if (opt === initialAskCap) radio.checked = true;
+    const txt = document.createElement("span");
+    txt.textContent = `${opt.toLocaleString()} tokens`;
+    label.appendChild(radio);
+    label.appendChild(txt);
+    askCapRow.appendChild(label);
+    askCapRadios.push(radio);
+  }
+  body.appendChild(askCapRow);
+
+  const webLabel = document.createElement("label");
+  webLabel.className = "tune-label";
+  webLabel.textContent = "Ask web search";
+  body.appendChild(webLabel);
+
+  const webRow = document.createElement("div");
+  webRow.className = "tune-toggle-row";
+  const webCheckbox = document.createElement("input");
+  webCheckbox.type = "checkbox";
+  webCheckbox.id = "tuneAskWebSearch";
+  // Default ON; user-toggle persists via bssc_ai_ask_web_search.
+  // `!== false` is intentional: null / undefined / true → checked,
+  // explicit false → unchecked.
+  webCheckbox.checked = state.aiAskWebSearch !== false;
+  const webText = document.createElement("label");
+  webText.htmlFor = "tuneAskWebSearch";
+  webText.className = "tune-toggle-label";
+  // Show provider-specific support state — Anthropic / Google supported,
+  // OpenAI not yet (requires Responses API migration). The closure
+  // re-reads the provider on every call so changes from the dropdown
+  // re-paint cleanly.
+  const renderWebSupportNote = () => {
+    const p = combos[select.selectedIndex] && combos[select.selectedIndex].providerName;
+    if (supportsWebSearch(p)) {
+      webCheckbox.disabled = false;
+      webText.textContent = `Allow the model to invoke web search (on ${p}, when chat alone can't answer).`;
+    } else {
+      webCheckbox.disabled = true;
+      webText.textContent = `Web search isn't supported on ${p} yet (Anthropic + Google only). The Ask call will answer strictly from the chat.`;
+    }
+  };
+  webRow.appendChild(webCheckbox);
+  webRow.appendChild(webText);
+  body.appendChild(webRow);
+
   // Live cost estimate
   const costBox = document.createElement("div");
   costBox.className = "tune-cost-box";
   body.appendChild(costBox);
+
+  function getSelectedCap() {
+    for (const r of capRadios) if (r.checked) return parseInt(r.value, 10);
+    return DEFAULT_MAX_TOKENS;
+  }
+  function getSelectedAskCap() {
+    for (const r of askCapRadios) if (r.checked) return parseInt(r.value, 10);
+    return ASK_DEFAULT_CAP;
+  }
 
   function paintReadouts() {
     const budget = parseInt(slider.value, 10);
     const inputTokens = Math.round(budget / TUNE_CHARS_PER_TOKEN);
     budgetReadout.textContent = `${budget.toLocaleString()} chars (~${inputTokens.toLocaleString()} tokens)`;
     const combo = combos[select.selectedIndex];
-    const est = estimateCostUsd({ inputChars: budget, modelInfo: combo && combo.info });
+    const cap = getSelectedCap();
+    const est = estimateCostUsd({ inputChars: budget, modelInfo: combo && combo.info, maxTokens: cap });
     if (!est) {
       costBox.innerHTML = "<em>No pricing data for this model.</em>";
       return;
@@ -3020,16 +3626,21 @@ function openTuneModelModal() {
     costBox.innerHTML = `
       <div class="tune-cost-row"><span>Input</span>
         <span>${est.inputTokens.toLocaleString()} tokens · ${formatUsd(est.inputUsd)}</span></div>
-      <div class="tune-cost-row"><span>Output (est. ~${TUNE_OUTPUT_TOKENS_EST} tokens)</span>
+      <div class="tune-cost-row"><span>Output (est. ~${est.outputTokens.toLocaleString()} of ${est.cap.toLocaleString()} cap)</span>
         <span>${formatUsd(est.outputUsd)}</span></div>
       <div class="tune-cost-row tune-cost-total"><span>Per ✨ click</span>
         <span>${formatUsd(est.totalUsd)}</span></div>
-      <div class="tune-cost-note">Estimate uses the provider's public per-million-token input + output pricing. Output is capped at 1024 tokens; most summaries land lower.</div>
+      <div class="tune-cost-note">Estimate uses the provider's public per-million-token input + output pricing. Raise the output cap if briefings keep truncating mid-sentence.</div>
     `;
   }
   paintReadouts();
+  renderWebSupportNote();
   slider.addEventListener("input", paintReadouts);
-  select.addEventListener("change", paintReadouts);
+  select.addEventListener("change", () => {
+    paintReadouts();
+    renderWebSupportNote();
+  });
+  for (const r of capRadios) r.addEventListener("change", paintReadouts);
 
   // Footer
   const footer = document.createElement("footer");
@@ -3046,10 +3657,19 @@ function openTuneModelModal() {
   save.addEventListener("click", () => {
     const combo = combos[select.selectedIndex];
     const budget = parseInt(slider.value, 10);
+    const cap = getSelectedCap();
+    const askCap = getSelectedAskCap();
+    // Web search: persist the checkbox state. We keep the value even
+    // when the checkbox is disabled (unsupported provider) so switching
+    // back to a supported provider later restores the user's intent.
+    const askWeb = !!webCheckbox.checked;
     if (!combo) return closeTuneModelModal();
     state.aiProvider = combo.providerName;
     state.aiModel = combo.modelId;
     state.aiBudgetChars = budget;
+    state.aiMaxTokens = cap;
+    state.aiAskMaxTokens = askCap;
+    state.aiAskWebSearch = askWeb;
     try {
       chrome.storage &&
         chrome.storage.local &&
@@ -3057,6 +3677,9 @@ function openTuneModelModal() {
           bssc_ai_provider: combo.providerName,
           bssc_ai_model: combo.modelId,
           bssc_ai_budget_chars: budget,
+          bssc_ai_max_tokens: cap,
+          bssc_ai_ask_max_tokens: askCap,
+          bssc_ai_ask_web_search: askWeb,
         });
     } catch (_) {}
     closeTuneModelModal();
@@ -4113,12 +4736,7 @@ function bindEventHandlers() {
       goToLatest({ clearFilters: true });
     });
 
-  const aiBtn = document.getElementById("aiInsightsBtn");
-  if (aiBtn) {
-    aiBtn.addEventListener("click", () => {
-      handleAiInsightsClick();
-    });
-  }
+  wireAiMenu();
 
   const kebabBtn = document.getElementById("kebabMenuBtn");
   if (kebabBtn) {

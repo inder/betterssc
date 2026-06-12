@@ -4,7 +4,22 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
-### Added
+## [0.3.0] — 2026-06-11
+
+### Added (this release — Ask BetterSSC AI)
+- **Ask BetterSSC AI.** Free-form Q&A grounded in the chat. The `✨ AI` header button is now a hover dropdown with two actions: `Generate AI Summary` (the existing one-click insights flow) and `Ask BetterSSC AI` (new). The Ask action opens a textarea; type any question and the entire visible chat is stuffed into the system prompt (up to the provider's context window — Anthropic 200K fits whole, OpenAI 128K truncates oldest-first with a footer note). Default 4096 output tokens.
+- **Native web search in Ask mode.** When the active provider is Anthropic (`web_search_20250305`) or Google Gemini (`google_search` grounding), the model can pull in outside context to complement the chat. Citations come back as a numbered "Sources" list of clickable links inside the response. OpenAI is marked unsupported until the Responses API migration lands (web search lives on a separate endpoint).
+- **Three-section sourced rendering.** Ask responses render as labeled sections: `💬 From the chat` (accent bar), `🌐 From the web` (success-green bar), `✦ Synthesis` (warning bar). Each section is colored so you can tell at a glance which claims came from where. The user's question echoes in a `Q` badge at the top.
+- **Tunable output token cap.** Tune AI model dialog gains a `Summary output cap` radio (1024 / 2048 / 4096, default 2048) and an `Ask output cap` row (default 4096). Fixes the user-reported truncation bug where briefings cut off mid-sentence (e.g. "Will CIEN hold above 20-"). Power users can dial up to 4096 for dense market briefings or down to 1024 to save on cost.
+- **Per-Ask web search toggle.** Default ON; auto-disables and re-labels when the active provider is OpenAI. The toggle state persists even when disabled (provider-dependent UI state ≠ user intent), so switching to a supported provider restores your choice.
+- **Clickable `[text](url)` links in AI bodies.** The tiny markdown subset that renders AI messages now turns `[Title](https://example.com)` into a real anchor (opens new tab, `rel="noopener noreferrer"`). Restricted to `http(s)` schemes — `javascript:` / `data:` fall through unlinked. Citation URLs from provider responses also get scheme-checked at parse time. Wikipedia-style URLs with balanced parens (`/wiki/Foo_(bar)`) no longer truncate.
+- **Keyboard nav on the `*AI` dropdown.** `ArrowDown` / `Enter` / `Space` on the trigger opens the menu and focuses the first item. `ArrowUp` opens and focuses the last. Inside the menu, `ArrowDown` / `ArrowUp` cycle (wrapping at both ends). `Esc` closes and returns focus to the trigger. Honors the WAI-ARIA `role="menu"` contract.
+
+### Changed (this release)
+- **Default output cap raised 1024 → 2048.** Long market briefings (multi-stock + Open Questions tail) were routinely hitting the 1024 ceiling and truncating mid-token. 2048 covers typical briefings with headroom.
+- **Provider error strings are bounded + scrubbed.** Provider error messages render at 200-char cap with `sk-…` patterns masked, so an accidental key fragment in a verbose server error can't survive into the visible DOM.
+
+### Added (since 0.2.4)
 - **Bare-ticker auto-linking.** Tickers without a `$` prefix (`AAPL`, `TSLA`, `BTC`, `SPY`, `QQQ`, etc.) now auto-link to the TradingView modal, same as `$TICKER` does. Backed by a curated ~300-symbol allowlist (S&P top, broad/sector/leveraged ETFs, top cryptos, indices). Case-sensitive ALL-CAPS only — `Meta` / `meta` stay as text; only `META` links. Single-letter and 2-letter tickers are excluded to keep the false-positive rate down.
 - **Quick-react strip in the hover toolbar.** Hovering a message now shows the top 4 emojis used in the current chat *before* the existing `+` (full picker) and `↩` (reply) buttons. Click any to react directly, no picker dance. Sourced from the same `topReactionsInChat()` helper that powers the picker's "Frequently used" row, so the strip and the picker top row agree.
 - **Click-to-react on existing reaction pills.** The reaction pills under each message are now click-targets — tap one to add your own reaction of that type without opening the picker. Discoverable via cursor pointer + accent-tinted hover + keyboard focus ring.

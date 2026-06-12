@@ -8,6 +8,11 @@ import {
   formatMessagesForLLM,
   buildSystemPrompt,
   buildPreviewUserMessage,
+  buildAskSystemPrompt,
+  buildAskUserMessage,
+  parseAskSections,
+  ASK_DEFAULT_BUDGET_CHARS,
+  ASK_FORMAT_INSTRUCTIONS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
 } from "../lib/ai-context.js";
@@ -508,5 +513,203 @@ describe("buildSystemPrompt — reading guidance", () => {
   it("warns against carrying a ticker from an earlier unrelated message", () => {
     const p = buildSystemPrompt("[12:00] A: hi");
     expect(p).toContain("Never carry a ticker over from an earlier, unrelated message");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAskSystemPrompt — free-form Q&A grounded in the chat
+// ---------------------------------------------------------------------------
+
+describe("buildAskSystemPrompt", () => {
+  it("embeds the chat context between fence markers", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hello");
+    expect(p).toContain("CHAT CONTEXT (oldest → newest):");
+    expect(p).toContain("[12:00] A: hello");
+  });
+
+  it("includes the 3-section format instructions", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("**From the chat**");
+    expect(p).toContain("**From the web**");
+    expect(p).toContain("**Synthesis**");
+  });
+
+  it("embeds the same instruction block exported as ASK_FORMAT_INSTRUCTIONS", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain(ASK_FORMAT_INSTRUCTIONS);
+  });
+
+  it("with webSearchEnabled:true tells the model it has a web_search tool", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", { webSearchEnabled: true });
+    expect(p).toContain("web_search tool");
+    expect(p).toContain("ONLY when the chat alone cannot answer");
+    // Should NOT instruct it to refuse web lookups.
+    expect(p).not.toMatch(/do NOT have access to web search/);
+  });
+
+  it("with webSearchEnabled:false tells the model to stay strictly in-chat", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", { webSearchEnabled: false });
+    expect(p).toContain("do NOT have access to web search");
+    expect(p).toContain("do NOT invent facts from your training data");
+  });
+
+  it("defaults to the trading lens hint when lensHint omitted", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("uses a custom lens hint when provided", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi", {
+      lensHint: "This is a Substack writers' room. Focus on craft and editorial decisions.",
+    });
+    expect(p).toContain("Substack writers' room");
+    expect(p).not.toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("preserves the same reply-attribution rule used in summary mode", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("replying to X");
+    expect(p).toContain("NOT to the speaker's own earlier messages");
+  });
+
+  it("tells the model to say so when the chat can't answer (no fabricating)", () => {
+    const p = buildAskSystemPrompt("[12:00] A: hi");
+    expect(p).toContain("don't fabricate");
+  });
+});
+
+describe("buildAskUserMessage", () => {
+  it("returns the trimmed question", () => {
+    expect(buildAskUserMessage("  what's the thesis on CRWV?  ")).toBe(
+      "what's the thesis on CRWV?"
+    );
+  });
+  it("returns empty string for nullish input (caller catches before submit)", () => {
+    expect(buildAskUserMessage(null)).toBe("");
+    expect(buildAskUserMessage(undefined)).toBe("");
+    expect(buildAskUserMessage("")).toBe("");
+  });
+});
+
+describe("ASK_DEFAULT_BUDGET_CHARS", () => {
+  it("is generous enough that Anthropic 200K fits whole chat", () => {
+    // 200K tokens ≈ 800K chars at 4 chars/token. Budget at 750K leaves
+    // ~50K char headroom for the system prompt + response. Tight lower
+    // bound at 700K guards against an accidental reduction landing the
+    // budget below OpenAI's 128K (512K chars) cliff and reading as "fits."
+    expect(ASK_DEFAULT_BUDGET_CHARS).toBeGreaterThan(700_000);
+    expect(ASK_DEFAULT_BUDGET_CHARS).toBeLessThan(900_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseAskSections — extract the model's 3-section response
+// ---------------------------------------------------------------------------
+
+describe("parseAskSections", () => {
+  it("extracts all three sections from a well-formatted response", () => {
+    const text = `**From the chat**
+Za said CRWV looks strong above 220.
+
+**From the web**
+Per Reuters, CRWV closed at 224 yesterday.
+
+**Synthesis**
+Both sources align: above 220 is the bull case.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong above 220.");
+    expect(r.fromWeb).toBe("Per Reuters, CRWV closed at 224 yesterday.");
+    expect(r.synthesis).toBe("Both sources align: above 220 is the bull case.");
+    expect(r.preamble).toBe("");
+  });
+
+  it("tolerates a trailing colon after the section header", () => {
+    const text = `**From the chat**:
+Za said CRWV looks strong.
+
+**Synthesis**:
+Watch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
+  it("tolerates an em-dash after the section header", () => {
+    const text = `**From the chat** — Za said CRWV looks strong.\n\n**Synthesis** — Watch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
+  it("is case-insensitive on the header text", () => {
+    const text = `**FROM THE CHAT**\nZa said.\n\n**synthesis**\nBuy.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said.");
+    expect(r.synthesis).toBe("Buy.");
+  });
+
+  it("returns empty strings for sections the model omitted", () => {
+    const text = `**From the chat**\nZa said CRWV looks strong.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV looks strong.");
+    expect(r.fromWeb).toBe("");
+    expect(r.synthesis).toBe("");
+  });
+
+  it("captures a preamble before the first section header", () => {
+    const text = `Quick take on your question:\n\n**From the chat**\nZa said yes.`;
+    const r = parseAskSections(text);
+    expect(r.preamble).toBe("Quick take on your question:");
+    expect(r.fromChat).toBe("Za said yes.");
+  });
+
+  it("treats an entirely format-less response as a preamble", () => {
+    const text = `The chat doesn't have enough information to answer that question.`;
+    const r = parseAskSections(text);
+    expect(r.preamble).toBe(text);
+    expect(r.fromChat).toBe("");
+    expect(r.fromWeb).toBe("");
+    expect(r.synthesis).toBe("");
+  });
+
+  it("returns an all-empty result for null / empty input", () => {
+    expect(parseAskSections(null)).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+    expect(parseAskSections("")).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+    expect(parseAskSections(undefined)).toEqual({
+      preamble: "", fromChat: "", fromWeb: "", synthesis: "",
+    });
+  });
+
+  it("preserves markdown inside section bodies (bullets, bold)", () => {
+    const text = `**From the chat**
+- **Za** said CRWV looks strong
+- **Mike** is bearish below 215
+
+**Synthesis**
+Range is 215-225.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toContain("- **Za** said CRWV looks strong");
+    expect(r.fromChat).toContain("- **Mike** is bearish below 215");
+    expect(r.synthesis).toBe("Range is 215-225.");
+  });
+
+  it("handles double-newline after the section header", () => {
+    // Standard markdown paragraph separation — header, blank line, body.
+    const text = `**From the chat**\n\nZa said CRWV is strong.\n\n**Synthesis**\n\nWatch 220.`;
+    const r = parseAskSections(text);
+    expect(r.fromChat).toBe("Za said CRWV is strong.");
+    expect(r.synthesis).toBe("Watch 220.");
+  });
+
+  it("handles a response where the model only used Synthesis", () => {
+    const text = `**Synthesis**\nNo chat coverage of this; treat as out-of-scope.`;
+    const r = parseAskSections(text);
+    expect(r.synthesis).toBe("No chat coverage of this; treat as out-of-scope.");
+    expect(r.fromChat).toBe("");
+    expect(r.fromWeb).toBe("");
   });
 });

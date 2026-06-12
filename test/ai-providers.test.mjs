@@ -14,6 +14,10 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_OPTIONS,
+  supportsWebSearch,
+  ANTHROPIC_WEB_SEARCH_MAX_USES,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -421,6 +425,410 @@ describe("getModelInfo", () => {
 // ---------------------------------------------------------------------------
 // model override via params.model — verifies the new Tune AI Model wiring
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Output cap (max_tokens) — default + override + clamp + per-provider field
+// ---------------------------------------------------------------------------
+
+describe("output cap defaults + overrides", () => {
+  it("DEFAULT_MAX_TOKENS is 2048 (raised from 1024 to cover long briefings)", () => {
+    expect(DEFAULT_MAX_TOKENS).toBe(2048);
+  });
+
+  it("MAX_TOKENS_OPTIONS is the UI selector set [1024, 2048, 4096]", () => {
+    expect(MAX_TOKENS_OPTIONS).toEqual([1024, 2048, 4096]);
+  });
+
+  it("openai max_tokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(2048);
+  });
+
+  it("openai max_tokens uses params.maxTokens when provided", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 4096,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(4096);
+  });
+
+  it("anthropic max_tokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(2048);
+  });
+
+  it("anthropic max_tokens uses params.maxTokens when provided", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 4096,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(4096);
+  });
+
+  it("google maxOutputTokens defaults to 2048 when params.maxTokens omitted", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(2048);
+  });
+
+  it("google maxOutputTokens uses params.maxTokens when provided", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 1024,
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(1024);
+  });
+
+  it("clamps insanely high maxTokens to 8192 ceiling", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 999_999,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(8192);
+  });
+
+  it("clamps tiny maxTokens to 256 floor (prevents broken-response zero/negative)", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: 0,
+    });
+    expect(JSON.parse(init.body).max_tokens).toBe(256);
+  });
+
+  it("falls back to DEFAULT_MAX_TOKENS when maxTokens is non-numeric garbage", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      maxTokens: "not-a-number",
+    });
+    expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBe(DEFAULT_MAX_TOKENS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Web search tool — native attachment per provider, citation parsing
+// ---------------------------------------------------------------------------
+
+describe("supportsWebSearch", () => {
+  it("returns true for anthropic (native web_search tool)", () => {
+    expect(supportsWebSearch("anthropic")).toBe(true);
+  });
+  it("returns true for google (googleSearch grounding)", () => {
+    expect(supportsWebSearch("google")).toBe(true);
+  });
+  it("returns false for openai (Responses API migration pending)", () => {
+    expect(supportsWebSearch("openai")).toBe(false);
+  });
+  it("returns false for unknown providers", () => {
+    expect(supportsWebSearch("xai")).toBe(false);
+    expect(supportsWebSearch("")).toBe(false);
+    expect(supportsWebSearch(null)).toBe(false);
+  });
+});
+
+describe("buildRequest with webSearchEnabled", () => {
+  it("anthropic attaches web_search_20250305 tool when enabled", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    const body = JSON.parse(init.body);
+    expect(Array.isArray(body.tools)).toBe(true);
+    expect(body.tools).toHaveLength(1);
+    expect(body.tools[0]).toEqual({
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: ANTHROPIC_WEB_SEARCH_MAX_USES,
+    });
+  });
+
+  it("ANTHROPIC_WEB_SEARCH_MAX_USES is a reasonable cap (3-10 range)", () => {
+    expect(ANTHROPIC_WEB_SEARCH_MAX_USES).toBeGreaterThanOrEqual(3);
+    expect(ANTHROPIC_WEB_SEARCH_MAX_USES).toBeLessThanOrEqual(10);
+  });
+
+  it("anthropic omits tools when webSearchEnabled is false", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: false,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("anthropic omits tools when webSearchEnabled is omitted", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("google attaches google_search tool when enabled", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    const body = JSON.parse(init.body);
+    expect(Array.isArray(body.tools)).toBe(true);
+    expect(body.tools[0]).toEqual({ google_search: {} });
+  });
+
+  it("google omits tools when webSearchEnabled is false", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: false,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+
+  it("openai ignores webSearchEnabled (no native chat-completions tool)", () => {
+    // Even when caller passes webSearchEnabled:true, openai.buildRequest
+    // does NOT attach a tool — supportsWebSearch returns false so the
+    // call-site is supposed to gate this. Defense-in-depth: even if it
+    // got through, no broken tool config lands in the request.
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      webSearchEnabled: true,
+    });
+    expect(JSON.parse(init.body).tools).toBeUndefined();
+  });
+});
+
+describe("google.parseResponse — groundingMetadata citations", () => {
+  it("extracts text + citations from a grounded response", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "SPX closed at 7400." }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "A" } },
+              { web: { uri: "https://example.com/b", title: "B" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.text).toBe("SPX closed at 7400.");
+    expect(res.citations).toEqual([
+      { url: "https://example.com/a", title: "A", snippet: "" },
+      { url: "https://example.com/b", title: "B", snippet: "" },
+    ]);
+  });
+
+  it("dedupes citations by URL", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "First seen" } },
+              { web: { uri: "https://example.com/a", title: "Duplicate" } },
+              { web: { uri: "https://example.com/b", title: "B" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(2);
+    expect(res.citations[0].title).toBe("First seen");
+    expect(res.citations[1].url).toBe("https://example.com/b");
+  });
+
+  it("falls back to url as title when title is missing", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [{ web: { uri: "https://example.com/x" } }],
+          },
+        },
+      ],
+    });
+    expect(res.citations[0].title).toBe("https://example.com/x");
+  });
+
+  it("skips chunks with no web object or no uri", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "https://example.com/a", title: "A" } },
+              {}, // no web
+              { web: {} }, // web with no uri
+              { web: { uri: "", title: "empty uri" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(1);
+  });
+
+  it("returns {text} without citations when groundingMetadata is absent", () => {
+    const res = google.parseResponse({
+      candidates: [{ content: { parts: [{ text: "plain answer" }] } }],
+    });
+    expect(res).toEqual({ text: "plain answer" });
+    expect(res.citations).toBeUndefined();
+  });
+
+  it("rejects javascript: and data: URIs at the parse boundary", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "x" }] },
+          groundingMetadata: {
+            groundingChunks: [
+              { web: { uri: "javascript:alert(1)", title: "Pwn" } },
+              { web: { uri: "https://example.com/ok", title: "OK" } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(res.citations).toHaveLength(1);
+    expect(res.citations[0].url).toBe("https://example.com/ok");
+  });
+});
+
+describe("anthropic.parseResponse — citations extraction", () => {
+  it("extracts text + citations from a web-search-aware response", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        { type: "server_tool_use", name: "web_search", input: { query: "spx today" } },
+        {
+          type: "web_search_tool_result",
+          content: [
+            { type: "web_search_result", url: "https://example.com/a", title: "A" },
+          ],
+        },
+        {
+          type: "text",
+          text: "SPX closed at 7400.",
+          citations: [
+            {
+              type: "web_search_result_location",
+              url: "https://example.com/a",
+              title: "A",
+              cited_text: "SPX closed at 7400 today",
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.text).toBe("SPX closed at 7400.");
+    expect(res.citations).toEqual([
+      {
+        url: "https://example.com/a",
+        title: "A",
+        snippet: "SPX closed at 7400 today",
+      },
+    ]);
+  });
+
+  it("dedupes citations by URL across multiple text blocks", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        {
+          type: "text",
+          text: "First. ",
+          citations: [{ url: "https://example.com/a", title: "A", cited_text: "first" }],
+        },
+        {
+          type: "text",
+          text: "Second.",
+          citations: [
+            { url: "https://example.com/a", title: "A (dup)", cited_text: "dup snippet" },
+            { url: "https://example.com/b", title: "B", cited_text: "b text" },
+          ],
+        },
+      ],
+    });
+    expect(res.text).toBe("First. Second.");
+    expect(res.citations).toHaveLength(2);
+    // First-seen wins for duplicates.
+    expect(res.citations[0]).toEqual({
+      url: "https://example.com/a",
+      title: "A",
+      snippet: "first",
+    });
+    expect(res.citations[1].url).toBe("https://example.com/b");
+  });
+
+  it("rejects javascript: and data: URLs at the parse boundary", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        {
+          type: "text",
+          text: "Look here.",
+          citations: [
+            { url: "javascript:alert(1)", title: "Pwn", cited_text: "" },
+            { url: "data:text/html,<script>x</script>", title: "Data", cited_text: "" },
+            { url: "https://example.com/ok", title: "OK", cited_text: "" },
+          ],
+        },
+      ],
+    });
+    // Only the https URL survives.
+    expect(res.citations).toHaveLength(1);
+    expect(res.citations[0].url).toBe("https://example.com/ok");
+  });
+
+  it("returns {text} with no citations key when none are present (backwards-compatible)", () => {
+    const res = anthropic.parseResponse({
+      content: [{ type: "text", text: "plain answer" }],
+    });
+    expect(res).toEqual({ text: "plain answer" });
+    expect(res.citations).toBeUndefined();
+  });
+
+  it("falls back to error when content has no text block", () => {
+    const res = anthropic.parseResponse({
+      content: [
+        { type: "server_tool_use", name: "web_search", input: { query: "x" } },
+      ],
+    });
+    expect(res.error).toBeTruthy();
+  });
+});
 
 describe("buildRequest with params.model override", () => {
   it("openai uses params.model in the JSON body when provided", () => {
