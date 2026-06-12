@@ -1,12 +1,12 @@
 {
-  "sha": "00eea6d",
-  "branch": "feat/bssc-ask-mode-v0.3.0",
-  "ts": "2026-06-11T19:46:30Z",
+  "sha": "staged",
+  "branch": "feat/bg-prefetch",
+  "ts": "2026-06-11T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "8-commit series, 867 net behavior LOC, two new major features, new provider API contract for web_search tool — all retro triggers met",
-  "critical_count": 0,
-  "should_fix_count": 2,
-  "nit_count": 1,
-  "files_reviewed": 7
+  "retro_reasoning": "Diff is well over 200 lines of behavior code, touches a new feature with a stateful loop, and has a confirmed cursor-race bug between bgPrefetchOnePage and loadOlder that is a Critical finding.",
+  "critical_count": 1,
+  "should_fix_count": 3,
+  "nit_count": 2,
+  "files_reviewed": 4
 }

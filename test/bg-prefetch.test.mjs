@@ -11,6 +11,9 @@ import {
   computeRetryDelay,
   PREFETCH_BASE_DELAY_MS,
   PREFETCH_MAX_BACKOFF_MS,
+  PREFETCH_SLOT_POLL_MS,
+  PREFETCH_PILL_VISIBLE_MS,
+  PREFETCH_PILL_REMOVE_MS,
 } from "../lib/util.js";
 
 describe("PREFETCH constants", () => {
@@ -25,6 +28,18 @@ describe("PREFETCH constants", () => {
   it("base delay is well under the backoff ceiling — invariant the loop relies on", () => {
     expect(PREFETCH_BASE_DELAY_MS).toBeLessThan(PREFETCH_MAX_BACKOFF_MS);
   });
+
+  it("slot poll is faster than base page delay — `g` lands inside one pace cycle", () => {
+    expect(PREFETCH_SLOT_POLL_MS).toBeLessThan(PREFETCH_BASE_DELAY_MS);
+  });
+
+  it("pill visible window precedes the remove window", () => {
+    expect(PREFETCH_PILL_VISIBLE_MS).toBeLessThan(PREFETCH_PILL_REMOVE_MS);
+  });
+
+  it("pill fade window is at least 500ms — short enough not to block, long enough to read CSS transition", () => {
+    expect(PREFETCH_PILL_REMOVE_MS - PREFETCH_PILL_VISIBLE_MS).toBeGreaterThanOrEqual(500);
+  });
 });
 
 describe("computeRetryDelay", () => {
@@ -32,7 +47,11 @@ describe("computeRetryDelay", () => {
     expect(computeRetryDelay(null)).toBe(600);
   });
 
-  it("first 429 (prevDelay=undefined) returns 600ms — same null-ish path", () => {
+  it("first 429 (prevDelay=undefined) returns 600ms — intentional null-coercion coverage", () => {
+    // computeRetryDelay's `== null` check intentionally treats both null
+    // AND undefined as "first retry." We document this explicitly so a
+    // future cleanup that tightens the null guard doesn't accidentally
+    // change behavior for the (rare) caller that omits the argument.
     expect(computeRetryDelay(undefined)).toBe(600);
   });
 

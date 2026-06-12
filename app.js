@@ -28,6 +28,9 @@ import {
   debounce,
   chatNameAcronym,
   PREFETCH_BASE_DELAY_MS,
+  PREFETCH_SLOT_POLL_MS,
+  PREFETCH_PILL_VISIBLE_MS,
+  PREFETCH_PILL_REMOVE_MS,
   computeRetryDelay,
 } from "./lib/util.js";
 import {
@@ -614,7 +617,7 @@ function waitForHistorySlot() {
     const tick = () => {
       if (state.bgPrefetchStop) return resolve();
       if (!state.loadingHistory) return resolve();
-      setTimeout(tick, 150);
+      setTimeout(tick, PREFETCH_SLOT_POLL_MS);
     };
     tick();
   });
@@ -627,45 +630,68 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // can decide what to do next. Throws only on network/programmer errors;
 // rate limits come back as { rateLimited: true } so the loop can back
 // off without unwinding.
+//
+// MUTEX: we hold state.loadingHistory across the fetch + ingest the
+// same way loadOlder does. Without it, a user-`g` keypress mid-fetch
+// would read the SAME stale earliestISO and issue a duplicate request
+// against the same cursor — waitForHistorySlot is one-way priority,
+// not mutual exclusion, unless both ends acquire the lock.
 async function bgPrefetchOnePage() {
   if (!state.earliestISO) return { count: 0, more: false, rateLimited: false };
+  if (state.loadingHistory) {
+    // Defensive — should not happen because runChatBgPrefetch awaits
+    // waitForHistorySlot() before calling us, but a misuse from elsewhere
+    // should fail open rather than silently double-fetch.
+    return { count: 0, more: true, rateLimited: false };
+  }
+  state.loadingHistory = true;
   let res;
   try {
-    res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
-  } catch (e) {
-    // The proxy fetch wrapper in lib/api.js throws Error messages of the
-    // form "<status> on <path> — <body>". Detect 429 by anchoring on the
-    // status PREFIX so a stray "429" buried in an unrelated error body
-    // doesn't false-trigger the backoff path.
-    if (e && typeof e.message === "string" && /^429\b/.test(e.message)) {
-      return { count: 0, more: true, rateLimited: true };
+    try {
+      res = await fetchCommentsBefore(state.postUuid, state.earliestISO);
+    } catch (e) {
+      // The proxy fetch wrapper in lib/api.js throws Error messages of
+      // the form "<status> on <path> — <body>". Anchor on the leading
+      // status code with /^429\b/ so we both (a) skip the false-positive
+      // case where "429" appears in the path / body and (b) catch the
+      // real case where Substack returns 429 with arbitrary body text.
+      if (e && typeof e.message === "string" && /^429\b/.test(e.message)) {
+        return { count: 0, more: true, rateLimited: true };
+      }
+      throw e;
     }
-    throw e;
-  }
-  if (res) {
-    if (Array.isArray(res.users)) registerUserObjects(res.users);
-    if (Array.isArray(res.recent_commenters))
-      registerUserObjects(res.recent_commenters);
-  }
-  const unwrappedReplies = flattenReplies(res.replies || [])
-    .map((r) => unwrapComment(r) || r)
-    .filter((r) => r && r.created_at && r.id);
-  unwrappedReplies.sort(
-    (a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
-  let count = 0;
-  for (const c of unwrappedReplies) {
-    if (!state.comments.has(c.id)) {
-      ingestComment(c, { silent: true });
-      count++;
+    if (res) {
+      if (Array.isArray(res.users)) registerUserObjects(res.users);
+      if (Array.isArray(res.recent_commenters))
+        registerUserObjects(res.recent_commenters);
     }
+    const unwrappedReplies = flattenReplies(res.replies || [])
+      .map((r) => unwrapComment(r) || r)
+      .filter((r) => r && r.created_at && r.id);
+    unwrappedReplies.sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+    let count = 0;
+    for (const c of unwrappedReplies) {
+      if (!state.comments.has(c.id)) {
+        ingestComment(c, { silent: true });
+        count++;
+      }
+    }
+    if (unwrappedReplies.length) {
+      state.earliestISO = unwrappedReplies[0].created_at;
+    }
+    // Termination is driven by the API's moreBefore signal and whether
+    // we got any rows at all — NOT by dedup count. Tying termination to
+    // count > 0 would prematurely set moreBefore=false on an empty-but-
+    // not-final page, permanently disabling user-initiated `g` for the
+    // rest of the session.
+    const more = res.moreBefore !== false && unwrappedReplies.length > 0;
+    return { count, more, rateLimited: false };
+  } finally {
+    state.loadingHistory = false;
   }
-  if (unwrappedReplies.length) {
-    state.earliestISO = unwrappedReplies[0].created_at;
-  }
-  const more = res.moreBefore !== false && count > 0;
-  return { count, more, rateLimited: false };
 }
 
 // Top-level orchestrator. Idempotent across the session: bgPrefetchDone
@@ -725,12 +751,22 @@ async function runChatBgPrefetch() {
 }
 
 // Small bottom-left toast confirming completion. Auto-dismisses after
-// 3s. We intentionally don't reuse the "↓ N new messages" pill because
-// that one carries different semantics (unread count → scroll-down
-// affordance); reusing it would confuse the user about what to click.
+// PREFETCH_PILL_REMOVE_MS. We intentionally don't reuse the "↓ N new
+// messages" pill because that one carries different semantics (unread
+// count → scroll-down affordance); reusing it would confuse the user
+// about what to click.
+//
+// Timer IDs are stored on the DOM node so a second completion landing
+// inside the lifetime window (or a manual teardown) can cancel the
+// pending fade/remove timers. Without this, an old removed-from-DOM
+// node would still own dangling timers that fire on a detached node.
 function showBgPrefetchPill(_delta, totalLoaded) {
   const existing = document.getElementById("bgPrefetchPill");
-  if (existing) existing.remove();
+  if (existing) {
+    if (existing._fadeTimer) clearTimeout(existing._fadeTimer);
+    if (existing._removeTimer) clearTimeout(existing._removeTimer);
+    existing.remove();
+  }
   const pill = document.createElement("div");
   pill.id = "bgPrefetchPill";
   pill.className = "bg-prefetch-pill";
@@ -738,9 +774,11 @@ function showBgPrefetchPill(_delta, totalLoaded) {
   pill.setAttribute("aria-live", "polite");
   pill.textContent = `✓ Full chat loaded (${totalLoaded.toLocaleString()} message${totalLoaded === 1 ? "" : "s"})`;
   document.body.appendChild(pill);
-  // Fade out via CSS class after a short window, then remove from DOM.
-  setTimeout(() => pill.classList.add("is-leaving"), 2500);
-  setTimeout(() => pill.remove(), 3500);
+  pill._fadeTimer = setTimeout(
+    () => pill.classList.add("is-leaving"),
+    PREFETCH_PILL_VISIBLE_MS
+  );
+  pill._removeTimer = setTimeout(() => pill.remove(), PREFETCH_PILL_REMOVE_MS);
 }
 
 // Unwraps the various shapes a Substack comment can arrive in.
