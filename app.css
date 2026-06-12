@@ -894,6 +894,33 @@ button {
   font-size: 11px;
 }
 
+/* Background-prefetch completion toast. Bottom-left so it doesn't
+   compete with the bottom-center "↓ N new messages" pill or the
+   header status. Fades out via the .is-leaving modifier. */
+.bg-prefetch-pill {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 60;
+  background: var(--success-bg-strong, rgba(26, 138, 68, 0.22));
+  color: var(--success, #1a8a44);
+  border: 1px solid var(--success, #1a8a44);
+  border-radius: 18px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 600ms ease, transform 600ms ease;
+  pointer-events: none;
+}
+.bg-prefetch-pill.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 .new-message-jump {
   /* Sticky so it floats at the bottom of the visible scroll viewport
      even when the user has scrolled up past the natural end-of-feed.

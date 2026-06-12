@@ -1,12 +1,12 @@
 {
-  "sha": "00eea6d",
-  "branch": "feat/bssc-ask-mode-v0.3.0",
-  "ts": "2026-06-11T19:46:30Z",
+  "sha": "8e9f3b67e0a1f86e9b0bb562576d265183f270fd",
+  "branch": "feat/bg-chat-prefetch",
+  "ts": "2026-06-11T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "8-commit series, 867 net behavior LOC, two new major features, new provider API contract for web_search tool — all retro triggers met",
+  "retro_reasoning": "470 LOC diff, new stateful async loop, 2-commit series with prior critical finding, and moreBefore divergence between loadOlder and bgPrefetchOnePage is a should-fix that survived commit 2.",
   "critical_count": 0,
   "should_fix_count": 2,
-  "nit_count": 1,
-  "files_reviewed": 7
+  "nit_count": 2,
+  "files_reviewed": 5
 }
