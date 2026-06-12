@@ -1599,15 +1599,16 @@ button {
   display: none;
   z-index: 50;
 }
-/* Invisible hover bridge so cursor crossing the gap between button and
-   menu doesn't dismiss the pop. */
+/* Invisible hover bridge so cursor crossing the 6px gap between button
+   and menu doesn't dismiss the pop. 8px reach gives the cursor a small
+   velocity margin without overlapping any clickable surface. */
 .ai-menu-pop::before {
   content: "";
   position: absolute;
-  top: -8px;
+  top: -6px;
   left: 0;
   right: 0;
-  height: 10px;
+  height: 8px;
 }
 .ai-menu:hover .ai-menu-pop,
 .ai-menu:focus-within .ai-menu-pop,

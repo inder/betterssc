@@ -2532,7 +2532,7 @@ function wireAiMenu() {
   // Dropdown item routing — delegated so a re-render of menu contents
   // (none today, but cheap insurance) doesn't strand listeners.
   menu.addEventListener("click", (e) => {
-    const item = e.target && e.target.closest && e.target.closest(".ai-menu-item");
+    const item = e.target.closest(".ai-menu-item");
     if (!item) return;
     const action = item.getAttribute("data-ai-action");
     setOpen(false);
@@ -2547,6 +2547,42 @@ function wireAiMenu() {
   // dangling on touch devices that don't fire hover-out.
   document.addEventListener("click", (e) => {
     if (!menu.contains(e.target)) setOpen(false);
+  });
+
+  // Keyboard contract for role=menu / role=menuitem: ArrowDown / ArrowUp
+  // cycle focus between items; Esc closes and returns focus to the trigger.
+  // Without this, a keyboard-only user who opened the menu via Enter/Space
+  // on the trigger has no way to reach the items — the WAI-ARIA menu role
+  // advertises a contract we have to honor.
+  const getItems = () =>
+    Array.from(menu.querySelectorAll(".ai-menu-item"));
+
+  btn.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setOpen(true);
+      const items = getItems();
+      if (items[0]) items[0].focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setOpen(true);
+      const items = getItems();
+      if (items.length) items[items.length - 1].focus();
+    }
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = getItems();
+    if (!items.length) return;
+    const active = document.activeElement;
+    const idx = items.indexOf(active);
+    e.preventDefault();
+    const next =
+      e.key === "ArrowDown"
+        ? items[(idx + 1 + items.length) % items.length]
+        : items[(idx - 1 + items.length) % items.length];
+    next.focus();
   });
 
   // Esc closes — match the modal / picker convention.
