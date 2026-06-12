@@ -5,6 +5,7 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 ## [Unreleased]
 
 ### Added
+- **Send images and GIFs (PNG / JPEG / GIF / WebP).** New 📎 button in the composer + drag-drop onto the composer area + clipboard paste — all three intake paths funnel into a staged-attachment preview chip above the textarea. Click Send and BetterSSC runs Substack's 3-step upload (register → PUT binary → comment POST) the same way the native client does. Wire decoded via DevTools HAR captures, not inferred. Default max 10 MB per attachment; allow-list restricts MIME so we never POST a `content_type` Substack might reject. Optimistic preview renders instantly via the local `blob:` Object URL, then swaps to the real CDN URL when the server-reconciled comment lands.
 - **Silent background chat prefetch.** After the initial 25-message page lands, BetterSSC walks every older page in sequence so `g` (scroll-up history) is instant from there on. Default ON; toggle in kebab → `Chat preferences`. 300ms between page fetches with exponential backoff on 429 (600/1200/2400ms then give up silently). User-initiated `g` keeps priority — the bg loop waits for `state.loadingHistory` to clear before each fetch. `renderAll()` fires exactly once at completion so the feed never reflows mid-read. Completion flashes a bottom-left `✓ Full chat loaded (N messages)` pill that auto-dismisses after 3s.
 
 ## [0.3.0] — 2026-06-11

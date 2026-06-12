@@ -230,7 +230,26 @@
             aria-label="Cancel reply"
           >×</button>
         </div>
+        <div
+          class="composer-attachment hidden"
+          id="composerAttachment"
+          aria-live="polite"
+        ></div>
         <div class="composer-row">
+          <button
+            type="button"
+            id="composerAttachBtn"
+            class="composer-attach"
+            title="Attach a file or image"
+            aria-label="Attach a file"
+          >📎</button>
+          <input
+            type="file"
+            id="composerFileInput"
+            class="composer-file-input"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            aria-hidden="true"
+          />
           <textarea
             id="composerInput"
             class="composer-input"
@@ -248,6 +267,11 @@
           >Send</button>
         </div>
         <div class="composer-mention hidden" id="composerMention" role="listbox"></div>
+        <div
+          class="composer-drop-hint hidden"
+          id="composerDropHint"
+          aria-hidden="true"
+        >Drop image to attach</div>
       </div>
 
       <footer class="footer">

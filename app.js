@@ -2017,6 +2017,12 @@ function extractAttachmentUrl(a) {
 
 function isImageUrl(url) {
   if (!url) return false;
+  // blob: URLs are produced by URL.createObjectURL on the staged-
+  // attachment preview path — we know they're images because the
+  // composer validates MIME against COMPOSER_ATTACH_MIMES before
+  // generating them. data: URLs aren't used today but get the same
+  // pass for symmetry.
+  if (url.startsWith("blob:") || url.startsWith("data:image/")) return true;
   return /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?|$)/i.test(url) ||
     /substack-post-media|substackcdn|substack-cdn|cloudfront|s3\.amazonaws/.test(url);
 }
@@ -5447,6 +5453,8 @@ import {
   postComment as apiPostComment,
   fetchMentionSuggestions as apiFetchMentions,
   postReaction as apiPostReaction,
+  registerChatMediaUpload as apiRegisterMedia,
+  putChatMediaBinary as apiPutMediaBinary,
 } from "./lib/api.js";
 import { uuid as composerUuid, debounce as composerDebounce } from "./lib/util.js";
 import {
@@ -5462,7 +5470,32 @@ state.composer = state.composer || {
   pending: null,         // outgoing send in flight (commit 2)
   mentions: {},          // @name → { user_id, text } map for the buffer
   replyingTo: null,      // {id, authorName, body} when replying (commit 6)
+  // Single staged attachment for v1 — paperclip / paste / drag-drop all
+  // funnel into this slot. Shape: {file: File, blob: Blob, previewUrl:
+  // string-or-null}. Cleared on send-success, on user dismiss, or on
+  // send-failure of the upload step (we don't strand the staged blob
+  // when the upload itself fails — we keep the text in the composer
+  // and surface a retry-friendly error toast).
+  attachment: null,
 };
+
+// MIME allow-list + size cap for staged attachments. HAR captures
+// confirmed image/png + image/jpeg + image/gif work end-to-end; webp
+// is added as the only other browser-native still+animated format
+// likely to round-trip through Substack's image rendering path. Non-
+// image MIMEs aren't yet verified — gated behind the picker accept
+// attribute AND a runtime check.
+const COMPOSER_ATTACH_MIMES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+// HAR-confirmed up to 1.8 MB (JPEG); 10 MB matches Substack's likely
+// server-side limit for image attachments. Files above this are
+// rejected client-side with a clear error rather than wasting an
+// upload round-trip.
+const COMPOSER_ATTACH_MAX_BYTES = 10 * 1024 * 1024;
 
 function mountComposer() {
   const composer = document.getElementById("composer");
@@ -5472,10 +5505,13 @@ function mountComposer() {
   if (!input || !sendBtn) return;
 
   // Enable / disable the Send button based on input contents + in-flight.
+  // A staged attachment is enough to enable Send on its own — Substack
+  // accepts an empty-body comment when an attachment is present.
   const refreshSendBtn = () => {
     const txt = input.value || "";
     const empty = txt.trim().length === 0;
-    sendBtn.disabled = empty || !!state.composer.pending;
+    const hasAttachment = !!state.composer.attachment;
+    sendBtn.disabled = (empty && !hasAttachment) || !!state.composer.pending;
   };
 
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
@@ -5527,6 +5563,201 @@ function mountComposer() {
 
   // Make sure the reply bar starts hidden (state may carry over on hot reload).
   renderComposerReplyBar();
+
+  // Commit (this branch): attachment wiring — paperclip, drag-drop, paste.
+  wireComposerAttachments(composer, input);
+}
+
+// ============================================================
+// COMPOSER ATTACHMENTS — paperclip + paste + drag-drop
+// ============================================================
+//
+// Single staged-attachment state lives on state.composer.attachment.
+// Three intake paths funnel into stageAttachment(file):
+//
+//   1. Paperclip button → hidden <input type="file"> picker
+//   2. Paste into the textarea — clipboard `Files`
+//   3. Drag-drop onto the composer area — DataTransfer `files`
+//
+// stageAttachment validates MIME + size, builds a preview Object URL,
+// stashes the File on state, and re-renders the preview chip.
+//
+// The chip lives directly above the textarea row (#composerAttachment)
+// — thumbnail + filename + size + ✕ to discard. Object URL revoked on
+// dismiss + on successful send to avoid leaks.
+
+function wireComposerAttachments(composer, input) {
+  const attachBtn = document.getElementById("composerAttachBtn");
+  const fileInput = document.getElementById("composerFileInput");
+  if (!attachBtn || !fileInput) return;
+
+  attachBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    fileInput.click();
+  });
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file) tryStageAttachment(file);
+    // Reset so picking the SAME file twice still fires `change`.
+    fileInput.value = "";
+  });
+
+  // Clipboard paste — Files[] is non-empty when the user pasted an image.
+  // We process the FIRST file we find; pasted text in the same paste
+  // event still lands in the textarea naturally (we don't preventDefault
+  // unless we actually stage something).
+  input.addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.files;
+    if (!items || !items.length) return;
+    const file = items[0];
+    if (!file) return;
+    if (tryStageAttachment(file)) {
+      // Suppress the textarea also receiving the file as a fake-text
+      // paste in some browsers.
+      e.preventDefault();
+    }
+  });
+
+  // Drag-drop. We listen on the whole composer so users can drop anywhere
+  // in the bottom bar — not just on the textarea. dragover MUST
+  // preventDefault for drop to fire on the target.
+  const dropHint = document.getElementById("composerDropHint");
+  let dragDepth = 0; // dragenter/leave fire on children; count them
+  const showHint = () => {
+    composer.classList.add("is-dragover");
+    if (dropHint) dropHint.classList.remove("hidden");
+  };
+  const hideHint = () => {
+    composer.classList.remove("is-dragover");
+    if (dropHint) dropHint.classList.add("hidden");
+  };
+  composer.addEventListener("dragenter", (e) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes("Files")) return;
+    e.preventDefault();
+    dragDepth++;
+    showHint();
+  });
+  composer.addEventListener("dragover", (e) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes("Files")) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  });
+  composer.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) hideHint();
+  });
+  composer.addEventListener("drop", (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    dragDepth = 0;
+    hideHint();
+    tryStageAttachment(e.dataTransfer.files[0]);
+  });
+}
+
+// Validate + stage. Returns true on success, false if rejected. The
+// rejection toast tells the user WHY without needing to inspect logs.
+function tryStageAttachment(file) {
+  if (!file || !file.type) {
+    showComposerError("That doesn't look like a file we can attach.");
+    return false;
+  }
+  if (!COMPOSER_ATTACH_MIMES.has(file.type)) {
+    showComposerError(
+      `Attachments are PNG / JPEG / GIF / WebP only — got ${file.type || "(unknown)"}.`
+    );
+    return false;
+  }
+  if (file.size > COMPOSER_ATTACH_MAX_BYTES) {
+    const mb = (file.size / (1024 * 1024)).toFixed(1);
+    showComposerError(
+      `That image is ${mb} MB — Substack caps chat attachments around 10 MB.`
+    );
+    return false;
+  }
+  // Discard any prior staged attachment first (revokes its preview URL
+  // so we don't leak Blob URLs across re-stages).
+  clearStagedAttachment();
+  const previewUrl = URL.createObjectURL(file);
+  state.composer.attachment = {
+    file,
+    blob: file, // File extends Blob — same instance for the PUT
+    previewUrl,
+  };
+  renderComposerAttachment();
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+  return true;
+}
+
+function clearStagedAttachment() {
+  const a = state.composer.attachment;
+  if (!a) return;
+  if (a.previewUrl) {
+    try {
+      URL.revokeObjectURL(a.previewUrl);
+    } catch (_) {}
+  }
+  state.composer.attachment = null;
+  renderComposerAttachment();
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+}
+
+function renderComposerAttachment() {
+  const wrap = document.getElementById("composerAttachment");
+  if (!wrap) return;
+  const a = state.composer.attachment;
+  if (!a) {
+    wrap.classList.add("hidden");
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.classList.remove("hidden");
+  wrap.innerHTML = "";
+
+  const thumb = document.createElement("div");
+  thumb.className = "composer-attachment-thumb";
+  if (a.previewUrl) {
+    const img = document.createElement("img");
+    img.src = a.previewUrl;
+    img.alt = "";
+    img.className = "composer-attachment-img";
+    thumb.appendChild(img);
+  } else {
+    thumb.textContent = "📎";
+  }
+  wrap.appendChild(thumb);
+
+  const meta = document.createElement("div");
+  meta.className = "composer-attachment-meta";
+  const name = document.createElement("div");
+  name.className = "composer-attachment-name";
+  name.textContent = a.file.name || "(pasted image)";
+  name.title = name.textContent;
+  const size = document.createElement("div");
+  size.className = "composer-attachment-size";
+  size.textContent = formatBytes(a.file.size);
+  meta.appendChild(name);
+  meta.appendChild(size);
+  wrap.appendChild(meta);
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "composer-attachment-remove";
+  remove.title = "Remove attachment";
+  remove.setAttribute("aria-label", "Remove attachment");
+  remove.textContent = "✕";
+  remove.addEventListener("click", (e) => {
+    e.preventDefault();
+    clearStagedAttachment();
+  });
+  wrap.appendChild(remove);
+}
+
+function formatBytes(n) {
+  if (n == null || !Number.isFinite(n)) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Renders the "Replying to X" bar above the textarea based on
@@ -5752,7 +5983,11 @@ async function submitComposer() {
   const sendBtn = document.getElementById("composerSend");
   if (!input || !sendBtn) return;
   const text = (input.value || "").trim();
-  if (!text) return;
+  // A staged attachment is enough on its own — Substack accepts comments
+  // with the media body empty (we'll send "" as body and the upload
+  // appears as the message content).
+  const attachment = state.composer.attachment;
+  if (!text && !attachment) return;
   if (state.composer.pending) return; // already in flight
   if (!state.postUuid) {
     showComposerError("No chat post loaded — refresh and try again.");
@@ -5782,6 +6017,22 @@ async function submitComposer() {
       author: replyingToSnapshot.author || null,
     };
   }
+  // Attachment preview: stamp the staged-attachment's Object URL onto
+  // the pending row so the existing appendAttachments renderer shows
+  // the image immediately. After server reconciliation, the real CDN
+  // URL replaces this — the blob URL then gets reclaimed when the
+  // pending row's DOM node is discarded.
+  if (attachment) {
+    pending.media_uploads = [
+      {
+        id: clientId,
+        type: "image",
+        content_type: attachment.file.type,
+        url: attachment.previewUrl,
+        _localPreview: true,
+      },
+    ];
+  }
   state.comments.set(clientId, pending);
   insertInOrder(pending);
   renderAll();
@@ -5792,6 +6043,13 @@ async function submitComposer() {
   // text is preserved on the failed comment itself (via pending.body).
   input.value = "";
   state.composer.mentions = {};
+  // Detach the staged attachment from state WITHOUT revoking its Object
+  // URL — the pending row still references it for the preview. The URL
+  // is reclaimed naturally when the pending DOM gets replaced by the
+  // server-reconciled row carrying the real CDN URL.
+  const stagedAttachment = state.composer.attachment;
+  state.composer.attachment = null;
+  renderComposerAttachment();
   // Clear the reply target on optimistic insert; the failed-retry path
   // re-attaches it from the pending comment's parent_id/quote.
   clearReplyTarget(state.composer);
@@ -5802,11 +6060,30 @@ async function submitComposer() {
   state.composer.pending = { id: clientId, text: rawText };
   sendBtn.classList.add("is-sending");
   sendBtn.classList.remove("is-error");
-  sendBtn.textContent = "Sending…";
+  sendBtn.textContent = stagedAttachment ? "Uploading…" : "Sending…";
   sendBtn.disabled = true;
   clearComposerError();
 
   try {
+    // Attachment upload runs BEFORE the comment POST. The server links
+    // the upload to the comment by the shared clientId — if the upload
+    // succeeds and the comment POST fails, the orphan upload gets
+    // cleaned up server-side after a grace window. Per the HAR captures,
+    // step 1 (register) returns {url, id}; step 2 (PUT) uploads the
+    // bytes; step 3 is the existing comment POST.
+    if (stagedAttachment) {
+      const reg = await apiRegisterMedia({
+        publicationId: state.publicationId,
+        commentId: clientId,
+        contentType: stagedAttachment.file.type,
+      });
+      if (!reg || !reg.url) {
+        throw new Error("Upload registration returned no URL");
+      }
+      // Swap button to "Sending…" once the binary is up.
+      await apiPutMediaBinary(reg.url, stagedAttachment.blob);
+      sendBtn.textContent = "Sending…";
+    }
     const res = await apiPostComment(state.postUuid, {
       id: clientId,
       body,
