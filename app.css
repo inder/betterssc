@@ -1350,11 +1350,16 @@ button {
   box-shadow: 0 0 0 2px var(--accent-bg-soft);
 }
 .giphy-picker-grid {
-  flex: 1;
+  /* Don't stretch to fill the 80vh modal — size to content and cap at
+     ~4 rows of tiles (4 × ~100px tile + 3 × 8px gap + 2 × 10px padding),
+     then scroll. Keeps the picker from growing as tall as the screen. */
+  flex: 0 1 auto;
+  max-height: 444px;
   overflow-y: auto;
   padding: 10px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 100px;
   gap: 8px;
   background: var(--bg-primary);
 }
@@ -1379,7 +1384,10 @@ button {
 .giphy-picker-tile-img {
   display: block;
   width: 100%;
-  height: auto;
+  /* Fill the fixed 100px row (grid-auto-rows) so tiles are uniform and the
+     4-row cap is exact; center-crop keeps the GIF's focal area visible. */
+  height: 100%;
+  object-fit: cover;
 }
 .giphy-picker-status {
   padding: 8px 14px;
