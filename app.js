@@ -4757,6 +4757,14 @@ function showHelpOverlay() {
       <dt>/since:2026-06-01</dt><dd>Messages on or after a date</dd>
       <dt>/help</dt><dd>This screen</dd>
     </dl>
+    <h2 style="margin-top:18px">🎯 Focus mode</h2>
+    <dl>
+      <dt>🎯 button</dt><dd>Next to the search box — opens the Focus dialog</dd>
+      <dt>Terms</dt><dd>Add words/tickers as chips (e.g. <code>$SPCX earnings</code>). Multiple terms are OR'd — a message shows if it matches any of them</dd>
+      <dt>People</dt><dd>Tag people from the list; selected people pin to the top. Their messages — and every reply to them — come through</dd>
+      <dt>Reply-tree aware</dt><dd>A reply to a matching message passes even if it doesn't contain the term itself (Focus walks up the reply/quote chain)</dd>
+      <dt>Esc</dt><dd>Exit focus (banner also has <em>edit</em> / <em>× exit focus</em>)</dd>
+    </dl>
     <h2 style="margin-top:18px">Stock & crypto tickers</h2>
     <dl>
       <dt>$NASA</dt><dd>Click any $TICKER symbol to open a free TradingView chart with drawing tools</dd>
@@ -4765,7 +4773,7 @@ function showHelpOverlay() {
     <h2 style="margin-top:18px">Keyboard</h2>
     <dl>
       <dt>/</dt><dd>Focus search</dd>
-      <dt>Esc</dt><dd>Clear search / close overlay</dd>
+      <dt>Esc</dt><dd>Close overlay → exit thread → exit 🎯 focus → clear search</dd>
       <dt>j / k or ↓ / ↑</dt><dd>Next / previous message</dd>
       <dt>PageDn / PageUp</dt><dd>Full page down / up</dd>
       <dt>⌘D / ⌘U</dt><dd>Half page down / up (vim style)</dd>

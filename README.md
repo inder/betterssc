@@ -4,7 +4,7 @@ A Chrome extension that gives Substack Chat a Discord-style makeover.
 
 ![tests](https://img.shields.io/badge/tests-366%2F366-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. **Unreleased on `main`** (Jun 11–12, 2026): send images and GIFs, GIPHY GIF picker, Discord-style composer with icon cluster on the right, silent background prefetch of full chat history, emoji popover, composer reply attachments. 366/366 tests passing.
+Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. **Unreleased on `main`** (Jun 11–12, 2026): 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer with icon cluster on the right, silent background prefetch of full chat history, emoji popover, composer reply attachments. 387/387 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -42,6 +42,7 @@ Read side at a glance: vi-key navigation, search + filters, inline ticker charts
 
 ### Finding stuff (search + filter)
 
+- **🎯 Focus mode** — the answer to "200 people are posting, I only care about 3 of them and one topic." Click the 🎯 button next to the search box to open a dialog: add **terms** as chips (`$SPCX`, `earnings` — type several space- or comma-separated and each one is OR'd, so a message matching *any* term shows) and/or **tag people** from a searchable list (the people you've selected stay pinned at the top, even while you search the list for more). Everything that isn't about your terms or people is hidden. The filtering is **reply-tree aware**: a reply to a `$SPCX` message comes through even if the reply itself never says "$SPCX" — Focus walks *up* the reply/quote chain and passes any message whose ancestor matches. Same for people, so every reply to someone you've tagged surfaces too. A banner shows your active focus with `edit` / `× exit focus`; `Esc` exits. Composes cleanly with search and the 💬 thread filter (they intersect).
 - Full-text search across every message that's been loaded. Type in the box; the feed filters live.
 - Type `@boz` to see only that person's messages.
 - Slash commands (the leading `/` is optional, the `:` is what makes them unambiguous):
@@ -70,7 +71,7 @@ The whole feed is keyboard-driven. You can use it without ever touching the mous
 | `n` / `Shift+N` | Cycle through search hits |
 | `r` | Refresh now (also a ⟳ button in the header) |
 | `/` | Focus the search box |
-| `Esc` | Clear search, close the thread view, close any overlay |
+| `Esc` | Close an open dialog/overlay, then exit the thread view, then exit 🎯 focus, then clear search |
 | `?` | Show the help overlay |
 
 **Focus follows your cursor and your keys.** Mouse hover, `j` / `k`, arrow keys, and click all drive the same single focus state — the focused author block gets an accent-tinted background and a 3px bar on the left edge. No more "where is the cursor actually" disconnect between mouse and keyboard.
