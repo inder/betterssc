@@ -13,6 +13,8 @@ import {
   buildFocusFilter,
   isFocusEmpty,
   splitTerms,
+  tickerSymbol,
+  termMatchesBody,
 } from "../lib/focus.js";
 
 // Build a tiny comment store. Each spec = { id, body?, user_id?, author?,
@@ -204,6 +206,72 @@ describe("commentMatchesFocus — correctness boundaries", () => {
     expect(warm1).toBe(true);
     expect(warm2).toBe(true);
     expect(memo.get("root")).toBe(true);
+  });
+});
+
+describe("tickerSymbol", () => {
+  it("normalizes $-prefixed and bare known tickers to the same symbol", () => {
+    expect(tickerSymbol("$SPCX")).toBe("SPCX"); // explicit $
+    expect(tickerSymbol("SPCX")).toBe("SPCX"); // bare, now in KNOWN_TICKERS
+    expect(tickerSymbol("spcx")).toBe("SPCX"); // case-insensitive
+    expect(tickerSymbol("$spcx")).toBe("SPCX");
+  });
+
+  it("recognizes a share-class ticker with a dot", () => {
+    expect(tickerSymbol("$BRK.B")).toBe("BRK.B");
+  });
+
+  it("returns null for plain words and unknown bare tokens", () => {
+    expect(tickerSymbol("earnings")).toBe(null); // plain word
+    expect(tickerSymbol("$earnings")).toBe(null); // 8 letters — not ticker-shaped
+    expect(tickerSymbol("zzzz")).toBe(null); // ticker-shaped but not a known symbol
+    expect(tickerSymbol("")).toBe(null);
+    expect(tickerSymbol(undefined)).toBe(null);
+  });
+});
+
+describe("termMatchesBody — ticker symmetry", () => {
+  it("'$SPCX' matches both '$SPCX' and bare 'SPCX' in the body", () => {
+    expect(termMatchesBody("$SPCX", "buying $spcx now".toLowerCase())).toBe(true);
+    expect(termMatchesBody("$SPCX", "spcx to the moon".toLowerCase())).toBe(true);
+  });
+
+  it("bare 'SPCX' matches both '$SPCX' and 'SPCX' in the body", () => {
+    expect(termMatchesBody("SPCX", "loading $spcx".toLowerCase())).toBe(true);
+    expect(termMatchesBody("SPCX", "spcx earnings tonight".toLowerCase())).toBe(true);
+  });
+
+  it("ticker match is whole-word — does NOT match inside another word", () => {
+    expect(termMatchesBody("$SPCX", "transpcx blah".toLowerCase())).toBe(false);
+    expect(termMatchesBody("SPCX", "spcxy is different".toLowerCase())).toBe(false);
+  });
+
+  it("non-ticker terms keep substring matching", () => {
+    expect(termMatchesBody("earnings", "quarterly earnings call".toLowerCase())).toBe(
+      true
+    );
+    // 'spac' is ticker-shaped but NOT a known ticker → plain substring. It
+    // matches standalone AND inside another word (substring, not word-bound).
+    expect(termMatchesBody("spac", "a blank-check spac vehicle".toLowerCase())).toBe(
+      true
+    );
+    expect(termMatchesBody("spac", "two spacs merged".toLowerCase())).toBe(true);
+  });
+
+  it("short tickers (<3 letters) fall back to substring, NOT whole-word", () => {
+    // "$ON" must NOT whole-word match "on" everywhere ("turn on", "ongoing").
+    // It degrades to substring, matching the pre-ticker behavior.
+    expect(tickerSymbol("$ON")).toBe(null);
+    expect(tickerSymbol("ON")).toBe(null); // ON is in KNOWN_TICKERS but too short
+    // $BRK.B (4 letters ignoring the .B class) still gets ticker treatment.
+    expect(tickerSymbol("$BRK.B")).toBe("BRK.B");
+  });
+
+  it("flows through commentDirectlyMatchesFocus (the real call path)", () => {
+    const f = { terms: ["$SPCX"], userIds: [] };
+    expect(commentDirectlyMatchesFocus({ body: "SPCX ripping" }, f)).toBe(true);
+    const g = { terms: ["SPCX"], userIds: [] };
+    expect(commentDirectlyMatchesFocus({ body: "is $SPCX a buy?" }, g)).toBe(true);
   });
 });
 
