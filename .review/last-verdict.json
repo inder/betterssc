@@ -1,8 +1,12 @@
 {
-  "ts": "2026-06-12T06:54:09.101Z",
+  "sha": "00953dee39ee60e24ef95ec1c9f1204673b985a2",
+  "branch": "main",
+  "ts": "2026-06-12T00:00:00Z",
+  "verdict": "fix-these",
   "retro_required": "no",
+  "retro_reasoning": "Follow-up verification pass only — fix-response to prior review, no new features, no schema changes",
   "critical_count": 0,
-  "should_fix_count": 0,
+  "should_fix_count": 1,
   "nit_count": 0,
-  "note": "one-line broadening of vi-key suppression to all input/contenteditable"
+  "files_reviewed": 5
 }

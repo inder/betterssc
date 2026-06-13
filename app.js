@@ -59,6 +59,11 @@ import {
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
 } from "./lib/ai-context.js";
+import {
+  commentMatchesFocus,
+  isFocusEmpty,
+  buildFocusFilter,
+} from "./lib/focus.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -158,6 +163,14 @@ const state = {
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
   threadFilter: null, // { parentId } when user clicked a 💬 thread icon
+  // Focus mode — { terms: string[], userIds: string[] } | null. When set,
+  // the feed hides every message group that doesn't match the terms/people,
+  // INCLUDING ancestor-walk (a reply to a matching message passes). See
+  // lib/focus.js. _focusMemo caches per-comment verdicts for one filter
+  // generation; cleared whenever focusFilter changes (appends keep it valid
+  // since new messages are leaves, never ancestors of older cached rows).
+  focusFilter: null,
+  _focusMemo: null,
   notifyAllMessages: false, // header bell toggle — alert on every new msg
   consecutivePollFailures: 0, // resets to 0 on success; banner shows at >=2
   proxyDisconnected: false,
@@ -1255,7 +1268,8 @@ function renderAll() {
   // state.comments to find it).
   renderChatHeader();
   renderProxyBanner();
-  if (state.searchQuery || state.threadFilter) applySearch();
+  if (state.searchQuery || state.threadFilter || !isFocusEmpty(state.focusFilter))
+    applySearch();
 }
 
 // Build a client-side index of which messages reply to which others.
@@ -2801,11 +2815,28 @@ function buildAiMessage(id, body, providerName, opts = {}) {
 // bottom-pill count and the AI summary always agree on what's "in
 // filter." AI-generated rows are excluded by design (they're never
 // part of either count).
+// Focus-mode predicate with memoization. Delegates the ancestor-walk to
+// lib/focus.js, passing a live accessor into state.comments. The memo is
+// rebuilt lazily after setFocusFilter() clears it.
+function commentInFocus(c) {
+  if (isFocusEmpty(state.focusFilter)) return true;
+  if (!c) return false;
+  if (!state._focusMemo) state._focusMemo = new Map();
+  return commentMatchesFocus(
+    c,
+    state.focusFilter,
+    (id) => state.comments.get(id),
+    state._focusMemo
+  );
+}
+
 function commentMatchesActiveFilter(c) {
   if (!c || c._aiGenerated) return false;
   const hasSearch = !!(state.searchQuery && state.searchQuery.trim());
   const hasThread = !!state.threadFilter;
-  if (!hasSearch && !hasThread) return true;
+  const hasFocus = !isFocusEmpty(state.focusFilter);
+  if (!hasSearch && !hasThread && !hasFocus) return true;
+  if (hasFocus && !commentInFocus(c)) return false;
   if (hasThread) {
     const parentId = state.threadFilter.parentId;
     if (c.id !== parentId) {
@@ -4454,102 +4485,128 @@ function applySearch() {
       jump.classList.add("hidden");
     }
   }
-  const raw = state.searchQuery.trim();
+  const raw = (state.searchQuery || "").trim();
   const q = raw.toLowerCase();
+  const hasThread = !!state.threadFilter;
+  const hasFocus = !isFocusEmpty(state.focusFilter);
+
+  // Drop the focus memo at the START of every pass. Its only job is to
+  // avoid re-walking the same ancestor across the groups of THIS pass —
+  // it must NOT survive across renders. History backfill (loadOlder /
+  // bgPrefetch) inserts OLDER messages that can be ancestors of rows we
+  // already evaluated; a memo that persisted would keep their stale
+  // pre-backfill verdict (a "false" computed when the parent wasn't
+  // loaded yet) and hide a message whose ancestor now matches.
+  state._focusMemo = null;
 
   // Reset all groups to default state.
   document.querySelectorAll(".msg-group").forEach((node) => {
     node.classList.remove("search-hit", "search-active", "search-hidden");
   });
 
-  // Thread filter takes precedence — when active, hide every group whose
-  // messages aren't either the thread parent or a direct reply.
-  if (state.threadFilter) {
-    applyThreadFilter();
-    if (!q) {
-      // No search query — just keep the thread filter intact.
-      hideSearchEmpty();
+  // Parse the search query (if any). /help short-circuits to the overlay.
+  // Slash command syntax: /from:<name>, /me, /has:link, /has:image,
+  // /has:reaction, /since:<iso-or-relative>, /help. Otherwise `@<name>` is
+  // the author-prefix filter, anything else is full-text on body+author.
+  let matcher = null;
+  if (q) {
+    matcher = parseSearchQuery(raw);
+    if (matcher.help) {
+      showHelpOverlay();
       return;
     }
   }
 
-  if (!q) {
+  // Nothing narrowing the feed at all — every group visible, clear counts.
+  if (!q && !hasThread && !hasFocus) {
     document.getElementById("searchCount").textContent = "";
     state.searchHits = [];
     hideSearchEmpty();
     return;
   }
 
-  // Slash command syntax: /from:<name>, /me, /has:link, /has:image,
-  // /has:reaction, /since:<iso-or-relative>, /help. Otherwise `@<name>` is
-  // the author-prefix filter, anything else is full-text on body+author.
-  const matcher = parseSearchQuery(raw);
-  if (matcher.help) {
-    showHelpOverlay();
-    return;
-  }
-
-  const hits = [];
+  // Search hit set (all matches, pre-visibility). We narrow to VISIBLE
+  // hits below so n/N never lands on a row hidden by thread/focus.
   const hitIds = new Set();
-  for (const id of state.order) {
-    const c = state.comments.get(id);
-    if (!c) continue;
-    if (matcher.test(c)) {
-      hits.push(id);
-      hitIds.add(id);
+  if (matcher && matcher.test) {
+    for (const id of state.order) {
+      const c = state.comments.get(id);
+      if (c && matcher.test(c)) hitIds.add(id);
     }
   }
-  state.searchHits = hits;
 
-  // Filter: every group that contains at least one matching message is
-  // shown + highlighted; every group with zero matches is HIDDEN.
-  // When a thread filter is also active, INTERSECT — a group is shown
-  // only if it's both in the thread AND matches the query. (Without
-  // this, the text-search loop would overwrite the thread filter and
-  // any out-of-thread match would become visible.)
-  const threadParentId = state.threadFilter
-    ? state.threadFilter.parentId
-    : null;
+  // Thread member set (parent + direct replies, one level — threaded OR
+  // quoted).
+  const threadParentId = hasThread ? state.threadFilter.parentId : null;
   const threadMemberIds = threadParentId
     ? new Set([
         threadParentId,
         ...((state.threadIndex && state.threadIndex.get(threadParentId)) || []),
       ])
     : null;
+
+  // Unified pass: a group is VISIBLE iff it satisfies ALL active filters
+  // (focus ∩ thread ∩ search). Focus and search are per-message-OR within
+  // a group (any member matching shows the whole group); the three
+  // dimensions intersect. AI Insights rows bypass every filter.
+  const visibleHits = [];
   document.querySelectorAll(".msg-group").forEach((group) => {
     const ids = Array.from(group.querySelectorAll("[data-id]")).map(
       (n) => n.dataset.id
     );
-    // AI Insights messages bypass every filter. They're local-only,
-    // user-requested, and synthesized FROM the current filtered view,
-    // so hiding them after the fact would make the user click AI
-    // Insights and see nothing. Detect by the `ai_` id prefix.
     const containsAi = ids.some((id) => id && id.startsWith("ai_"));
     if (containsAi) {
+      // Local-only, user-requested, synthesized FROM the current view —
+      // hiding them after the fact would show nothing after a click.
       group.classList.add("search-hit");
       return;
     }
+    const focusOk =
+      !hasFocus ||
+      ids.some((id) => {
+        const c = state.comments.get(id);
+        return c && commentInFocus(c);
+      });
+    const inThread = !threadMemberIds || ids.some((id) => threadMemberIds.has(id));
     const groupHasHit = ids.some((id) => hitIds.has(id));
-    const inThread =
-      !threadMemberIds || ids.some((id) => threadMemberIds.has(id));
-    if (groupHasHit && inThread) {
-      group.classList.add("search-hit");
-    } else {
+    const searchOk = !q || groupHasHit;
+    const visible = focusOk && inThread && searchOk;
+    if (!visible) {
       group.classList.add("search-hidden");
+      return;
+    }
+    if (q && groupHasHit) {
+      group.classList.add("search-hit");
+      // Collect surviving hits in chronological order for n/N cycling.
+      for (const id of ids) if (hitIds.has(id)) visibleHits.push(id);
+    } else if (hasThread && !q && inThread) {
+      // Preserve the legacy thread-view tint: when a thread filter is
+      // active with no text search, every in-thread group is highlighted
+      // (this is what the old applyThreadFilter did). Focus-only mode does
+      // NOT tint — it just hides non-matches — so the whole feed isn't lit.
+      group.classList.add("search-hit");
     }
   });
 
-  const label = hits.length
-    ? `${hits.length} ${matcher.kind} · Esc to clear`
+  state.searchHits = visibleHits;
+
+  // Count label + empty-state + initial landing apply only when a text
+  // query is active. Focus/thread-only narrowing shows no search count.
+  if (!q) {
+    document.getElementById("searchCount").textContent = "";
+    hideSearchEmpty();
+    return;
+  }
+  const label = visibleHits.length
+    ? `${visibleHits.length} ${matcher.kind} · Esc to clear`
     : `no ${matcher.kind} · Esc to clear`;
   document.getElementById("searchCount").textContent = label;
-  if (hits.length) {
+  if (visibleHits.length) {
     hideSearchEmpty();
-    // Default-land on the NEWEST match (last in chronological order).
-    // Chat usage almost always wants "show me the latest thing matching
-    // this filter" — the most-recent boz message, the latest link, etc.
-    // n/N still cycle from here; wrap is fine.
-    const lastIdx = hits.length - 1;
+    // Default-land on the NEWEST visible match. Chat usage almost always
+    // wants "show me the latest thing matching this filter". n/N cycle
+    // from here; wrap is fine.
+    const lastIdx = visibleHits.length - 1;
     state.searchActiveIdx = lastIdx;
     focusSearchHit(lastIdx);
   } else {
@@ -4762,35 +4819,8 @@ function closeThreadFilter() {
   scrollToBottom();
 }
 
-function applyThreadFilter() {
-  if (!state.threadFilter) return;
-  const parentId = state.threadFilter.parentId;
-  // Parent + every direct reply (threaded via parent_id OR quote via
-  // quote_id). One level only — replies-of-replies are NOT included.
-  const idsInThread = new Set([parentId]);
-  const localRefs =
-    state.threadIndex && state.threadIndex.get(parentId);
-  if (localRefs) for (const id of localRefs) idsInThread.add(id);
-  // Hide every group whose messages aren't in the thread.
-  document.querySelectorAll(".msg-group").forEach((group) => {
-    const ids = Array.from(group.querySelectorAll("[data-id]")).map(
-      (n) => n.dataset.id
-    );
-    // AI Insights messages bypass the thread filter for the same reason
-    // they bypass the search filter — user-requested, local-only.
-    const containsAi = ids.some((id) => id && id.startsWith("ai_"));
-    if (containsAi) {
-      group.classList.add("search-hit");
-      return;
-    }
-    const inThread = ids.some((id) => idsInThread.has(id));
-    if (!inThread) {
-      group.classList.add("search-hidden");
-    } else {
-      group.classList.add("search-hit");
-    }
-  });
-}
+// (applyThreadFilter was folded into the unified applySearch intersection
+// pass — thread membership is now one of the three filter dimensions.)
 
 // Shows/hides the "can't reach Substack" banner. Mounted into #stream
 // so it sits above the messages (and scrolls with them, intentionally —
@@ -4847,6 +4877,270 @@ function renderThreadBanner() {
   close.addEventListener("click", closeThreadFilter);
   banner.appendChild(label);
   banner.appendChild(close);
+}
+
+// ============================================================
+// FOCUS MODE (click the 🎯 button — filter feed to terms + people,
+// ancestor-walk aware: replies to matching messages come through)
+// ============================================================
+
+// Single mutation point for the focus filter. Clears the memo (verdicts
+// are filter-generation-scoped), repaints the banner + button state, and
+// re-runs the unified filter pass.
+function setFocusFilter(filter) {
+  state.focusFilter = isFocusEmpty(filter) ? null : filter;
+  state._focusMemo = null;
+  const btn = document.getElementById("focusBtn");
+  if (btn) btn.classList.toggle("is-active", !!state.focusFilter);
+  renderFocusBanner();
+  applySearch();
+}
+
+function clearFocus() {
+  setFocusFilter(null);
+  // Land at the latest message, mirroring closeThreadFilter's behavior.
+  scrollToBottom();
+}
+
+// Resolve a focused userId to a display name (falls back to the id).
+function focusUserName(userId) {
+  const a = state.authors && state.authors.get(userId);
+  if (a && a.profile && a.profile.name) return a.profile.name;
+  // authors map may be keyed by number; try a loose scan.
+  if (state.authors) {
+    for (const v of state.authors.values()) {
+      if (v.profile && String(v.profile.id) === String(userId))
+        return v.profile.name;
+    }
+  }
+  return String(userId);
+}
+
+function renderFocusBanner() {
+  let banner = document.getElementById("focusBanner");
+  if (!state.focusFilter) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "focusBanner";
+    banner.className = "focus-banner";
+    const stream = document.getElementById("stream");
+    if (stream) stream.prepend(banner);
+  }
+  banner.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "focus-banner-label";
+  label.textContent = "🎯 Focus:";
+  banner.appendChild(label);
+
+  const chips = document.createElement("span");
+  chips.className = "focus-banner-chips";
+  for (const term of state.focusFilter.terms || []) {
+    const chip = document.createElement("span");
+    chip.className = "focus-chip focus-chip-term";
+    chip.textContent = term;
+    chips.appendChild(chip);
+  }
+  for (const uid of state.focusFilter.userIds || []) {
+    const chip = document.createElement("span");
+    chip.className = "focus-chip focus-chip-person";
+    chip.textContent = "@" + focusUserName(uid);
+    chips.appendChild(chip);
+  }
+  banner.appendChild(chips);
+
+  const edit = document.createElement("button");
+  edit.type = "button";
+  edit.className = "focus-banner-edit";
+  edit.textContent = "edit";
+  edit.title = "Edit focus";
+  edit.addEventListener("click", openFocusDialog);
+  banner.appendChild(edit);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "focus-banner-close";
+  close.textContent = "× exit focus";
+  close.title = "Exit focus (Esc)";
+  close.addEventListener("click", clearFocus);
+  banner.appendChild(close);
+}
+
+// The Focus dialog — term chips + a searchable people multiselect. Working
+// state lives in `draftTerms` / `draftUserIds` and is committed on Apply.
+function openFocusDialog() {
+  // Idempotent — never stack two dialogs.
+  const existing = document.getElementById("focusDialogBackdrop");
+  if (existing) existing.remove();
+
+  const draftTerms = [...((state.focusFilter && state.focusFilter.terms) || [])];
+  const draftUserIds = new Set(
+    ((state.focusFilter && state.focusFilter.userIds) || []).map(String)
+  );
+
+  const backdrop = document.createElement("div");
+  backdrop.id = "focusDialogBackdrop";
+  backdrop.className = "focus-dialog-backdrop";
+
+  const dialog = document.createElement("div");
+  dialog.className = "focus-dialog";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-label", "Focus mode");
+
+  dialog.innerHTML = `
+    <div class="focus-dialog-head">
+      <h2>🎯 Focus mode</h2>
+      <p class="focus-dialog-sub">Show only messages about these terms or people — and every reply to them. Everything else is hidden.</p>
+    </div>
+    <label class="focus-field-label">Terms</label>
+    <div class="focus-terms-input" id="focusTermsInput">
+      <span class="focus-terms-chips" id="focusTermsChips"></span>
+      <input id="focusTermField" type="text" placeholder="$SPCX, earnings…  (Enter to add)" autocomplete="off" />
+    </div>
+    <label class="focus-field-label">People</label>
+    <input id="focusPeopleSearch" type="text" class="focus-people-search" placeholder="Filter people…" autocomplete="off" />
+    <div class="focus-people-list" id="focusPeopleList"></div>
+    <div class="focus-dialog-actions">
+      <button type="button" class="focus-dialog-clear" id="focusDialogClear">Clear focus</button>
+      <div class="focus-dialog-actions-right">
+        <button type="button" class="focus-dialog-cancel" id="focusDialogCancel">Cancel</button>
+        <button type="button" class="focus-dialog-apply" id="focusDialogApply">Apply focus</button>
+      </div>
+    </div>
+  `;
+  backdrop.appendChild(dialog);
+  document.body.appendChild(backdrop);
+
+  const chipsEl = dialog.querySelector("#focusTermsChips");
+  const termField = dialog.querySelector("#focusTermField");
+  const peopleSearch = dialog.querySelector("#focusPeopleSearch");
+  const peopleList = dialog.querySelector("#focusPeopleList");
+
+  function renderTermChips() {
+    chipsEl.innerHTML = "";
+    draftTerms.forEach((term, idx) => {
+      const chip = document.createElement("span");
+      chip.className = "focus-chip focus-chip-term";
+      chip.textContent = term;
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "focus-chip-x";
+      x.textContent = "×";
+      x.setAttribute("aria-label", `Remove ${term}`);
+      x.addEventListener("click", () => {
+        draftTerms.splice(idx, 1);
+        renderTermChips();
+      });
+      chip.appendChild(x);
+      chipsEl.appendChild(chip);
+    });
+  }
+
+  function addTerm(raw) {
+    const t = (raw || "").trim();
+    if (!t) return;
+    if (!draftTerms.some((x) => x.toLowerCase() === t.toLowerCase()))
+      draftTerms.push(t);
+    renderTermChips();
+  }
+
+  termField.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTerm(termField.value);
+      termField.value = "";
+    } else if (e.key === "Backspace" && !termField.value && draftTerms.length) {
+      draftTerms.pop();
+      renderTermChips();
+    }
+  });
+
+  function renderPeople() {
+    const q = (peopleSearch.value || "").trim().toLowerCase();
+    const authors = state.authors
+      ? Array.from(state.authors.values()).filter((a) => a && a.profile)
+      : [];
+    authors.sort((a, b) =>
+      (a.profile.name || "").localeCompare(b.profile.name || "")
+    );
+    peopleList.innerHTML = "";
+    let shown = 0;
+    for (const a of authors) {
+      const name = a.profile.name || "Unknown";
+      if (q && !name.toLowerCase().includes(q)) continue;
+      shown++;
+      const id = String(a.profile.id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "focus-person-row";
+      if (draftUserIds.has(id)) row.classList.add("is-selected");
+      const av = document.createElement("span");
+      av.className = "focus-person-avatar";
+      if (a.profile.photo_url) {
+        const img = document.createElement("img");
+        img.src = a.profile.photo_url;
+        img.alt = "";
+        av.appendChild(img);
+      } else {
+        av.textContent = (name[0] || "?").toUpperCase();
+      }
+      const nm = document.createElement("span");
+      nm.className = "focus-person-name";
+      nm.textContent = name;
+      const check = document.createElement("span");
+      check.className = "focus-person-check";
+      check.textContent = draftUserIds.has(id) ? "✓" : "";
+      row.appendChild(av);
+      row.appendChild(nm);
+      row.appendChild(check);
+      row.addEventListener("click", () => {
+        if (draftUserIds.has(id)) draftUserIds.delete(id);
+        else draftUserIds.add(id);
+        renderPeople();
+      });
+      peopleList.appendChild(row);
+    }
+    if (shown === 0) {
+      const empty = document.createElement("div");
+      empty.className = "focus-people-empty";
+      empty.textContent = authors.length
+        ? "No people match."
+        : "No people loaded yet — scroll the chat to load members.";
+      peopleList.appendChild(empty);
+    }
+  }
+  peopleSearch.addEventListener("input", renderPeople);
+
+  function close() {
+    backdrop.remove();
+  }
+
+  dialog
+    .querySelector("#focusDialogCancel")
+    .addEventListener("click", close);
+  dialog.querySelector("#focusDialogClear").addEventListener("click", () => {
+    setFocusFilter(null);
+    close();
+    scrollToBottom();
+  });
+  dialog.querySelector("#focusDialogApply").addEventListener("click", () => {
+    // Fold any half-typed term in the field into the filter on Apply.
+    if (termField.value.trim()) addTerm(termField.value);
+    const filter = buildFocusFilter(draftTerms, Array.from(draftUserIds));
+    setFocusFilter(filter);
+    close();
+    if (filter) scrollToBottom();
+  });
+  // Click on the backdrop (outside the dialog) cancels.
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) close();
+  });
+
+  renderTermChips();
+  renderPeople();
+  requestAnimationFrame(() => termField.focus());
 }
 
 // Set the search input to "@<name>" and apply — used by the click-author
@@ -5270,6 +5564,11 @@ function bindEventHandlers() {
         closeTickerModal();
         return;
       }
+      const focusDialog = document.getElementById("focusDialogBackdrop");
+      if (focusDialog) {
+        focusDialog.remove();
+        return;
+      }
       const overlay = document.querySelector(".help-overlay, .lightbox");
       if (overlay) {
         overlay.remove();
@@ -5277,6 +5576,10 @@ function bindEventHandlers() {
       }
       if (state.threadFilter) {
         closeThreadFilter();
+        return;
+      }
+      if (!isFocusEmpty(state.focusFilter)) {
+        clearFocus();
         return;
       }
       if (searchInput && searchInput.value) {
@@ -5368,6 +5671,12 @@ function bindEventHandlers() {
   if (notifyAllBtn) {
     notifyAllBtn.addEventListener("click", toggleNotifyAllMessages);
     renderNotifyAllButton();
+  }
+
+  // 🎯 Focus mode button — opens the term/people focus dialog.
+  const focusBtn = document.getElementById("focusBtn");
+  if (focusBtn) {
+    focusBtn.addEventListener("click", openFocusDialog);
   }
 
   // Click anywhere on the header-left (pub avatar + name) expands the
