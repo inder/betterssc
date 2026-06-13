@@ -1,12 +1,12 @@
 {
-  "sha": "00953dee39ee60e24ef95ec1c9f1204673b985a2",
-  "branch": "main",
-  "ts": "2026-06-12T00:00:00Z",
+  "sha": "ec1f42ff6347c437311a65669df38ed0a72db953",
+  "branch": "focus-mode",
+  "ts": "2026-06-13T04:52:50Z",
   "verdict": "fix-these",
   "retro_required": "no",
-  "retro_reasoning": "Follow-up verification pass only — fix-response to prior review, no new features, no schema changes",
+  "retro_reasoning": "Diff is small (~60 LOC + tests), no schema changes, no critical findings, single focused feature increment",
   "critical_count": 0,
-  "should_fix_count": 1,
-  "nit_count": 0,
-  "files_reviewed": 5
+  "should_fix_count": 2,
+  "nit_count": 1,
+  "files_reviewed": 3
 }

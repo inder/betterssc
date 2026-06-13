@@ -12,6 +12,7 @@ import {
   commentDirectlyMatchesFocus,
   buildFocusFilter,
   isFocusEmpty,
+  splitTerms,
 } from "../lib/focus.js";
 
 // Build a tiny comment store. Each spec = { id, body?, user_id?, author?,
@@ -47,10 +48,19 @@ describe("commentDirectlyMatchesFocus", () => {
     );
   });
 
-  it("unions multiple terms (any term matches)", () => {
+  it("unions multiple terms (any term matches — OR, not AND)", () => {
     const f = { terms: ["spcx", "nvda"], userIds: [] };
+    // Matches on the SECOND term alone — proves OR, not AND.
     expect(commentDirectlyMatchesFocus({ body: "load up on NVDA" }, f)).toBe(
       true
+    );
+    // Matches on the FIRST term alone.
+    expect(commentDirectlyMatchesFocus({ body: "$SPCX only here" }, f)).toBe(
+      true
+    );
+    // Matches NEITHER → false (sanity that it's not always-true).
+    expect(commentDirectlyMatchesFocus({ body: "talking pizza" }, f)).toBe(
+      false
     );
   });
 
@@ -194,6 +204,44 @@ describe("commentMatchesFocus — correctness boundaries", () => {
     expect(warm1).toBe(true);
     expect(warm2).toBe(true);
     expect(memo.get("root")).toBe(true);
+  });
+});
+
+describe("splitTerms", () => {
+  it("splits multi-word input into separate OR'd terms on whitespace + commas", () => {
+    expect(splitTerms("$SPCX earnings TSLA")).toEqual([
+      "$SPCX",
+      "earnings",
+      "TSLA",
+    ]);
+    expect(splitTerms("$SPCX, earnings,  TSLA")).toEqual([
+      "$SPCX",
+      "earnings",
+      "TSLA",
+    ]);
+    expect(splitTerms("  spaced   out  ")).toEqual(["spaced", "out"]);
+  });
+
+  it("returns an empty array for blank/whitespace/undefined/comma-only input", () => {
+    expect(splitTerms("")).toEqual([]);
+    expect(splitTerms("   ")).toEqual([]);
+    expect(splitTerms(undefined)).toEqual([]);
+    // A bare comma (or run of commas/spaces) yields no chips — no empty chip.
+    expect(splitTerms(",")).toEqual([]);
+    expect(splitTerms(" , , ")).toEqual([]);
+  });
+
+  it("a $TICKER with a dot stays one term ($BRK.B is not split)", () => {
+    expect(splitTerms("$BRK.B")).toEqual(["$BRK.B"]);
+  });
+
+  it("split terms feed an OR'd filter end to end", () => {
+    const filter = buildFocusFilter(splitTerms("spcx nvda"), []);
+    expect(filter.terms).toEqual(["spcx", "nvda"]);
+    // A message matching only one of the two terms passes.
+    expect(commentDirectlyMatchesFocus({ body: "just NVDA today" }, filter)).toBe(
+      true
+    );
   });
 });
 

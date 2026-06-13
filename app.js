@@ -63,6 +63,7 @@ import {
   commentMatchesFocus,
   isFocusEmpty,
   buildFocusFilter,
+  splitTerms,
 } from "./lib/focus.js";
 
 // ============================================================
@@ -5039,10 +5040,16 @@ function openFocusDialog() {
   }
 
   function addTerm(raw) {
-    const t = (raw || "").trim();
-    if (!t) return;
-    if (!draftTerms.some((x) => x.toLowerCase() === t.toLowerCase()))
-      draftTerms.push(t);
+    // Split on whitespace + commas so each word becomes its own OR'd chip.
+    // Typing "$SPCX earnings TSLA" + Enter yields three independent terms,
+    // not one phrase that would only match messages containing all three
+    // words in sequence. Each chip is matched as a substring; the feed
+    // shows a message if it (or an ancestor) matches ANY chip.
+    const parts = splitTerms(raw);
+    for (const t of parts) {
+      if (!draftTerms.some((x) => x.toLowerCase() === t.toLowerCase()))
+        draftTerms.push(t);
+    }
     renderTermChips();
   }
 
@@ -5062,20 +5069,30 @@ function openFocusDialog() {
     const authors = state.authors
       ? Array.from(state.authors.values()).filter((a) => a && a.profile)
       : [];
-    authors.sort((a, b) =>
-      (a.profile.name || "").localeCompare(b.profile.name || "")
-    );
+    // Selected (focused) people float to the TOP so you can see who's in
+    // the filter at a glance; alphabetical within each group. Re-sorts on
+    // every toggle, so clicking a person lifts them to the top immediately.
+    authors.sort((a, b) => {
+      const aSel = draftUserIds.has(String(a.profile.id)) ? 0 : 1;
+      const bSel = draftUserIds.has(String(b.profile.id)) ? 0 : 1;
+      if (aSel !== bSel) return aSel - bSel;
+      return (a.profile.name || "").localeCompare(b.profile.name || "");
+    });
     peopleList.innerHTML = "";
     let shown = 0;
     for (const a of authors) {
       const name = a.profile.name || "Unknown";
-      if (q && !name.toLowerCase().includes(q)) continue;
-      shown++;
       const id = String(a.profile.id);
+      const isSel = draftUserIds.has(id);
+      // Selected people ALWAYS stay visible (at the top) even while a search
+      // query is active — so you never lose sight of who's in the filter
+      // while hunting for the next person to add.
+      if (q && !isSel && !name.toLowerCase().includes(q)) continue;
+      shown++;
       const row = document.createElement("button");
       row.type = "button";
       row.className = "focus-person-row";
-      if (draftUserIds.has(id)) row.classList.add("is-selected");
+      if (isSel) row.classList.add("is-selected");
       const av = document.createElement("span");
       av.className = "focus-person-avatar";
       if (a.profile.photo_url) {
@@ -5091,7 +5108,7 @@ function openFocusDialog() {
       nm.textContent = name;
       const check = document.createElement("span");
       check.className = "focus-person-check";
-      check.textContent = draftUserIds.has(id) ? "✓" : "";
+      check.textContent = isSel ? "✓" : "";
       row.appendChild(av);
       row.appendChild(nm);
       row.appendChild(check);
