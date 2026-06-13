@@ -5158,10 +5158,10 @@ function openFocusDialog() {
     close();
     if (filter) scrollToBottom();
   });
-  // Click on the backdrop (outside the dialog) cancels.
-  backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) close();
-  });
+  // NOTE: intentionally NO backdrop-click-to-close. Building a focus filter
+  // is deliberate, multi-step work (typing terms, hunting people in the
+  // list) — an accidental outside click shouldn't wipe it. The dialog only
+  // closes via Cancel, Clear focus, Apply focus, or the Esc key.
 
   renderTermChips();
   renderPeople();
