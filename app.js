@@ -4759,7 +4759,7 @@ function showHelpOverlay() {
     </dl>
     <h2 style="margin-top:18px">🎯 Focus mode</h2>
     <dl>
-      <dt>🎯 button</dt><dd>Next to the search box — opens the Focus dialog</dd>
+      <dt>🎯 Focus button</dt><dd>Just left of the search box — opens the Focus dialog (a separate function from search)</dd>
       <dt>Terms</dt><dd>Add words/tickers as chips (e.g. <code>$SPCX earnings</code>). Multiple terms are OR'd — a message shows if it matches any of them</dd>
       <dt>People</dt><dd>Tag people from the list; selected people pin to the top. Their messages — and every reply to them — come through</dd>
       <dt>Reply-tree aware</dt><dd>A reply to a matching message passes even if it doesn't contain the term itself (Focus walks up the reply/quote chain)</dd>
