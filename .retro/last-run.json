@@ -1,89 +1,83 @@
 {
   "mode": "full",
-  "sha": "f44c1436898ac7dd3bb4a7de682f862e49458795",
-  "branch": "feat/emoji-picker-copy",
-  "ts": "2026-06-08T18:37:23.000Z",
+  "sha": "913ad0305153ea7d46cf128208d13bd1a1ff5013",
+  "branch": "worktree-focus-mode",
+  "ts": "2026-06-12T00:00:00.000Z",
   "base": "main",
-  "diff_lines": 865,
-  "commits": 2,
+  "diff_lines": 979,
+  "commits": 1,
+  "reviewer_model": "claude-sonnet-4-6",
   "payload": {
     "what_went_right": [
-      "Worktree-first and test-before-touch discipline held end to end: the agent refused to write code on main ('You're on main… Run /work… or say skip worktree', transcript ln 1102), then took a green baseline (186/186) on the fresh worktree before touching anything (ln 1322).",
-      "The work-agent self-spotted the Critical onDocClick document-listener leak BEFORE the background reviewer returned (ln 1390: 'One thing I already spotted that the reviewer will likely flag: the onDocClick document listener leaks…').",
-      "It did not race the reviewer: while the reviewer was reading app.js the agent explicitly held all edits ('no racing on app.js', ln 1402) and folded its own catch plus the 2 should-fixes and 1 nit into a single post-review pass before one commit.",
-      "The dynamic-library-removal risk was de-risked by READING the fetch path instead of assuming: pickSuggestedReactions only reads suggested/frequently_used keys, so the live library was 'a popularity hint, never a validation whitelist' and exposing 392 names 'doesn't change the risk profile at all' (ln 1325).",
-      "Multi-file build protocol followed: background code-reviewer + background test-writer spawned per file; tests grew 186 → 211 → 212 green with all review findings (1 Critical, 2 Should-fix, 1 Nit on commit 2; 1 Should-fix, 1 Nit on commit 1) resolved before commit.",
-      "Dead-code removal was clean and intentional: dropping the dynamic lib killed ensureReactionLibrary, suggestedReactions, _reactionLibrary, and three now-unused imports, with pickSuggestedReactions kept exported+tested in compose.js (ln 1378, diff app.js:4857-4914).",
-      "The reviewer's test-gap should-fix was honored with a test for the REAL call-site shape: a Map iterator (state.comments.values()), not just plain arrays (test/picker.test.mjs ln 715-726)."
+      "Pure module design: lib/focus.js is fully headless (takes a `getComment` accessor, not a reference to `state`), enabling 17 unit tests that run without a browser and without app.js imports — the ancestor-walk, cycle guard, dangling-parent, and backfill-staleness contract are all pinned in code before the feature shipped (diff: new file lib/focus.js + test/focus.test.mjs).",
+      "Reviewer ran TWICE and all findings were closed before push: first pass caught the Critical + 3 Should-fix; second pass confirmed all CLOSED. The transcript shows the work-agent called code-reviewer before commit, not after (transcript: 'app.js parses cleanly and all identifiers are wired. This touches the load-bearing applySearch filter path — exactly what my pre-tag-review-gate memory says must get a review.').",
+      "The backfill-staleness regression test was added as part of the Critical fix — test/focus.test.mjs line 1191 ('a stale memo hides a row whose ancestor was backfilled — so callers MUST drop the memo when the store changes') pins the exact failure scenario in the test suite, making the fix permanent rather than honor-system.",
+      "applyThreadFilter was correctly folded into the unified applySearch intersection pass (focus ∩ thread ∩ search), eliminating a separate function that could have diverged from focus-mode visibility logic — the refactor reduced total LOC and eliminated the class of 'thread filter overwritten by search' bugs.",
+      "Memory consultation fired at session start and directly shaped strategy: betterssc-direct-to-main-no-worktree, inline-reviewer-cadence-traded-parallelism-for-correctness, and pre-tag-review-gate-is-load-bearing were all cited by the work-agent in its first assistant turn before any code was written."
     ],
     "what_went_wrong": [
-      "Genuinely thin — this was a clean ship. The one open thread: the live-API spot-check that Substack accepts all ~392 obscure reaction names was correctly identified as 'the one real risk' and put in the test plan as a MANUAL step, but it had NOT been executed at retro time (ln 1492, 1348). The analytical conclusion ('the old path was never a whitelist') is necessary but not sufficient to close an empirical risk.",
-      "Minor process friction (not a code defect): the retro receipt's prior state was stale (.review/last-verdict.json carried a main-branch sha 499ecf4 before being overwritten to feat/emoji-picker-copy), a known artifact of the verdict-file-as-mutable-state design rather than a mistake on this branch."
+      "The state comment at the initial memo-scope decision was wrong: 'cleared whenever focusFilter changes (appends keep it valid since new messages are leaves, never ancestors of older cached rows)' — diff line 316. The author reasoned about one mutation source (realtime appends) and missed the second (history backfill / loadOlder / bgPrefetch inserting older messages that are potential ancestors). A reviewer caught it as Critical.",
+      "The original state declaration set `_focusMemo: null` with the intention of reusing it across renders within a filter generation — but the memo's actual safe scope is ONE render pass. The design was subtly over-ambitious: cross-render caching requires enumerating ALL store mutation sources, which was not done.",
+      "The thread-only tint regression (groups that are in-thread but NOT in a search hit should still get 'search-hit' class for tinting) was not carried forward from the deleted `applyThreadFilter` into the unified pass — caught as a Should-fix by the reviewer and fixed in the same post-review pass."
     ],
     "three_whys": [
-      "Why 1: The picker shipped exposing ~392 POST-able reaction names with the accept-all-names assumption verified only by reasoning, not by a live POST. — Because the agent read the fetch path, correctly proved the dynamic library was a popularity hint and never a validation whitelist, and concluded the risk profile was unchanged, which downgraded the live probe from a blocker to a 'manual spot-check during QA' (ln 1325).",
-      "Why 2: That downgrade was reasonable but left an empirical gap open. — Because 'the old path wasn't a gate' answers whether the CHANGE introduces new risk; it does NOT answer whether the pre-existing optimistic-POST behavior actually succeeds for obscure names. Substack accepting thumbs_up tells you nothing about it accepting a rare Objects/Symbols name; the only way to know is to POST one and watch it stick after the next poll.",
-      "Why 3: The gap stayed open at retro time because the verification was a MANUAL in-browser step that the automated test suite structurally cannot cover (no live Substack POST in vitest), and the agent deferred it to the user's QA pass rather than executing it before the retro — appropriate sequencing, but it means the receipt must explicitly carry the open spot-check forward as an action item so it isn't silently dropped after merge."
+      "Why 1: The _focusMemo Critical happened because the work-agent scoped the memo's validity to 'realtime append' behavior only, writing 'appends keep it valid since new messages are leaves, never ancestors of older cached rows' — this is true for one mutation source but false for history backfill (diff line 316).",
+      "Why 2: The author reasoned about memo validity from the write path they were actively implementing (the realtime poll → new leaf at bottom), not from a systematic enumeration of all store mutation sources. The history backfill path (loadOlder / bgPrefetch) was a pre-existing feature not in focus during the memo design, so it didn't enter the mental model.",
+      "Why 3: There was no established discipline for 'enumerate all store mutation sources before scoping a cross-render cache' — the prior project memories cover symmetric invariants in send/retry paths and filter intersection bugs, but not the specific class of 'ordered store with two growth directions + upward-walking memo'. This is a new class of error for this codebase, so no rule existed to trigger the check."
     ],
     "learnings_written": [
       {
-        "name": "self-spotted-critical-before-reviewer-hold-edits",
+        "name": "memo-invalidation-must-cover-all-store-mutation-sources",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/self-spotted-critical-before-reviewer-hold-edits.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/memo-invalidation-must-cover-all-store-mutation-sources.md"
       },
       {
-        "name": "static-catalog-exposes-untested-reaction-names",
+        "name": "per-render-memo-is-safer-than-cross-render-cache",
         "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/static-catalog-exposes-untested-reaction-names.md"
+        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/per-render-memo-is-safer-than-cross-render-cache.md"
       }
     ],
     "evidence_citations": [
       {
-        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
-        "source_type": "transcript",
-        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1390",
-        "quote": "One thing I already spotted that the reviewer will likely flag: the `onDocClick` document listener leaks on the toggle-close and open-another-picker paths (the top-of-function querySelectorAll(...).remove() nukes the DOM node but never removes its document listener)."
-      },
-      {
-        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
-        "source_type": "transcript",
-        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1402",
-        "quote": "I'm holding edits until the reviewer returns (no racing on app.js). When it lands I'll fold its findings plus the onDocClick listener-leak fix I already spotted into one pass, then commit 2."
-      },
-      {
-        "learning_id": "self-spotted-critical-before-reviewer-hold-edits",
+        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
         "source_type": "diff",
-        "source_ref": "app.js @@ -4934,+4952 (toggleEmojiPicker)",
-        "quote": "let activePickerClose = null; ... if (activePickerClose) activePickerClose(); ... document.removeEventListener(\"click\", onDocClick, true); if (activePickerClose === closeThisPicker) activePickerClose = null;"
+        "source_ref": "+++ b/app.js @@ state = { ... focusFilter fields",
+        "quote": "+  // generation; cleared whenever focusFilter changes (appends keep it valid\n+  // since new messages are leaves, never ancestors of older cached rows)."
       },
       {
-        "learning_id": "static-catalog-exposes-untested-reaction-names",
-        "source_type": "transcript",
-        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1325",
-        "quote": "Settled the risk: pickSuggestedReactions only reads suggested/frequently_used keys — the live library was a popularity hint, never a validation whitelist. ... exposing all 392 names doesn't change the risk profile at all — it's a pre-existing property. The probe drops from blocker to a quick manual spot-check during QA."
-      },
-      {
-        "learning_id": "static-catalog-exposes-untested-reaction-names",
-        "source_type": "transcript",
-        "source_ref": "d0abe365-18c8-458e-9306-30de3febe786.jsonl:1492",
-        "quote": "The one real risk — spot-check: post 3-4 obscure emojis (Objects/Symbols section), confirm they stick after the next poll. This verifies Substack accepts arbitrary reaction names from the static catalog (it was never validated against a whitelist — pre-existing property, but worth a live check before tag)."
-      },
-      {
-        "learning_id": "static-catalog-exposes-untested-reaction-names",
+        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
         "source_type": "diff",
-        "source_ref": "lib/emojis.js @@ +596 (groupedReactions / filterReactionsByQuery over REACTION_EMOJI)",
-        "quote": "export const filterReactionsByQuery = (query) => { const all = Object.entries(REACTION_EMOJI); ... }"
+        "source_ref": "+++ b/app.js @@ applySearch memo-clearing comment lines 374-380",
+        "quote": "+  // it must NOT survive across renders. History backfill (loadOlder /\n+  // bgPrefetch) inserts OLDER messages that can be ancestors of rows we\n+  // already evaluated; a memo that persisted would keep their stale\n+  // pre-backfill verdict"
+      },
+      {
+        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
+        "source_type": "diff",
+        "source_ref": "+++ b/test/focus.test.mjs line 1191",
+        "quote": "+  it(\"a stale memo hides a row whose ancestor was backfilled — so callers MUST drop the memo when the store changes\", () => {"
+      },
+      {
+        "learning_id": "per-render-memo-is-safer-than-cross-render-cache",
+        "source_type": "diff",
+        "source_ref": "+++ b/app.js @@ applySearch line 380",
+        "quote": "+  state._focusMemo = null;"
+      },
+      {
+        "learning_id": "per-render-memo-is-safer-than-cross-render-cache",
+        "source_type": "transcript",
+        "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/2be7812d-2f15-40cc-ba79-273a499596fc.jsonl",
+        "quote": "The reviewer caught a real Critical — exactly the highest-risk claim I flagged. My 'new messages are leaves' reasoning holds for realtime appends at the bottom but is WRONG for history backfill"
       }
     ],
     "action_items": [
       {
-        "title": "Run the live spot-check that Substack accepts obscure reaction names before tagging the picker",
+        "title": "Add discipline: enumerate all store mutation sources before scoping any cross-render cache",
         "scope": "project",
-        "description": "In a logged-in browser with the extension loaded, open the picker and POST 3-4 obscure names from the Objects/Symbols/Weather sections of REACTION_EMOJI (not the common thumbs_up/fire set). Confirm each reaction sticks after the next poll cycle rather than optimistic-bumping then silently rolling back. If any name is rejected, Substack is whitelisting — intersect the static catalog with the accepted set (or filter at render) so the picker never offers a dead-click. This is the empirical close-condition for the static-catalog-exposes-untested-reaction-names learning; the analytical 'the old path was never a whitelist' conclusion does not substitute for it. Route to the BetterSSC narrative in ~/.claude/roadmap.md as a pre-tag QA gate.",
-        "source_learning": "static-catalog-exposes-untested-reaction-names"
+        "description": "Before writing a memo/cache over a store structure, list ALL code paths that mutate the store (realtime append, history backfill, bgPrefetch, optimistic reconcile, etc.) and verify the cache invariant holds for each. If ANY source can insert ancestors of already-cached nodes, scope the cache to one render pass only. Apply this check to any future tree-walk memos (thread depth, quote chains, etc.) in app.js.",
+        "source_learning": "memo-invalidation-must-cover-all-store-mutation-sources"
       }
     ],
-    "memory_md_changes": [],
-    "claude_md_changes": []
+    "claude_md_changes": [],
+    "memory_md_changes": []
   }
 }
