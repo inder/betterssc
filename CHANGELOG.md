@@ -4,6 +4,8 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-16
+
 ### Added
 - **Focus mode (🎯).** A new button next to the search box opens a dialog where you list **terms** (chips — `$SPCX`, `earnings`, …) and/or **tag people** (searchable multiselect with avatars). The feed then hides every message that isn't about what you chose — like pinning the chat to one topic + a few voices. The filtering is **ancestor-aware**: a reply to a `$SPCX` message comes through even if the reply itself never says "$SPCX", because the filter walks UP the reply/quote chain (`parent_id` + `quote_id`) and passes any message whose ancestor matches. Same for people — every reply to a tagged person's message surfaces. Multiple terms/people are OR'd — type several words space- or comma-separated and each becomes its own chip (so `$SPCX earnings TSLA` matches a message about *any* of the three, not all three as a phrase). Selected people pin to the top of the dialog's list and stay visible while you search it for more. A persistent banner shows the active focus chips with `edit` / `× exit focus`; `Esc` exits. Focus intersects cleanly with the existing 💬 thread filter and text search. The walk is memoized per render pass and re-evaluated on every repaint, so backfilled history (the `g` scroll-up loop) re-threads correctly. Pure filter engine in `lib/focus.js` with 21 unit tests covering the ancestor walk, cycles, dangling parents, term-splitting/OR, and the backfill-staleness contract.
 - **Discord-style composer.** Icons sit on the right of the textarea (image / GIF / emoji / Send). The composer is constrained to the chat-feed column; the members rail now extends the full height of the page. No `+` button.

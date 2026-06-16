@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-366%2F366-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-396%2F396-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.3.0** (Jun 11, 2026) — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. **Unreleased on `main`** (Jun 11–12, 2026): 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer with icon cluster on the right, silent background prefetch of full chat history, emoji popover, composer reply attachments. 387/387 tests passing.
+Latest release: **v0.4.0** (Jun 16, 2026) — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer with the icon cluster on the right, emoji popover, silent background prefetch of full chat history. Previous: **v0.3.0** — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. 396/396 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.3.0 + unreleased)
+## What it does (v0.4.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
@@ -338,9 +338,9 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 - **v0.2** ✅ Send messages, add reactions, reply, @mention autocomplete with optimistic UI.
 - **v0.3** ✅ Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
-- **Unreleased on `main`** ✅ Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
-- **v0.4** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
-- **v0.4.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
+- **v0.4** ✅ 🎯 Focus mode — filter the feed to terms + tagged people, reply-tree aware. Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
+- **v0.5** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
+- **v0.5.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
 - **DMs + Tenor parity** Direct messages. Tenor GIF picker as an alternative to GIPHY if a user prefers it (TOS allows; would need to recapture Substack DM wire shape since group-chat shape doesn't always match).
 - **WebSocket protocol** Right now the WS handshake returns "Invalid message" after auth and we fall back to polling. Cracking that protocol needs a side-by-side capture of a working native session vs ours. Polling at 12s matches Substack's own client so this is a latency win, not a correctness one.
 
@@ -378,7 +378,7 @@ The GIF button in the composer is the same story, smaller surface:
 
 ## Known issues
 
-Things I know are broken or unfinished as of v0.3.0. PRs welcome. Bug reports help me prioritize.
+Things I know are broken or unfinished as of v0.4.0. PRs welcome. Bug reports help me prioritize.
 
 - **Reply quotes are local-only.** When you click Reply and send, BetterSSC shows the quoted parent message above yours. The actual wire payload sent to Substack is just plain text, so anyone else (including you on your phone in native Substack) sees a first-class message with no quote. Substack's reply API needs a fresh wire capture before this is shippable end-to-end.
 - **Image upload isn't built yet.** Incoming images render inline with a lightbox. Sending an image from BetterSSC isn't implemented. Use native Substack to upload for now. WS capture confirmed Substack creates a separate `type: "media"` post, so the architecture is known. Implementation pending.
