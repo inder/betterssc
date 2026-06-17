@@ -12,6 +12,7 @@ import {
   buildAskUserMessage,
   parseAskSections,
   collectThreadForExplain,
+  segmentExplainGroups,
   buildExplainSystemPrompt,
   buildExplainUserMessage,
   EXPLAIN_MAX_ANCESTORS,
@@ -809,6 +810,71 @@ describe("collectThreadForExplain", () => {
   });
 });
 
+describe("segmentExplainGroups", () => {
+  const ids = (groups) => groups.map((g) => g.items.map((c) => c.id));
+
+  it("a single message is one group", () => {
+    expect(ids(segmentExplainGroups([{ id: "a" }]))).toEqual([["a"]]);
+  });
+
+  it("consecutive plain messages (one typed thought) are ONE group, head first", () => {
+    const g = segmentExplainGroups([
+      { id: "a", body: "Holy hell those are bad" },
+      { id: "b", body: "Took me a long time to warm up" },
+    ]);
+    expect(ids(g)).toEqual([["a", "b"]]);
+    expect(g[0].headId).toBe("a");
+  });
+
+  it("a reply followed by a plain continuation stays one group", () => {
+    const g = segmentExplainGroups([
+      { id: "a", quote: { id: "jordan" }, body: "Qcom." },
+      { id: "b", body: "Nobody will wear those ugly glasses" },
+    ]);
+    expect(ids(g)).toEqual([["a", "b"]]);
+  });
+
+  it("replies to TWO different targets split into two groups (the Za case)", () => {
+    const g = segmentExplainGroups([
+      { id: "a", quote: { id: "jordan" }, body: "Qcom." },
+      { id: "b", body: "Nobody will wear those ugly glasses" },
+      { id: "c", quote: { id: "nolan" }, body: "in burry range" },
+      { id: "d", body: "Surprised he's not long yet" },
+    ]);
+    expect(ids(g)).toEqual([["a", "b"], ["c", "d"]]);
+    expect(g.map((x) => x.headId)).toEqual(["a", "c"]);
+  });
+
+  it("consecutive replies to the SAME target are one group", () => {
+    const g = segmentExplainGroups([
+      { id: "a", quote: { id: "jordan" }, body: "first" },
+      { id: "b", quote: { id: "jordan" }, body: "second" },
+    ]);
+    expect(ids(g)).toEqual([["a", "b"]]);
+  });
+
+  it("a plain message then a reply splits into two groups", () => {
+    const g = segmentExplainGroups([
+      { id: "a", body: "lol" },
+      { id: "b", parent_id: "jordan", body: "actually..." },
+    ]);
+    expect(ids(g)).toEqual([["a"], ["b"]]);
+  });
+
+  it("uses parent_id / quote_id when no inline quote object is present", () => {
+    const g = segmentExplainGroups([
+      { id: "a", parent_id: "x", body: "1" },
+      { id: "b", quote_id: "y", body: "2" },
+    ]);
+    expect(ids(g)).toEqual([["a"], ["b"]]);
+  });
+
+  it("returns [] for non-array input", () => {
+    expect(segmentExplainGroups(null)).toEqual([]);
+    expect(segmentExplainGroups(undefined)).toEqual([]);
+  });
+});
+
 describe("buildExplainSystemPrompt", () => {
   it("advertises the web_search tool when webSearchEnabled is true", () => {
     const p = buildExplainSystemPrompt("[10:00] Za: $CRWV coiled up", {
@@ -885,5 +951,24 @@ describe("buildExplainUserMessage", () => {
   it("omits the links block when none are provided", () => {
     const msg = buildExplainUserMessage({ author: { name: "Za" }, body: "hi" });
     expect(msg).not.toContain("Links referenced");
+  });
+
+  it("appends same-author continuations as (cont'd) lines", () => {
+    const msg = buildExplainUserMessage(
+      { author: { name: "Za" }, body: "Qcom." },
+      { continuations: ["Nobody will wear those ugly glasses"] }
+    );
+    expect(msg).toContain("sequence of messages");
+    expect(msg).toContain(`Za: "Qcom."`);
+    expect(msg).toContain(`Za (cont'd): "Nobody will wear those ugly glasses"`);
+  });
+
+  it("renders a plain single line when there are no continuations", () => {
+    const msg = buildExplainUserMessage(
+      { author: { name: "Za" }, body: "Qcom." },
+      { continuations: [] }
+    );
+    expect(msg).not.toContain("cont'd");
+    expect(msg).not.toContain("sequence of messages");
   });
 });

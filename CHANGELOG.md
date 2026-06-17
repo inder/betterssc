@@ -4,6 +4,14 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-06-16
+
+### Changed
+- **✦ Explain is now grouped by logical message, not per-message.** A Substack user often types one thought as several back-to-back messages — those are one logical group and now show ONE ✦ (on the group's first message) instead of one per line. A message that *replies to a different target* mid-run starts a new logical group → its own ✦ (so a series where the author quote-replies to two different people gets two buttons). Clicking the ✦ explains the **whole group** — the head message plus its same-author continuations (sent as "(cont'd)" lines) plus the head's reply/quote ancestors — so the model reads the entire thought, not just the first line. New pure `segmentExplainGroups` in `lib/ai-context.js` (8 unit tests: plain runs, reply-splits, same-target merges). The footer reports how many messages of the thread were sent.
+
+### Fixed
+- **Explain retry carries the full group.** The inline "Try again" button now re-runs with the same group of messages as the original click (the group is stashed on the head comment and carried across poll/WS re-ingest), instead of silently falling back to explaining only the head.
+
 ## [0.5.0] — 2026-06-16
 
 ### Added — ✦ Explain (per-message inline AI)

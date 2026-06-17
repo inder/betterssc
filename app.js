@@ -57,6 +57,7 @@ import {
   buildAskUserMessage,
   parseAskSections,
   collectThreadForExplain,
+  segmentExplainGroups,
   buildExplainSystemPrompt,
   buildExplainUserMessage,
   ASK_DEFAULT_BUDGET_CHARS,
@@ -1052,6 +1053,7 @@ function ingestComment(c, { silent = false } = {}) {
         "_explainCitations",
         "_explainContextInfo",
         "_explainProvider",
+        "_explainGroupItems",
       ]) {
         if (k in prevComment) unwrapped[k] = prevComment[k];
       }
@@ -1424,8 +1426,18 @@ function renderGroup(group) {
   }
   body.appendChild(header);
 
+  // Split the author-run into logical sub-groups so the ✦ Explain button
+  // shows once per group (on its head), not once per message. A reply to a
+  // different target mid-run starts a new group → its own button.
+  const subGroups = segmentExplainGroups(group.items);
+  const headMembers = new Map(); // headId → member comments (head + continuations)
+  for (const sg of subGroups) headMembers.set(sg.headId, sg.items);
+
   for (const c of group.items) {
-    body.appendChild(renderMessageItem(c));
+    const groupItems = headMembers.get(c.id); // defined only on a sub-group head
+    body.appendChild(
+      renderMessageItem(c, { isExplainHead: !!groupItems, groupItems })
+    );
   }
 
   root.appendChild(body);
@@ -1435,26 +1447,31 @@ function renderGroup(group) {
 // Build the persistent ✦ Explain trigger shown at the top-right of every
 // message. Always visible (not hover-gated). Reflects in-flight state so a
 // double-click is obvious, and reuses runExplain's own per-message guard.
-function makeExplainTrigger(c) {
+function makeExplainTrigger(c, groupItems) {
   // No explain affordance on your own not-yet-confirmed / failed sends —
   // there's nothing stable to explain until the message lands.
   if (c._pending || c._failed) return null;
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "msg-explain-trigger" + (c._explainPending ? " is-pending" : "");
-  btn.title = c._explainPending ? "Explaining…" : "Explain this message with AI";
-  btn.setAttribute("aria-label", "Explain this message with AI");
+  const multi = Array.isArray(groupItems) && groupItems.length > 1;
+  btn.title = c._explainPending
+    ? "Explaining…"
+    : multi
+      ? `Explain these ${groupItems.length} messages with AI`
+      : "Explain this message with AI";
+  btn.setAttribute("aria-label", btn.title);
   btn.textContent = "✦";
   if (c._explainPending) btn.disabled = true;
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    runExplain(c);
+    runExplain(c, { groupItems });
   });
   return btn;
 }
 
-function renderMessageItem(c) {
+function renderMessageItem(c, opts = {}) {
   // AI Insights messages have their own rendering — local-only, light
   // markdown, dismiss button, "only visible to you" footer.
   if (c._aiGenerated) return renderAiMessageItem(c);
@@ -1463,12 +1480,14 @@ function renderMessageItem(c) {
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
 
-  // ✦ Explain trigger — persistent, always-visible at the message's top-
-  // right (X/Grok-style), NOT hidden in the hover reaction toolbar. Clicking
-  // explains this message inline. Appended first so it floats over the top-
-  // right corner via absolute positioning. Null for pending/failed sends.
-  const explainTrigger = makeExplainTrigger(c);
-  if (explainTrigger) wrap.appendChild(explainTrigger);
+  // ✦ Explain trigger — persistent, top-right (X/Grok-style), NOT in the hover
+  // toolbar. Shown only on a LOGICAL-GROUP HEAD (opts.isExplainHead): one
+  // button per run of same-author messages, splitting where a reply targets a
+  // different message. Clicking explains the whole group inline.
+  if (opts.isExplainHead) {
+    const explainTrigger = makeExplainTrigger(c, opts.groupItems);
+    if (explainTrigger) wrap.appendChild(explainTrigger);
+  }
 
   // Thread badge moved to renderGroup (above) so it sits in the header
   // row next to the author name + timestamp, rather than overlapping the
@@ -1604,7 +1623,7 @@ function renderExplainBlock(c) {
     retry.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      runExplain(c);
+      runExplain(c, { groupItems: c._explainGroupItems });
     });
     body.appendChild(retry);
   } else {
@@ -3605,7 +3624,7 @@ async function fetchImageAsBase64(url) {
   }
 }
 
-async function runExplain(comment) {
+async function runExplain(comment, opts = {}) {
   if (!comment || !comment.id) return;
   const target = state.comments.get(comment.id);
   if (!target) return;
@@ -3624,22 +3643,40 @@ async function runExplain(comment) {
     return;
   }
 
-  // Assemble the thread (ancestors + target, oldest → newest). Pure walk
-  // over the live store; cycle- and depth-bounded in lib/ai-context.
-  const thread = collectThreadForExplain(
+  // The clicked ✦ explains a LOGICAL GROUP — the head message PLUS any
+  // same-author continuation messages the user typed as one thought. Default
+  // to just the target when no group was passed (single-message group / old
+  // callers).
+  const groupItems =
+    Array.isArray(opts.groupItems) && opts.groupItems.length
+      ? opts.groupItems.filter((c) => c && c.id)
+      : [target];
+
+  // Assemble the thread: the head's reply/quote ancestors (oldest → head),
+  // then the rest of the logical group's messages. collectThreadForExplain
+  // ends with the head, so drop that and append the full group so the head
+  // isn't duplicated. Cycle/depth-bounded ancestor walk over the live store.
+  const ancestorChain = collectThreadForExplain(
     target.id,
     (id) => state.comments.get(id)
   );
+  const thread = ancestorChain.slice(0, -1).concat(groupItems);
   const { context, included, dropped } = formatMessagesForLLM(thread, {
     budget: ASK_DEFAULT_BUDGET_CHARS,
   });
 
-  // Gather the thread's embedded images (charts/screenshots) and any links
-  // in the bodies so the model explains the WHOLE message, not just its
-  // text. Images become real vision input; links are surfaced for the model
-  // to read via web search. Both are capped + deduped (see helpers).
+  // Gather the whole group's embedded images (charts/screenshots) and any
+  // links in the bodies so the model explains the WHOLE thought, not just its
+  // first line. Images become real vision input; links are surfaced for the
+  // model to read via web search. Both are capped + deduped (see helpers).
   const imageUrls = collectThreadImages(thread);
   const links = collectThreadLinks(thread);
+  // Continuation bodies are intentionally surfaced twice: once in the CHAT
+  // CONTEXT transcript (via `thread`) for ordering/attribution, and again in
+  // the user message as "(cont'd)" lines so the model knows EXACTLY which
+  // lines form the one target thought vs. the surrounding ancestor context.
+  // Each is snippet-capped, so the cost of the overlap is bounded.
+  const continuations = groupItems.slice(1).map((c) => c.body);
 
   // Web search: same gate as Ask mode — on when the provider supports it
   // and the user hasn't disabled it. The instruction in the system prompt
@@ -3648,12 +3685,15 @@ async function runExplain(comment) {
   const webSearchEnabled =
     supportsWebSearch(provider) &&
     (state.aiAskWebSearch === false ? false : true);
-  const userMessage = buildExplainUserMessage(target, { links });
+  const userMessage = buildExplainUserMessage(target, { links, continuations });
 
-  // Mark pending + render the inline placeholder.
+  // Mark pending + render the inline placeholder. Stash the group on the head
+  // so the inline "Try again" button can re-run with the SAME group (the
+  // retry path must carry the same context as the primary path).
   target._explainPending = true;
   target._explainError = false;
   target._explainProvider = provider;
+  target._explainGroupItems = groupItems;
   renderAll();
 
   try {
@@ -3745,6 +3785,7 @@ function dismissExplain(id) {
   delete row._explainCitations;
   delete row._explainContextInfo;
   delete row._explainProvider;
+  delete row._explainGroupItems;
   renderAll();
 }
 

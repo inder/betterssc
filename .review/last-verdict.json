@@ -1,12 +1,12 @@
 {
   "sha": "c032886",
   "branch": "main",
-  "ts": "2026-06-16T21:36:00Z",
-  "verdict": "ship-it",
-  "retro_required": "yes",
-  "retro_reasoning": "Diff is 1000+ lines, touches API contracts (vision, 3 providers), new stateful feature with lifecycle markers, prior per-commit reviews already ran — worth banking the integration patterns for future sessions",
+  "ts": "2026-06-16T22:15:30Z",
+  "verdict": "fix-these",
+  "retro_required": "maybe",
+  "retro_reasoning": "Diff is ~230 lines of meaningful logic but no schema/contract change and no critical findings; one should-fix on the retry path plus a comment correctness nit",
   "critical_count": 0,
-  "should_fix_count": 0,
-  "nit_count": 3,
-  "files_reviewed": 7
+  "should_fix_count": 1,
+  "nit_count": 2,
+  "files_reviewed": 3
 }

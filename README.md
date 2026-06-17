@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-430%2F430-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-440%2F440-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.5.0** (Jun 16, 2026) — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). Previous: **v0.4.0** — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer, emoji popover, silent background prefetch of full chat history. 430/430 tests passing.
+Latest release: **v0.5.1** (Jun 16, 2026) — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). Previous: **v0.4.0** — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer, emoji popover, silent background prefetch of full chat history. 440/440 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.5.0)
+## What it does (v0.5.1)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
