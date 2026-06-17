@@ -1,83 +1,100 @@
 {
   "mode": "full",
-  "sha": "913ad0305153ea7d46cf128208d13bd1a1ff5013",
-  "branch": "worktree-focus-mode",
-  "ts": "2026-06-12T00:00:00.000Z",
-  "base": "main",
-  "diff_lines": 979,
-  "commits": 1,
-  "reviewer_model": "claude-sonnet-4-6",
-  "payload": {
-    "what_went_right": [
-      "Pure module design: lib/focus.js is fully headless (takes a `getComment` accessor, not a reference to `state`), enabling 17 unit tests that run without a browser and without app.js imports — the ancestor-walk, cycle guard, dangling-parent, and backfill-staleness contract are all pinned in code before the feature shipped (diff: new file lib/focus.js + test/focus.test.mjs).",
-      "Reviewer ran TWICE and all findings were closed before push: first pass caught the Critical + 3 Should-fix; second pass confirmed all CLOSED. The transcript shows the work-agent called code-reviewer before commit, not after (transcript: 'app.js parses cleanly and all identifiers are wired. This touches the load-bearing applySearch filter path — exactly what my pre-tag-review-gate memory says must get a review.').",
-      "The backfill-staleness regression test was added as part of the Critical fix — test/focus.test.mjs line 1191 ('a stale memo hides a row whose ancestor was backfilled — so callers MUST drop the memo when the store changes') pins the exact failure scenario in the test suite, making the fix permanent rather than honor-system.",
-      "applyThreadFilter was correctly folded into the unified applySearch intersection pass (focus ∩ thread ∩ search), eliminating a separate function that could have diverged from focus-mode visibility logic — the refactor reduced total LOC and eliminated the class of 'thread filter overwritten by search' bugs.",
-      "Memory consultation fired at session start and directly shaped strategy: betterssc-direct-to-main-no-worktree, inline-reviewer-cadence-traded-parallelism-for-correctness, and pre-tag-review-gate-is-load-bearing were all cited by the work-agent in its first assistant turn before any code was written."
-    ],
-    "what_went_wrong": [
-      "The state comment at the initial memo-scope decision was wrong: 'cleared whenever focusFilter changes (appends keep it valid since new messages are leaves, never ancestors of older cached rows)' — diff line 316. The author reasoned about one mutation source (realtime appends) and missed the second (history backfill / loadOlder / bgPrefetch inserting older messages that are potential ancestors). A reviewer caught it as Critical.",
-      "The original state declaration set `_focusMemo: null` with the intention of reusing it across renders within a filter generation — but the memo's actual safe scope is ONE render pass. The design was subtly over-ambitious: cross-render caching requires enumerating ALL store mutation sources, which was not done.",
-      "The thread-only tint regression (groups that are in-thread but NOT in a search hit should still get 'search-hit' class for tinting) was not carried forward from the deleted `applyThreadFilter` into the unified pass — caught as a Should-fix by the reviewer and fixed in the same post-review pass."
-    ],
-    "three_whys": [
-      "Why 1: The _focusMemo Critical happened because the work-agent scoped the memo's validity to 'realtime append' behavior only, writing 'appends keep it valid since new messages are leaves, never ancestors of older cached rows' — this is true for one mutation source but false for history backfill (diff line 316).",
-      "Why 2: The author reasoned about memo validity from the write path they were actively implementing (the realtime poll → new leaf at bottom), not from a systematic enumeration of all store mutation sources. The history backfill path (loadOlder / bgPrefetch) was a pre-existing feature not in focus during the memo design, so it didn't enter the mental model.",
-      "Why 3: There was no established discipline for 'enumerate all store mutation sources before scoping a cross-render cache' — the prior project memories cover symmetric invariants in send/retry paths and filter intersection bugs, but not the specific class of 'ordered store with two growth directions + upward-walking memo'. This is a new class of error for this codebase, so no rule existed to trigger the check."
-    ],
-    "learnings_written": [
-      {
-        "name": "memo-invalidation-must-cover-all-store-mutation-sources",
-        "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/memo-invalidation-must-cover-all-store-mutation-sources.md"
-      },
-      {
-        "name": "per-render-memo-is-safer-than-cross-render-cache",
-        "type": "feedback",
-        "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/per-render-memo-is-safer-than-cross-render-cache.md"
-      }
-    ],
-    "evidence_citations": [
-      {
-        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
-        "source_type": "diff",
-        "source_ref": "+++ b/app.js @@ state = { ... focusFilter fields",
-        "quote": "+  // generation; cleared whenever focusFilter changes (appends keep it valid\n+  // since new messages are leaves, never ancestors of older cached rows)."
-      },
-      {
-        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
-        "source_type": "diff",
-        "source_ref": "+++ b/app.js @@ applySearch memo-clearing comment lines 374-380",
-        "quote": "+  // it must NOT survive across renders. History backfill (loadOlder /\n+  // bgPrefetch) inserts OLDER messages that can be ancestors of rows we\n+  // already evaluated; a memo that persisted would keep their stale\n+  // pre-backfill verdict"
-      },
-      {
-        "learning_id": "memo-invalidation-must-cover-all-store-mutation-sources",
-        "source_type": "diff",
-        "source_ref": "+++ b/test/focus.test.mjs line 1191",
-        "quote": "+  it(\"a stale memo hides a row whose ancestor was backfilled — so callers MUST drop the memo when the store changes\", () => {"
-      },
-      {
-        "learning_id": "per-render-memo-is-safer-than-cross-render-cache",
-        "source_type": "diff",
-        "source_ref": "+++ b/app.js @@ applySearch line 380",
-        "quote": "+  state._focusMemo = null;"
-      },
-      {
-        "learning_id": "per-render-memo-is-safer-than-cross-render-cache",
-        "source_type": "transcript",
-        "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/2be7812d-2f15-40cc-ba79-273a499596fc.jsonl",
-        "quote": "The reviewer caught a real Critical — exactly the highest-risk claim I flagged. My 'new messages are leaves' reasoning holds for realtime appends at the bottom but is WRONG for history backfill"
-      }
-    ],
-    "action_items": [
-      {
-        "title": "Add discipline: enumerate all store mutation sources before scoping any cross-render cache",
-        "scope": "project",
-        "description": "Before writing a memo/cache over a store structure, list ALL code paths that mutate the store (realtime append, history backfill, bgPrefetch, optimistic reconcile, etc.) and verify the cache invariant holds for each. If ANY source can insert ancestors of already-cached nodes, scope the cache to one render pass only. Apply this check to any future tree-walk memos (thread depth, quote chains, etc.) in app.js.",
-        "source_learning": "memo-invalidation-must-cover-all-store-mutation-sources"
-      }
-    ],
-    "claude_md_changes": [],
-    "memory_md_changes": []
-  }
+  "sha": "3c72db5616df54a07ed3c5452721dedb7db25151",
+  "branch": "main",
+  "ts": "2026-06-17T05:04:08.700Z",
+  "reviewer": "independent-retro-agent",
+  "three_whys": [
+    "Why 1: The ✦ button, the popup overlap, and the icon color each shipped not matching the user's placement/visibility intent and needed 2-3 correction rounds, because each visible-UI decision was emitted and corrected one at a time rather than being decided together in the first cut.",
+    "Why 2: They were emitted one at a time because the agent's only verification channel for this feature is DOM presence plus unit tests — neither of which can detect 'the user can't find this control', 'the popup overlaps the button', 'this violet is too dim', or 'below bleeds into the next row' — so every geometry/color decision was unverifiable until the user looked at a live screenshot.",
+    "Why 3: That verification gap is structural: the agent cannot drive the logged-in Substack tab headlessly, so it defaulted to the success criterion it COULD check (is the element in the DOM tree?) over the one the user was actually reporting on (can a human discover and use it?), and front-loading the placement/color/overlap design into a single live-eyes handoff would have collapsed the round-trips the DOM-presence check structurally cannot close."
+  ],
+  "learnings_written": [
+    {
+      "name": "i-dont-see-it-is-a-placement-miss-not-a-render-bug",
+      "type": "feedback",
+      "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/i-dont-see-it-is-a-placement-miss-not-a-render-bug.md"
+    },
+    {
+      "name": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "type": "feedback",
+      "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/ui-affordance-needs-live-eyes-not-headless-dom-presence.md"
+    }
+  ],
+  "evidence_citations": [
+    {
+      "learning_id": "i-dont-see-it-is-a-placement-miss-not-a-render-bug",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl:230 (user message)",
+      "quote": "[Image #2] i dont see it"
+    },
+    {
+      "learning_id": "i-dont-see-it-is-a-placement-miss-not-a-render-bug",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl (assistant)",
+      "quote": "The ✦ is right there — it's the last icon in that hover toolbar (❤️ 👍 ‼️ 😂 + ↩ ✦). That's the button."
+    },
+    {
+      "learning_id": "i-dont-see-it-is-a-placement-miss-not-a-render-bug",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl (user, initial request)",
+      "quote": "give each message in the chat feed an *(AI) button similar the one on X. ... here is how X does it. If you can build it similar to X, then i would prefer it."
+    },
+    {
+      "learning_id": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl (assistant)",
+      "quote": "Review came back 0 Critical, 3 Should-fix, 3 Nit — and you just flagged two concrete UX bugs (popup covering the ✦, and the icon color)."
+    },
+    {
+      "learning_id": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl (assistant, second popup reposition)",
+      "quote": "Right — putting it below pushes it into the next message. Moving the reaction popup to the left of the ✦ instead, kept within this message's own bounds so it can't bleed into adjacent rows."
+    },
+    {
+      "learning_id": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "source_type": "transcript",
+      "source_ref": "11d0ed2d-08df-4aaa-aced-5b4d0e9831bd.jsonl (assistant, iteration 1 handoff)",
+      "quote": "the next step (visual polish + ship) genuinely needs your eyes on the live UI, which I can't drive headlessly"
+    },
+    {
+      "learning_id": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "source_type": "diff",
+      "source_ref": "/tmp/retro-diff.txt:44-45 (CHANGELOG)",
+      "quote": "Reaction hover toolbar repositioned to the left of the new ✦ button ... so the persistent ✦ is never covered and the popup never spills below into the next message's row.  New --ai-spark color (bright, inviting violet) for AI affordances"
+    },
+    {
+      "learning_id": "ui-affordance-needs-live-eyes-not-headless-dom-presence",
+      "source_type": "memory",
+      "source_ref": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/feature-bundling-causes-styling-iteration-tail.md",
+      "quote": "When a commit touches more than one visible UI surface, split it. ... Design-color collisions are a design decision, not a fix."
+    }
+  ],
+  "action_items": [
+    {
+      "title": "Add a live-eyes design checklist to the BetterSSC visible-UI flow",
+      "scope": "project",
+      "description": "Before shipping any new visible-UI affordance, emit a single explicit checklist for the user to verify on the live Substack tab (control visible without hover, neighboring popups don't overlap, color reads as intended, nothing bleeds into adjacent rows) rather than shipping change-then-wait serially. The agent cannot drive the logged-in tab, so this is the only verification channel for geometry/color and it should be batched, not dripped.",
+      "source_learning": "ui-affordance-needs-live-eyes-not-headless-dom-presence"
+    },
+    {
+      "title": "Treat 'i dont see it' / 'where is it' as a placement-miss triage branch",
+      "scope": "project",
+      "description": "When a user reports they can't find a NEW affordance, default to checking placement/visibility (behind hover? buried in a crowded toolbar? low-contrast color? below the fold?) BEFORE re-debugging the render path. Re-confirming DOM presence answers the wrong question; a discoverability control the user can't find is failing by definition.",
+      "source_learning": "i-dont-see-it-is-a-placement-miss-not-a-render-bug"
+    }
+  ],
+  "what_went_right": [
+    "The feature shipped functionally complete and tested — 430/430 tests green, with new unit coverage in test/ai-context.test.mjs (174 lines) and test/ai-providers.test.mjs (171 lines) for the thread-walk and provider/vision paths, so the non-visual logic was verifiable headlessly.",
+    "The agent ran the per-commit code-reviewer INLINE blocking (not deferred to end-of-bundle) per the coupled-feature memory, and folded the review's 3 Should-fix findings together with the user's two UX bugs into a single pass: review fix C (build the system prompt after image resolution so hasImages reflects what's actually sent) and review fix F (don't show ✦ on unconfirmed/failed sends).",
+    "The agent correctly diagnosed up front that the visual polish needed live eyes it could not provide ('the next step (visual polish + ship) genuinely needs your eyes on the live UI, which I can't drive headlessly') and paused the /loop for a real-time handoff instead of auto-scheduling a wakeup.",
+    "Vision and link-reading were implemented with a sound provider split (Anthropic/OpenAI get the image URL for server-side fetch; Google gets pre-fetched base64 via host perms, fail-soft), capped at 4 images and SVG-excluded — a real design decision, not a stub."
+  ],
+  "what_went_wrong": [
+    "The ✦ Explain button shipped buried as the rightmost icon in the hover reaction toolbar. The user could not find it ('i dont see it') and the agent spent ~5 turns re-confirming the render path, the repo folder, and git toplevel — insisting 'the ✦ is right there' — before accepting that a discoverability affordance the user can't find IS the failure, not a render bug. The original spec ('similar to the one on X', 'build it similar to X') had already implied an always-visible control.",
+    "The feature was requested as a bundle that grew across the session (explain → +vision/images → +link reading → +trader persona → +always-visible button → +reaction-popup reposition → +icon color). Each visible-UI addition the agent could only verify by DOM presence produced a correction round the user had to drive: 'i dont see it', popup-covers-the-✦, and the icon color being wrong.",
+    "The reaction-popup reposition needed TWO rounds for one overlap: the agent's first fix moved the popup BELOW the ✦, which bled into the next message's row ('putting it below pushes it into the next message'), forcing a second reposition to the left. The adjacency bleed-mode was not enumerated before the first attempt.",
+    "This is another instance of the existing feature-bundling-causes-styling-iteration-tail memory — color and z-order/overlap are design decisions that got deferred into a post-cut correction tail instead of being decided in the design pass — and the prior memory did not prevent it."
+  ]
 }
