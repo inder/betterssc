@@ -910,6 +910,32 @@ describe("buildExplainSystemPrompt", () => {
     expect(p).toMatch(/risk/i);
   });
 
+  it("tells the model to identify and name the real-world referent", () => {
+    const p = buildExplainSystemPrompt("ctx", {});
+    expect(p).toMatch(/identify the real-world referent/i);
+    expect(p).toMatch(/label confidence/i);
+    expect(p).toContain("almost certainly Trump");
+  });
+
+  it("guards against forcing a securities frame onto non-market messages", () => {
+    const p = buildExplainSystemPrompt("ctx", {});
+    expect(p).toMatch(/not everything is a tradeable security/i);
+    expect(p).toMatch(/never invent a "public company"/i);
+  });
+
+  it("widens the persona to the political / geopolitical backdrop", () => {
+    const p = buildExplainSystemPrompt("ctx", {});
+    expect(p).toMatch(/political/i);
+    expect(p).toMatch(/geopolitical/i);
+  });
+
+  it("web-off mode invites referent inference instead of refusing", () => {
+    const p = buildExplainSystemPrompt("ctx", { webSearchEnabled: false });
+    expect(p).toMatch(/infer the most likely real-world referent/i);
+    expect(p).toMatch(/do not fabricate specific facts/i);
+    expect(p).not.toMatch(/rather than guessing/i);
+  });
+
   it("adds an image instruction only when hasImages is true", () => {
     const withImg = buildExplainSystemPrompt("ctx", { hasImages: true });
     expect(withImg).toMatch(/image attachments/i);
