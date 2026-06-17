@@ -1,7 +1,7 @@
 {
   "mode": "auto-skip",
-  "sha": "63e9f91c58c22065aa1b7cad2e7193bcf2b3480f",
+  "sha": "769dfad340186834b6d3fea319eeefd8965668a3",
   "branch": "main",
-  "ts": "2026-06-17T05:31:00.260Z",
-  "skip_reason": "Behavior refinement (~140 non-test LOC) on top of v0.5.0 ✦ Explain, which already had a full independent retro the same session. Clean inline review (0 critical); the single should-fix (retry-path drops group context) is already covered by the banked memory new-pre-step-in-send-path-must-propagate-to-retry-path, which the reviewer applied. No new learning class."
+  "ts": "2026-06-17T06:02:34.300Z",
+  "skip_reason": "Third targeted fix-pass on the ✦ Explain feature (v0.5.0/0.5.1 already retro'd this session). app.js-only, ~110 net LOC, no new tests/schema/contracts. Pre-push review verdict SHIP IT, 0 critical / 0 should-fix. Block-placement + surgical-render-to-kill-scroll-teleport — no new learning class beyond the already-banked live-eyes lesson."
 }
