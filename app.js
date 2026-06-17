@@ -1300,6 +1300,83 @@ function renderAll() {
     applySearch();
 }
 
+// renderAll() but keep a given message visually pinned. renderAll rebuilds the
+// whole feed; if content is inserted ABOVE the viewport (e.g. the silent
+// background prefetch's deferred backlog finally rendering, or older history),
+// the user's scroll position would otherwise jump. We measure the anchor
+// message's on-screen offset before the render and re-apply scrollTop after so
+// it stays put. Used by Explain so clicking ✦ never teleports the feed.
+function renderAllAnchored(anchorId) {
+  const stream = document.getElementById("stream");
+  if (!stream || anchorId == null) {
+    renderAll();
+    return;
+  }
+  const sel = `.msg-item[data-id="${cssEscape(String(anchorId))}"]`;
+  const before = stream.querySelector(sel);
+  const beforeTop = before ? before.getBoundingClientRect().top : null;
+  renderAll();
+  if (beforeTop == null) return;
+  const after = stream.querySelector(sel);
+  if (after) stream.scrollTop += after.getBoundingClientRect().top - beforeTop;
+}
+
+// Surgically insert / replace / remove ONE message group's ✦ explain block in
+// the live DOM, WITHOUT a full renderAll(). This is what Explain uses so a
+// click never forces the silent-prefetch backlog to render (the cause of the
+// first-click scroll teleport — that backlog's images load async and defeat
+// any synchronous scroll anchor). The next genuine renderAll (poll / prefetch
+// completion) self-heals the block via renderGroup, so drift is impossible.
+//   head: the group's head comment (holds _explain* state)
+//   groupItems: the logical group's comments (head + continuations)
+function renderExplainInline(head, groupItems) {
+  const stream = document.getElementById("stream");
+  if (!stream || !head || !head.id) {
+    renderAll();
+    return;
+  }
+  const headId = String(head.id);
+  // Drop any existing block for this head.
+  const existing = stream.querySelector(
+    `.msg-explain[data-head-id="${cssEscape(headId)}"]`
+  );
+  if (existing) existing.remove();
+
+  const headNode = stream.querySelector(
+    `.msg-item[data-id="${cssEscape(headId)}"]`
+  );
+
+  // Insert a fresh block after the group's LAST message when the head still
+  // carries explain state.
+  if (head._explainPending || head._explainError || head._explain) {
+    const items =
+      Array.isArray(groupItems) && groupItems.length
+        ? groupItems
+        : Array.isArray(head._explainGroupItems) && head._explainGroupItems.length
+          ? head._explainGroupItems
+          : [head];
+    const lastId = String(items[items.length - 1].id);
+    const lastNode =
+      stream.querySelector(`.msg-item[data-id="${cssEscape(lastId)}"]`) || headNode;
+    if (!lastNode) {
+      // Group isn't in the DOM (shouldn't happen — user just clicked it).
+      renderAllAnchored(head.id);
+      return;
+    }
+    lastNode.after(renderExplainBlock(head));
+  }
+
+  // Keep the head's ✦ trigger in sync (pending spinner + disabled).
+  if (headNode) {
+    const trig = headNode.querySelector(".msg-explain-trigger");
+    if (trig) {
+      const pending = !!head._explainPending;
+      trig.classList.toggle("is-pending", pending);
+      trig.disabled = pending;
+    }
+  }
+}
+
 // Build a client-side index of which messages reply to which others.
 // Substack chat has TWO reply patterns:
 //   - threaded reply (parent_id points at parent — server tracks via reply_count)
@@ -1431,13 +1508,23 @@ function renderGroup(group) {
   // different target mid-run starts a new group → its own button.
   const subGroups = segmentExplainGroups(group.items);
   const headMembers = new Map(); // headId → member comments (head + continuations)
-  for (const sg of subGroups) headMembers.set(sg.headId, sg.items);
+  const lastIdToHead = new Map(); // last-member id → head comment (explain block anchor)
+  for (const sg of subGroups) {
+    headMembers.set(sg.headId, sg.items);
+    lastIdToHead.set(sg.items[sg.items.length - 1].id, sg.items[0]);
+  }
 
   for (const c of group.items) {
     const groupItems = headMembers.get(c.id); // defined only on a sub-group head
     body.appendChild(
       renderMessageItem(c, { isExplainHead: !!groupItems, groupItems })
     );
+    // ✦ The explanation belongs to the whole logical group, so render its
+    // block AFTER the group's LAST message (the head holds the _explain* state).
+    const head = lastIdToHead.get(c.id);
+    if (head && (head._explainPending || head._explainError || head._explain)) {
+      body.appendChild(renderExplainBlock(head));
+    }
   }
 
   root.appendChild(body);
@@ -1560,12 +1647,9 @@ function renderMessageItem(c, opts = {}) {
   const reactionsEl = buildReactionsEl(c);
   if (reactionsEl) wrap.appendChild(reactionsEl);
 
-  // ✦ Inline AI explanation — rendered when the user has clicked Explain on
-  // this message (pending, error, or finished). Lives on the comment object
-  // so it survives renderAll; visually distinct from the message itself.
-  if (c._explainPending || c._explainError || c._explain) {
-    wrap.appendChild(renderExplainBlock(c));
-  }
+  // NOTE: the ✦ inline explanation block is NOT rendered here. The explain
+  // targets a whole logical GROUP, so renderGroup appends the block after the
+  // group's LAST message (not inside the head's item) — see renderGroup.
 
   return wrap;
 }
@@ -1580,6 +1664,9 @@ function renderExplainBlock(c) {
   box.className = "msg-explain"
     + (c._explainPending ? " is-pending" : "")
     + (c._explainError ? " is-error" : "");
+  // Tag with the head id so the surgical updater (renderExplainInline) can
+  // find + replace/remove this block without a full re-render.
+  box.dataset.headId = c.id;
 
   const head = document.createElement("div");
   head.className = "msg-explain-head";
@@ -3694,7 +3781,10 @@ async function runExplain(comment, opts = {}) {
   target._explainError = false;
   target._explainProvider = provider;
   target._explainGroupItems = groupItems;
-  renderAll();
+  // Surgical insert — NOT renderAll(). A full re-render here would paint the
+  // deferred background-prefetch backlog above the viewport and teleport the
+  // feed (the backlog's images load async and beat any scroll anchor).
+  renderExplainInline(target, groupItems);
 
   try {
     // Build the images payload. Anthropic + OpenAI fetch remote image URLs
@@ -3759,7 +3849,7 @@ async function runExplain(comment, opts = {}) {
       row._explain = result.text;
       row._explainCitations = result.citations || null;
     }
-    renderAll();
+    renderExplainInline(row, groupItems);
   } catch (e) {
     // Defensive only: callProvider never throws (it maps aborts/timeouts/
     // network failures to a { error } envelope handled above). This catches
@@ -3771,7 +3861,7 @@ async function runExplain(comment, opts = {}) {
       row._explainError = true;
       row._explain = sanitizeProviderError(String((e && e.message) || e));
     }
-    renderAll();
+    renderExplainInline(row || target, groupItems);
   }
 }
 
@@ -3786,7 +3876,8 @@ function dismissExplain(id) {
   delete row._explainContextInfo;
   delete row._explainProvider;
   delete row._explainGroupItems;
-  renderAll();
+  // Surgical removal — no full re-render, so dismiss can't shift the feed.
+  renderExplainInline(row);
 }
 
 // ----- Settings modal -----

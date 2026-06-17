@@ -4,6 +4,12 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-06-16
+
+### Fixed
+- **The ✦ Explain block now renders after the group's LAST message**, not inside the head message's row (it was landing between message 1 and message 2 of a multi-message group). `renderGroup` appends the block after the sub-group's final message so it visually wraps the whole logical thought.
+- **First-click scroll teleport fixed.** Clicking ✦ used to force a full `renderAll()`, which painted the silent background-prefetch backlog above the viewport — and that backlog's async-loading chart images jumped the feed mid-scroll (only on the first click after a fresh load, before the backlog had rendered). Explain now updates the DOM **surgically** via a new `renderExplainInline` (insert/replace/remove just the one group's block + sync the trigger), calling no `renderAll`, so nothing renders above the click point and the feed stays put. A real `renderAll` (poll / prefetch completion) still self-heals the block via `renderGroup`, so the two paths never diverge.
+
 ## [0.5.1] — 2026-06-16
 
 ### Changed
