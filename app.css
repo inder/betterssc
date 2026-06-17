@@ -17,6 +17,10 @@
   --accent-bg-soft: rgba(78, 92, 219, 0.10);
   --accent-bg-strong: rgba(78, 92, 219, 0.22);
   --accent-bg-strongest: rgba(78, 92, 219, 0.34);
+  /* ✦ AI spark — bright, inviting violet for the per-message Explain button.
+     Distinct from the indigo --accent so AI affordances read as "AI". */
+  --ai-spark: #7c3aed;
+  --ai-spark-soft: rgba(124, 58, 237, 0.12);
   --success: #1a8a44;
   --success-bg-soft: rgba(26, 138, 68, 0.12);
   --success-bg-strong: rgba(26, 138, 68, 0.22);
@@ -45,6 +49,9 @@
   --accent-bg-soft: rgba(123, 138, 255, 0.16);
   --accent-bg-strong: rgba(123, 138, 255, 0.30);
   --accent-bg-strongest: rgba(123, 138, 255, 0.42);
+  /* ✦ AI spark — brighter violet on dark for contrast against the panel. */
+  --ai-spark: #b794ff;
+  --ai-spark-soft: rgba(183, 148, 255, 0.18);
   --success: #23a559;
   --success-bg-soft: rgba(35, 165, 89, 0.18);
   --success-bg-strong: rgba(35, 165, 89, 0.32);
@@ -1649,8 +1656,11 @@ button {
 .msg-item { position: relative; }
 .msg-toolbar {
   position: absolute;
-  top: -10px;
-  right: 6px;
+  /* Sits to the LEFT of the persistent ✦ Explain trigger (which lives at
+     right:4px, ~21px wide), at the same top, so it never covers the ✦ and
+     never spills below into the next message's row. */
+  top: 1px;
+  right: 30px;
   display: none;
   gap: 2px;
   background: var(--bg-primary);
@@ -1683,7 +1693,8 @@ button {
 }
 .emoji-picker {
   position: absolute;
-  top: 18px;
+  /* Opens just below the reaction toolbar (top:1px, ~24px tall). */
+  top: 28px;
   right: 6px;
   display: inline-flex;
   gap: 2px;
@@ -2223,6 +2234,138 @@ button {
   color: var(--text-muted);
 }
 .ai-footer-meta { font-style: italic; }
+
+/* ✦ Persistent Explain trigger — always visible at each message's top-right
+   (X/Grok-style), NOT hover-gated. Sits below the floating reaction toolbar
+   (z-index 5) so hover doesn't clash. A faint background masks any text it
+   overlaps on a short first line. */
+.msg-explain-trigger {
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  z-index: 6; /* above the reaction toolbar (z-index 5) so it's never covered */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--ai-spark-soft);
+  border-radius: 6px;
+  background: var(--ai-spark-soft);
+  color: var(--ai-spark);
+  cursor: pointer;
+  opacity: 0.92;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease,
+    border-color 0.12s ease, transform 0.12s ease;
+}
+.msg-item:hover > .msg-explain-trigger { opacity: 1; }
+.msg-explain-trigger:hover {
+  opacity: 1;
+  color: #fff;
+  background: var(--ai-spark);
+  border-color: var(--ai-spark);
+  transform: scale(1.08);
+}
+.msg-explain-trigger.is-pending {
+  opacity: 1;
+  color: var(--ai-spark);
+  cursor: default;
+  animation: msgExplainPulse 1.2s ease-in-out infinite;
+}
+
+/* ✦ Inline per-message Explain block. Attached UNDER a normal chat message
+   (not a timeline AI row), so it gets its own distinct, clearly-"AI" look:
+   accent left bar + soft accent wash + sparkle header. Visually subordinate
+   to the message it explains (slightly inset, smaller type). */
+.msg-explain {
+  margin: 6px 0 2px 0;
+  padding: 8px 10px 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-bg-soft);
+  border-radius: 0 8px 8px 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  /* Cap width so a long explanation doesn't run edge-to-edge under a short
+     message; keeps the "attached note" feel rather than a full panel. */
+  max-width: 680px;
+}
+.msg-explain.is-pending { opacity: 0.85; }
+.msg-explain.is-error { border-left-color: var(--danger, #d9534f); background: var(--danger-bg-soft, rgba(217,83,79,0.10)); }
+.msg-explain-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.msg-explain-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.msg-explain.is-pending .msg-explain-label {
+  /* gentle pulse while the model thinks */
+  animation: msgExplainPulse 1.2s ease-in-out infinite;
+}
+@keyframes msgExplainPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+.msg-explain-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.msg-explain-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.msg-explain-body { color: var(--text-primary); }
+.msg-explain-body p { margin: 4px 0; }
+.msg-explain-body ul.ai-ul { margin: 4px 0; padding-left: 20px; }
+.msg-explain-body li { margin: 2px 0; }
+.msg-explain-body a.ai-link { color: var(--text-link); }
+.msg-explain-retry {
+  margin-top: 6px;
+  font-size: 12px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.msg-explain-retry:hover { background: var(--bg-hover); }
+.msg-explain-citations {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.msg-explain-citations-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 3px;
+}
+.msg-explain-citations ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.msg-explain-citations li { margin: 2px 0; }
+.msg-explain-footer {
+  margin-top: 6px;
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--text-muted);
+}
 
 .ai-actions {
   display: flex;

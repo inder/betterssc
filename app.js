@@ -47,6 +47,7 @@ import {
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
+  VISION_IMAGE_TYPES,
 } from "./lib/ai-providers.js";
 import {
   formatMessagesForLLM,
@@ -55,6 +56,9 @@ import {
   buildAskSystemPrompt,
   buildAskUserMessage,
   parseAskSections,
+  collectThreadForExplain,
+  buildExplainSystemPrompt,
+  buildExplainUserMessage,
   ASK_DEFAULT_BUDGET_CHARS,
   DEFAULT_LENS_HINT,
   DEFAULT_FORMAT_TEMPLATE,
@@ -1032,6 +1036,27 @@ function ingestComment(c, { silent = false } = {}) {
   }
 
   const isNew = !state.comments.has(id);
+  // Carry forward client-only ✦ Explain markers across poll/WS re-ingests.
+  // A poll response re-parses every visible comment into a fresh server
+  // shape that carries none of our _explain* fields; without this the
+  // inline explanation (or an in-flight pending placeholder) silently
+  // vanishes the next time the message is re-ingested. Mirrors the
+  // pending-row carry-forward discipline in reconcilePending.
+  if (!isNew) {
+    const prevComment = state.comments.get(id);
+    if (prevComment) {
+      for (const k of [
+        "_explain",
+        "_explainPending",
+        "_explainError",
+        "_explainCitations",
+        "_explainContextInfo",
+        "_explainProvider",
+      ]) {
+        if (k in prevComment) unwrapped[k] = prevComment[k];
+      }
+    }
+  }
   state.comments.set(id, unwrapped);
   if (isNew) {
     insertInOrder(unwrapped);
@@ -1407,6 +1432,28 @@ function renderGroup(group) {
   return root;
 }
 
+// Build the persistent ✦ Explain trigger shown at the top-right of every
+// message. Always visible (not hover-gated). Reflects in-flight state so a
+// double-click is obvious, and reuses runExplain's own per-message guard.
+function makeExplainTrigger(c) {
+  // No explain affordance on your own not-yet-confirmed / failed sends —
+  // there's nothing stable to explain until the message lands.
+  if (c._pending || c._failed) return null;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "msg-explain-trigger" + (c._explainPending ? " is-pending" : "");
+  btn.title = c._explainPending ? "Explaining…" : "Explain this message with AI";
+  btn.setAttribute("aria-label", "Explain this message with AI");
+  btn.textContent = "✦";
+  if (c._explainPending) btn.disabled = true;
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    runExplain(c);
+  });
+  return btn;
+}
+
 function renderMessageItem(c) {
   // AI Insights messages have their own rendering — local-only, light
   // markdown, dismiss button, "only visible to you" footer.
@@ -1415,6 +1462,13 @@ function renderMessageItem(c) {
   const wrap = document.createElement("div");
   wrap.className = "msg-item";
   wrap.dataset.id = c.id;
+
+  // ✦ Explain trigger — persistent, always-visible at the message's top-
+  // right (X/Grok-style), NOT hidden in the hover reaction toolbar. Clicking
+  // explains this message inline. Appended first so it floats over the top-
+  // right corner via absolute positioning. Null for pending/failed sends.
+  const explainTrigger = makeExplainTrigger(c);
+  if (explainTrigger) wrap.appendChild(explainTrigger);
 
   // Thread badge moved to renderGroup (above) so it sits in the header
   // row next to the author name + timestamp, rather than overlapping the
@@ -1487,7 +1541,119 @@ function renderMessageItem(c) {
   const reactionsEl = buildReactionsEl(c);
   if (reactionsEl) wrap.appendChild(reactionsEl);
 
+  // ✦ Inline AI explanation — rendered when the user has clicked Explain on
+  // this message (pending, error, or finished). Lives on the comment object
+  // so it survives renderAll; visually distinct from the message itself.
+  if (c._explainPending || c._explainError || c._explain) {
+    wrap.appendChild(renderExplainBlock(c));
+  }
+
   return wrap;
+}
+
+// Build the inline "✦ Explained" block attached under a message. Three
+// states: pending (spinner-ish placeholder), error (sanitized provider
+// error + retry), and done (markdown explanation + optional web citations).
+// All model text goes through renderAiMarkdownToHtml (escape-first, http(s)-
+// only links) — the same XSS-safe path the Ask renderer uses.
+function renderExplainBlock(c) {
+  const box = document.createElement("div");
+  box.className = "msg-explain"
+    + (c._explainPending ? " is-pending" : "")
+    + (c._explainError ? " is-error" : "");
+
+  const head = document.createElement("div");
+  head.className = "msg-explain-head";
+  const label = document.createElement("span");
+  label.className = "msg-explain-label";
+  label.textContent = c._explainPending ? "✦ Explaining…" : "✦ Explained";
+  head.appendChild(label);
+  // Dismiss (✕) — only once there's something to dismiss (not mid-flight).
+  if (!c._explainPending) {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "msg-explain-close";
+    close.title = "Dismiss explanation";
+    close.setAttribute("aria-label", "Dismiss explanation");
+    close.textContent = "✕";
+    close.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissExplain(c.id);
+    });
+    head.appendChild(close);
+  }
+  box.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "msg-explain-body";
+  if (c._explainPending) {
+    body.innerHTML = renderAiMarkdownToHtml(
+      "_Reading the thread" +
+        (supportsWebSearch(c._explainProvider) ? " and searching the web" : "") +
+        "…_"
+    );
+  } else if (c._explainError) {
+    body.innerHTML = renderAiMarkdownToHtml(
+      "**Couldn't explain this.** " + (c._explain || "Unknown error")
+    );
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "msg-explain-retry";
+    retry.textContent = "Try again";
+    retry.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      runExplain(c);
+    });
+    body.appendChild(retry);
+  } else {
+    body.innerHTML = renderAiMarkdownToHtml(c._explain || "");
+  }
+  box.appendChild(body);
+
+  // Web citations (numbered, clickable, http(s)-only) — same shape as Ask.
+  if (!c._explainPending && !c._explainError && Array.isArray(c._explainCitations) && c._explainCitations.length) {
+    const citeWrap = document.createElement("div");
+    citeWrap.className = "msg-explain-citations";
+    const citeLabel = document.createElement("div");
+    citeLabel.className = "msg-explain-citations-label";
+    citeLabel.textContent = `Sources (${c._explainCitations.length})`;
+    citeWrap.appendChild(citeLabel);
+    const list = document.createElement("ol");
+    for (const cit of c._explainCitations) {
+      const li = document.createElement("li");
+      const safeHref = cit.url && /^https?:\/\//i.test(cit.url) ? cit.url : "#";
+      const a = document.createElement("a");
+      a.href = safeHref;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "ai-link";
+      a.textContent = cit.title || cit.url || "(untitled source)";
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+    citeWrap.appendChild(list);
+    box.appendChild(citeWrap);
+  }
+
+  // Footer — "Only visible to you" + provider, matching the AI-message
+  // local-only framing so the user knows this isn't posted to Substack.
+  if (!c._explainPending) {
+    const footer = document.createElement("div");
+    footer.className = "msg-explain-footer";
+    const providerLabel = c._explainProvider ? ` · ${c._explainProvider}` : "";
+    const info = c._explainContextInfo || {};
+    const ctx = c._explainContextInfo
+      ? ` · ${info.included} message${info.included === 1 ? "" : "s"} of thread`
+      : "";
+    const imgLabel = info.imageCount ? ` · ${info.imageCount} image${info.imageCount === 1 ? "" : "s"}` : "";
+    const linkLabel = info.linkCount ? ` · ${info.linkCount} link${info.linkCount === 1 ? "" : "s"}` : "";
+    footer.textContent = `Only visible to you${providerLabel}${ctx}${imgLabel}${linkLabel}`;
+    box.appendChild(footer);
+  }
+
+  return box;
 }
 
 // Standard "copy" glyph (two overlapping sheets) and a "copied" checkmark.
@@ -3326,6 +3492,260 @@ async function runAiAsk(providerName, apiKey, question) {
   } finally {
     state.aiAskBusy = false;
   }
+}
+
+// ----- ✦ Explain (per-message inline AI) -----
+//
+// Walk the clicked message's reply/quote ancestors, send the thread to the
+// configured provider WITH web search, and stash the result on the comment
+// itself (c._explain / _explainPending / _explainError / _explainCitations)
+// so renderMessageItem can render it inline under the message. We attach to
+// the target comment instead of inserting an AI row into state.order so we
+// don't perturb author-grouping, the j/k focus unit, or the focus memo.
+//
+// Concurrency: guarded PER MESSAGE via c._explainPending — clicking ✦ again
+// while one is in flight on the same message is a no-op. Different messages
+// can explain concurrently (each is an independent BYOK call); we do NOT
+// share state.aiBusy with the header ✨ AI / Ask flows.
+// Max images sent to the model per Explain call. Vision tokens are pricey
+// and the markets use-case is usually a single chart; 4 covers a short
+// image thread without blowing up cost/latency.
+const EXPLAIN_MAX_IMAGES = 4;
+// Max links surfaced to the model. Beyond a handful the model can't
+// usefully web-read them all within one explain call.
+const EXPLAIN_MAX_LINKS = 6;
+// Raw-bytes ceiling for a base64-encoded image (Google path). Anthropic caps
+// images ~5MB and base64 inflates ~33%; 4MB raw keeps us comfortably under.
+const EXPLAIN_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+// Collect image attachment URLs across a thread for vision input. Target's
+// own images come first (the thread is oldest→target, so we walk it in
+// reverse) so they win the cap. Reuses the same extraction + image-detection
+// the message renderer uses; SVG is excluded (not raster). Returns rewritten,
+// deduped, capped URLs.
+function collectThreadImages(thread) {
+  if (!Array.isArray(thread) || !thread.length) return [];
+  const out = [];
+  const seen = new Set();
+  // Reverse: target (last) first, then nearest ancestors.
+  for (let i = thread.length - 1; i >= 0; i--) {
+    const c = thread[i];
+    if (!c) continue;
+    const buckets = [c.media_uploads, c.threadMediaUploads, c.mediaAttachments, c.attachments];
+    for (const b of buckets) {
+      if (!Array.isArray(b)) continue;
+      for (const a of b) {
+        const raw = extractAttachmentUrl(a);
+        if (!raw || !isImageUrl(raw)) continue;
+        if (/\.svg(\?|$)/i.test(raw)) continue; // not raster — skip for vision
+        const url = rewriteImageUrl(raw);
+        if (seen.has(url)) continue;
+        seen.add(url);
+        out.push(url);
+        if (out.length >= EXPLAIN_MAX_IMAGES) return out;
+      }
+    }
+  }
+  return out;
+}
+
+// Collect http(s) links referenced in a thread's message bodies. Image URLs
+// are excluded (those go to vision, not web search). Deduped, capped.
+function collectThreadLinks(thread) {
+  if (!Array.isArray(thread) || !thread.length) return [];
+  const out = [];
+  const seen = new Set();
+  // Exclude () and [] from the URL body so a parenthesized link in prose
+  // ("(see https://reuters.com/markets/foo)") or a paren-containing slug
+  // isn't truncated at the first ')'. Brackets get the same treatment.
+  const urlRe = /https?:\/\/[^\s<>"'()[\]]+/gi;
+  // Target (last) first so its links win the cap.
+  for (let i = thread.length - 1; i >= 0; i--) {
+    const c = thread[i];
+    if (!c || typeof c.body !== "string") continue;
+    const matches = c.body.match(urlRe);
+    if (!matches) continue;
+    for (let u of matches) {
+      u = u.replace(/[.,;:!?]+$/, ""); // trim trailing sentence punctuation
+      if (u.length > 500) continue; // skip pathological / pasted data URLs
+      if (isImageUrl(u)) continue; // images handled via vision
+      if (seen.has(u)) continue;
+      seen.add(u);
+      out.push(u);
+      if (out.length >= EXPLAIN_MAX_LINKS) return out;
+    }
+  }
+  return out;
+}
+
+// Fetch an image URL and return { data: <base64>, mediaType } for inline
+// (Google) vision, or null on any failure / unsupported type / oversize.
+// Never throws — a dead image must not break the explanation. Host perms
+// (substackcdn/s3/giphy) let these cross-origin fetches succeed.
+async function fetchImageAsBase64(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (blob.size > EXPLAIN_MAX_IMAGE_BYTES) return null;
+    let mediaType = (blob.type || "").toLowerCase();
+    if (mediaType === "image/jpg") mediaType = "image/jpeg";
+    if (!VISION_IMAGE_TYPES.includes(mediaType)) return null;
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    // Chunked base64 — btoa(String.fromCharCode(...wholeArray)) overflows the
+    // call stack on large images, so encode in 32KB slices.
+    let binary = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+    }
+    return { data: btoa(binary), mediaType };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function runExplain(comment) {
+  if (!comment || !comment.id) return;
+  const target = state.comments.get(comment.id);
+  if (!target) return;
+  if (target._pending || target._failed) return; // nothing stable to explain yet
+  if (target._explainPending) return; // already in flight on this message
+
+  const provider = state.aiProvider;
+  const key = provider ? state.aiKeys[provider] : null;
+  if (!provider || !key) {
+    openAiSettingsModal();
+    return;
+  }
+  const providerObj = PROVIDERS[provider];
+  if (!providerObj) {
+    showError("Explain: unknown provider");
+    return;
+  }
+
+  // Assemble the thread (ancestors + target, oldest → newest). Pure walk
+  // over the live store; cycle- and depth-bounded in lib/ai-context.
+  const thread = collectThreadForExplain(
+    target.id,
+    (id) => state.comments.get(id)
+  );
+  const { context, included, dropped } = formatMessagesForLLM(thread, {
+    budget: ASK_DEFAULT_BUDGET_CHARS,
+  });
+
+  // Gather the thread's embedded images (charts/screenshots) and any links
+  // in the bodies so the model explains the WHOLE message, not just its
+  // text. Images become real vision input; links are surfaced for the model
+  // to read via web search. Both are capped + deduped (see helpers).
+  const imageUrls = collectThreadImages(thread);
+  const links = collectThreadLinks(thread);
+
+  // Web search: same gate as Ask mode — on when the provider supports it
+  // and the user hasn't disabled it. The instruction in the system prompt
+  // MUST match the actual tool attachment, so we compute it once and feed
+  // BOTH buildExplainSystemPrompt and callProvider the same boolean.
+  const webSearchEnabled =
+    supportsWebSearch(provider) &&
+    (state.aiAskWebSearch === false ? false : true);
+  const userMessage = buildExplainUserMessage(target, { links });
+
+  // Mark pending + render the inline placeholder.
+  target._explainPending = true;
+  target._explainError = false;
+  target._explainProvider = provider;
+  renderAll();
+
+  try {
+    // Build the images payload. Anthropic + OpenAI fetch remote image URLs
+    // server-side, so we pass the URL untouched (no CORS, any host). Google's
+    // generateContent only takes inline base64, so we pre-fetch + encode for
+    // it (host perms cover substackcdn/s3/giphy). Any image whose fetch fails
+    // is dropped — the text + links explanation still goes through.
+    let images;
+    if (imageUrls.length) {
+      if (provider === "google") {
+        const encoded = await Promise.all(imageUrls.map(fetchImageAsBase64));
+        images = encoded.filter(Boolean);
+      } else {
+        images = imageUrls.map((url) => ({ url }));
+      }
+    }
+
+    // Build the system prompt AFTER image resolution so its "images attached"
+    // claim reflects what's ACTUALLY sent — a Google call whose base64
+    // fetches all failed must not be told images are present.
+    const hasImages = Array.isArray(images) && images.length > 0;
+    const systemPrompt = buildExplainSystemPrompt(context, {
+      lensHint: state.aiLensHint || undefined,
+      webSearchEnabled,
+      hasImages,
+    });
+
+    const signal = AbortSignal.timeout(60_000);
+    const result = await callProvider(providerObj, {
+      systemPrompt,
+      conversation: [{ role: "user", content: userMessage }],
+      apiKey: key,
+      signal,
+      model: state.aiModel || undefined,
+      images,
+      // Explain output is deliberately short (one-line gist + 2-4 bullets),
+      // but web-search grounding tokens share this budget — 2048 leaves
+      // ample headroom over a typical response without letting a verbose
+      // model ramble. Honors the user's Tune setting when they've set one.
+      maxTokens:
+        typeof state.aiAskMaxTokens === "number" && state.aiAskMaxTokens > 0
+          ? state.aiAskMaxTokens
+          : 2048,
+      webSearchEnabled,
+    });
+    // Re-read: the message could have been removed by a re-sync mid-flight.
+    const row = state.comments.get(target.id);
+    if (!row) return;
+    row._explainPending = false;
+    row._explainContextInfo = {
+      included,
+      dropped,
+      imageCount: Array.isArray(images) ? images.length : 0,
+      linkCount: links.length,
+    };
+    if (result.error) {
+      row._explainError = true;
+      row._explain = sanitizeProviderError(result.error);
+      row._explainCitations = null;
+    } else {
+      row._explainError = false;
+      row._explain = result.text;
+      row._explainCitations = result.citations || null;
+    }
+    renderAll();
+  } catch (e) {
+    // Defensive only: callProvider never throws (it maps aborts/timeouts/
+    // network failures to a { error } envelope handled above). This catches
+    // an unexpected throw from the surrounding render/state path so a stray
+    // exception can't strand _explainPending = true forever.
+    const row = state.comments.get(target.id);
+    if (row) {
+      row._explainPending = false;
+      row._explainError = true;
+      row._explain = sanitizeProviderError(String((e && e.message) || e));
+    }
+    renderAll();
+  }
+}
+
+// Clear an inline explanation from a message (the ✕ on the explain block).
+function dismissExplain(id) {
+  const row = state.comments.get(id);
+  if (!row) return;
+  delete row._explain;
+  delete row._explainPending;
+  delete row._explainError;
+  delete row._explainCitations;
+  delete row._explainContextInfo;
+  delete row._explainProvider;
+  renderAll();
 }
 
 // ----- Settings modal -----
@@ -7307,6 +7727,12 @@ function decorateReactionToolbar(node, comment) {
     startReplyTo(comment);
   });
   toolbar.appendChild(replyBtn);
+
+  // NOTE: the ✦ Explain affordance is intentionally NOT in this hover
+  // toolbar. It's a persistent, always-visible trigger rendered at the
+  // top-right of every message in renderMessageItem (makeExplainTrigger) so
+  // it reads like X's per-post explain button instead of hiding behind hover.
+
   node.appendChild(toolbar);
 }
 

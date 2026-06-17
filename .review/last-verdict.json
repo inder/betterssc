@@ -1,12 +1,12 @@
 {
-  "sha": "8095f5289cf0265945f1bb913690f3486ce48ae0",
-  "branch": "worktree-focus-label",
-  "ts": "2026-06-13T13:56:15Z",
+  "sha": "c032886",
+  "branch": "main",
+  "ts": "2026-06-16T21:36:00Z",
   "verdict": "ship-it",
-  "retro_required": "no",
-  "retro_reasoning": "Diff is 4 files, purely presentational, no logic changes, no critical findings, no schema or contract changes",
+  "retro_required": "yes",
+  "retro_reasoning": "Diff is 1000+ lines, touches API contracts (vision, 3 providers), new stateful feature with lifecycle markers, prior per-commit reviews already ran — worth banking the integration patterns for future sessions",
   "critical_count": 0,
   "should_fix_count": 0,
-  "nit_count": 1,
-  "files_reviewed": 4
+  "nit_count": 3,
+  "files_reviewed": 7
 }

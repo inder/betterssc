@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-396%2F396-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-430%2F430-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.4.0** (Jun 16, 2026) — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer with the icon cluster on the right, emoji popover, silent background prefetch of full chat history. Previous: **v0.3.0** — Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google. 396/396 tests passing.
+Latest release: **v0.5.0** (Jun 16, 2026) — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). Previous: **v0.4.0** — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer, emoji popover, silent background prefetch of full chat history. 430/430 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,11 +25,11 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.4.0)
+## What it does (v0.5.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
-Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries + free-form Q&A, silent full-chat prefetch so scrolling-up history is instant. Details below.
+Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries + free-form Q&A, **per-message ✦ Explain** (with vision + link reading), silent full-chat prefetch so scrolling-up history is instant. Details below.
 
 ### Reading the chat
 
@@ -89,9 +89,11 @@ The whole feed is keyboard-driven. You can use it without ever touching the mous
 - The browser tab title shows an unread count while you're away: `(3) Your Chat Name · BetterSSC`.
 - Auto mark-viewed every 30 seconds (and instantly when you switch back to the tab), so your unread count in native Substack stays in sync.
 
-### AI: Summary + Ask (bring your own key)
+### AI: Explain + Summary + Ask (bring your own key)
 
-The **✨ AI** button in the header is a hover dropdown with two actions:
+- **✦ Explain a single message** (v0.5.0) — every message has a small, always-visible **✦** button at its top-right (X/Grok-style). Click it and BetterSSC explains *that* message inline, in a distinct block attached right under it. It's **thread-aware** — it walks up the message's reply/quote ancestors so a terse reply gets explained in the context of what it answers. It **sees the images** — charts/screenshots attached to the message are sent to the model as real vision input. It **reads the links** — URLs in the message are handed to the model to fetch via web search. And it talks like a **professional trader**: decodes the jargon, separates the claim from its read, flags the risk. The output is a one-line gist + a few tight bullets + a Sources list. Local-only, same privacy story as the others.
+
+The **✨ AI** button in the header is a hover dropdown with two more actions:
 
 - **Generate AI Summary** — one-click structured summary of the visible chat (themes / takeaways / trades / open questions). The same flow that's been here since v0.1.
 - **Ask BetterSSC AI** (v0.3.0) — opens a textarea, type any question, and the entire visible chat is sent to the configured provider as context. The model answers in three labeled sections: **From the chat** (with attribution), **From the web** (with citations, when web search is on), and **Synthesis** (combined answer). On Anthropic and Google, the model has access to native server-side web search; OpenAI is text-only for now (Responses API migration pending).
@@ -339,8 +341,9 @@ The roadmap below is my current wish list. What you actually need will reshape i
 - **v0.2** ✅ Send messages, add reactions, reply, @mention autocomplete with optimistic UI.
 - **v0.3** ✅ Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
 - **v0.4** ✅ 🎯 Focus mode — filter the feed to terms + tagged people, reply-tree aware. Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
-- **v0.5** OpenAI Responses API migration so Ask-mode web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
-- **v0.5.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
+- **v0.5** ✅ ✦ Explain — per-message, always-visible AI button that explains *that* message inline. Thread-aware (walks reply/quote ancestors), reads embedded chart images via vision, reads referenced links via web search, professional-trader voice.
+- **v0.6** OpenAI Responses API migration so Ask/Explain web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
+- **v0.6.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
 - **DMs + Tenor parity** Direct messages. Tenor GIF picker as an alternative to GIPHY if a user prefers it (TOS allows; would need to recapture Substack DM wire shape since group-chat shape doesn't always match).
 - **WebSocket protocol** Right now the WS handshake returns "Invalid message" after auth and we fall back to polling. Cracking that protocol needs a side-by-side capture of a working native session vs ours. Polling at 12s matches Substack's own client so this is a latency win, not a correctness one.
 
@@ -378,7 +381,7 @@ The GIF button in the composer is the same story, smaller surface:
 
 ## Known issues
 
-Things I know are broken or unfinished as of v0.4.0. PRs welcome. Bug reports help me prioritize.
+Things I know are broken or unfinished as of v0.5.0. PRs welcome. Bug reports help me prioritize.
 
 - **Reply quotes are local-only.** When you click Reply and send, BetterSSC shows the quoted parent message above yours. The actual wire payload sent to Substack is just plain text, so anyone else (including you on your phone in native Substack) sees a first-class message with no quote. Substack's reply API needs a fresh wire capture before this is shippable end-to-end.
 - **Image upload isn't built yet.** Incoming images render inline with a lightbox. Sending an image from BetterSSC isn't implemented. Use native Substack to upload for now. WS capture confirmed Substack creates a separate `type: "media"` post, so the architecture is known. Implementation pending.

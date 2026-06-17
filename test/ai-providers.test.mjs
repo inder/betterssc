@@ -18,6 +18,8 @@ import {
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
   ANTHROPIC_WEB_SEARCH_MAX_USES,
+  VISION_IMAGE_TYPES,
+  normalizeImages,
 } from "../lib/ai-providers.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
@@ -868,5 +870,174 @@ describe("buildRequest with params.model override", () => {
       model: "gemini-2.5-pro",
     });
     expect(url).toContain("gemini-2.5-pro:generateContent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Vision — image attachments
+// ---------------------------------------------------------------------------
+
+describe("normalizeImages", () => {
+  it("keeps http(s) URL entries", () => {
+    expect(normalizeImages([{ url: "https://cdn/x.png" }])).toEqual([
+      { url: "https://cdn/x.png" },
+    ]);
+  });
+  it("keeps base64 entries with a supported media type", () => {
+    expect(normalizeImages([{ data: "AAAA", mediaType: "image/png" }])).toEqual([
+      { data: "AAAA", mediaType: "image/png" },
+    ]);
+  });
+  it("drops non-http urls, unsupported media types, and junk", () => {
+    expect(
+      normalizeImages([
+        { url: "ftp://x/y.png" },
+        { url: "javascript:alert(1)" },
+        { data: "AAAA", mediaType: "image/svg+xml" },
+        { data: "", mediaType: "image/png" },
+        null,
+        {},
+        "nope",
+      ])
+    ).toEqual([]);
+  });
+  it("returns [] for non-array input", () => {
+    expect(normalizeImages(undefined)).toEqual([]);
+    expect(normalizeImages(null)).toEqual([]);
+  });
+  it("VISION_IMAGE_TYPES excludes svg", () => {
+    expect(VISION_IMAGE_TYPES).not.toContain("image/svg+xml");
+    expect(VISION_IMAGE_TYPES).toContain("image/png");
+  });
+});
+
+describe("buildRequest with images", () => {
+  const CONV = [{ role: "user", content: "Explain this." }];
+
+  it("openai: URL image becomes an image_url block on the last user turn", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ url: "https://cdn/chart.png" }],
+    });
+    const body = JSON.parse(init.body);
+    const userMsg = body.messages[1];
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content[0]).toEqual({ type: "text", text: "Explain this." });
+    expect(userMsg.content[1]).toEqual({
+      type: "image_url",
+      image_url: { url: "https://cdn/chart.png" },
+    });
+  });
+
+  it("openai: base64 image becomes a data: URL image_url block", () => {
+    const { init } = openai.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ data: "QkFTRTY0", mediaType: "image/jpeg" }],
+    });
+    const body = JSON.parse(init.body);
+    expect(body.messages[1].content[1]).toEqual({
+      type: "image_url",
+      image_url: { url: "data:image/jpeg;base64,QkFTRTY0" },
+    });
+  });
+
+  it("anthropic: URL image becomes a url-source image block", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ url: "https://cdn/chart.png" }],
+    });
+    const body = JSON.parse(init.body);
+    expect(body.messages[0].content[1]).toEqual({
+      type: "image",
+      source: { type: "url", url: "https://cdn/chart.png" },
+    });
+  });
+
+  it("anthropic: base64 image becomes a base64-source image block with matching media_type", () => {
+    const { init } = anthropic.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ data: "QkFTRTY0", mediaType: "image/png" }],
+    });
+    const body = JSON.parse(init.body);
+    expect(body.messages[0].content[1]).toEqual({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: "QkFTRTY0" },
+    });
+  });
+
+  it("google: base64 image becomes an inline_data part on the last user turn", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ data: "QkFTRTY0", mediaType: "image/png" }],
+    });
+    const body = JSON.parse(init.body);
+    const userParts = body.contents[0].parts;
+    expect(userParts[0]).toEqual({ text: "Explain this." });
+    expect(userParts[1]).toEqual({
+      inline_data: { mime_type: "image/png", data: "QkFTRTY0" },
+    });
+  });
+
+  it("google: drops url-only images (it cannot fetch remote URLs)", () => {
+    const { init } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONV,
+      apiKey: API_KEY,
+      images: [{ url: "https://cdn/chart.png" }],
+    });
+    const body = JSON.parse(init.body);
+    // No inline_data part — only the text part survives.
+    expect(body.contents[0].parts).toEqual([{ text: "Explain this." }]);
+  });
+
+  it("no images → conversation content stays a plain string (text-only unchanged)", () => {
+    const oa = JSON.parse(openai.buildRequest({ systemPrompt: SYSTEM_PROMPT, conversation: CONV, apiKey: API_KEY }).init.body);
+    expect(oa.messages[1].content).toBe("Explain this.");
+    const an = JSON.parse(anthropic.buildRequest({ systemPrompt: SYSTEM_PROMPT, conversation: CONV, apiKey: API_KEY }).init.body);
+    expect(an.messages[0].content).toBe("Explain this.");
+    const go = JSON.parse(google.buildRequest({ systemPrompt: SYSTEM_PROMPT, conversation: CONV, apiKey: API_KEY }).init.body);
+    expect(go.contents[0].parts).toEqual([{ text: "Explain this." }]);
+  });
+
+  it("attaches images to the LAST user turn, not an earlier one", () => {
+    const multi = [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "mid" },
+      { role: "user", content: "last" },
+    ];
+    const body = JSON.parse(
+      anthropic.buildRequest({
+        systemPrompt: SYSTEM_PROMPT,
+        conversation: multi,
+        apiKey: API_KEY,
+        images: [{ url: "https://cdn/x.png" }],
+      }).init.body
+    );
+    expect(body.messages[0].content).toBe("first"); // unchanged
+    expect(Array.isArray(body.messages[2].content)).toBe(true); // last user got images
+  });
+
+  it("web search + images coexist on the same anthropic request", () => {
+    const body = JSON.parse(
+      anthropic.buildRequest({
+        systemPrompt: SYSTEM_PROMPT,
+        conversation: CONV,
+        apiKey: API_KEY,
+        webSearchEnabled: true,
+        images: [{ url: "https://cdn/x.png" }],
+      }).init.body
+    );
+    expect(body.tools.some((t) => t.name === "web_search")).toBe(true);
+    expect(body.messages[0].content[1].type).toBe("image");
   });
 });

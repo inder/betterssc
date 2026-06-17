@@ -11,6 +11,10 @@ import {
   buildAskSystemPrompt,
   buildAskUserMessage,
   parseAskSections,
+  collectThreadForExplain,
+  buildExplainSystemPrompt,
+  buildExplainUserMessage,
+  EXPLAIN_MAX_ANCESTORS,
   ASK_DEFAULT_BUDGET_CHARS,
   ASK_FORMAT_INSTRUCTIONS,
   DEFAULT_LENS_HINT,
@@ -711,5 +715,175 @@ Range is 215-225.`;
     expect(r.synthesis).toBe("No chat coverage of this; treat as out-of-scope.");
     expect(r.fromChat).toBe("");
     expect(r.fromWeb).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EXPLAIN MODE — ancestor walk + prompt builders
+// ---------------------------------------------------------------------------
+
+// Tiny comment store: array of {id, body?, author?, parent_id?, quote_id?}.
+function makeStore(comments) {
+  const map = new Map(comments.map((c) => [c.id, c]));
+  return (id) => map.get(id);
+}
+
+describe("collectThreadForExplain", () => {
+  it("returns an ordered oldest→target chain following parent_id", () => {
+    const get = makeStore([
+      { id: "a", body: "root", author: { name: "Za" } },
+      { id: "b", body: "mid", author: { name: "Mike" }, parent_id: "a" },
+      { id: "c", body: "leaf", author: { name: "Jo" }, parent_id: "b" },
+    ]);
+    const chain = collectThreadForExplain("c", get);
+    expect(chain.map((c) => c.id)).toEqual(["a", "b", "c"]);
+    // target is always last
+    expect(chain[chain.length - 1].id).toBe("c");
+  });
+
+  it("follows quote_id when parent_id is absent", () => {
+    const get = makeStore([
+      { id: "a", body: "quoted", author: { name: "Za" } },
+      { id: "b", body: "quote-reply", author: { name: "Mike" }, quote_id: "a" },
+    ]);
+    expect(collectThreadForExplain("b", get).map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("prefers parent_id over quote_id when both are present", () => {
+    const get = makeStore([
+      { id: "p", body: "threaded parent", author: { name: "Za" } },
+      { id: "q", body: "quoted other", author: { name: "Al" } },
+      { id: "c", body: "leaf", author: { name: "Jo" }, parent_id: "p", quote_id: "q" },
+    ]);
+    expect(collectThreadForExplain("c", get).map((c) => c.id)).toEqual(["p", "c"]);
+  });
+
+  it("returns just the target for a top-level message with no ancestors", () => {
+    const get = makeStore([{ id: "a", body: "standalone", author: { name: "Za" } }]);
+    expect(collectThreadForExplain("a", get).map((c) => c.id)).toEqual(["a"]);
+  });
+
+  it("terminates on a cycle instead of looping forever", () => {
+    // a -> b -> a (pathological, but realtime + history backfill can race)
+    const get = makeStore([
+      { id: "a", body: "a", parent_id: "b" },
+      { id: "b", body: "b", parent_id: "a" },
+    ]);
+    const chain = collectThreadForExplain("a", get);
+    // Should include b once then stop; target a is last.
+    expect(chain[chain.length - 1].id).toBe("a");
+    expect(chain.length).toBeLessThanOrEqual(3);
+    // No id appears twice.
+    const ids = chain.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("stops when an ancestor id is not in the store (truncated history)", () => {
+    const get = makeStore([
+      { id: "b", body: "leaf", parent_id: "missing-root" },
+    ]);
+    expect(collectThreadForExplain("b", get).map((c) => c.id)).toEqual(["b"]);
+  });
+
+  it("caps the number of ancestors walked", () => {
+    // Build a long chain n0 <- n1 <- ... <- n30 (n30 is the target).
+    const comments = [];
+    for (let i = 0; i <= 30; i++) {
+      comments.push({ id: `n${i}`, body: `m${i}`, parent_id: i > 0 ? `n${i - 1}` : undefined });
+    }
+    const get = makeStore(comments);
+    const chain = collectThreadForExplain("n30", get, { maxAncestors: 5 });
+    // 5 ancestors + the target = 6
+    expect(chain.length).toBe(6);
+    expect(chain[chain.length - 1].id).toBe("n30");
+    expect(chain[0].id).toBe("n25");
+  });
+
+  it("returns [] when the target id resolves to nothing", () => {
+    const get = makeStore([{ id: "a", body: "x" }]);
+    expect(collectThreadForExplain("nope", get)).toEqual([]);
+  });
+
+  it("default cap is EXPLAIN_MAX_ANCESTORS", () => {
+    expect(EXPLAIN_MAX_ANCESTORS).toBe(12);
+  });
+});
+
+describe("buildExplainSystemPrompt", () => {
+  it("advertises the web_search tool when webSearchEnabled is true", () => {
+    const p = buildExplainSystemPrompt("[10:00] Za: $CRWV coiled up", {
+      webSearchEnabled: true,
+    });
+    expect(p).toContain("web_search");
+    expect(p).toContain("CHAT CONTEXT");
+    expect(p).toContain("$CRWV coiled up");
+  });
+
+  it("tells the model to stay in-thread when webSearchEnabled is false", () => {
+    const p = buildExplainSystemPrompt("[10:00] Za: hi", { webSearchEnabled: false });
+    expect(p).toContain("do NOT have access to web search");
+    expect(p).not.toMatch(/You have access to a web_search tool/);
+  });
+
+  it("uses the custom lens hint when provided", () => {
+    const p = buildExplainSystemPrompt("ctx", {
+      lensHint: "This is a knitting circle.",
+    });
+    expect(p).toContain("This is a knitting circle.");
+    expect(p).not.toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("falls back to the default lens hint", () => {
+    const p = buildExplainSystemPrompt("ctx", {});
+    expect(p).toContain(DEFAULT_LENS_HINT);
+  });
+
+  it("carries a professional-trader persona", () => {
+    const p = buildExplainSystemPrompt("ctx", {});
+    expect(p).toMatch(/professional trader/i);
+    expect(p).toMatch(/risk/i);
+  });
+
+  it("adds an image instruction only when hasImages is true", () => {
+    const withImg = buildExplainSystemPrompt("ctx", { hasImages: true });
+    expect(withImg).toMatch(/image attachments/i);
+    const without = buildExplainSystemPrompt("ctx", { hasImages: false });
+    expect(without).not.toMatch(/image attachments/i);
+  });
+});
+
+describe("buildExplainUserMessage", () => {
+  it("names the author and quotes the body", () => {
+    const msg = buildExplainUserMessage({
+      author: { name: "Jake" },
+      body: "$CRWV coiled up on the weekly candle chart.",
+    });
+    expect(msg).toContain("Jake");
+    expect(msg).toContain("$CRWV coiled up on the weekly candle chart.");
+  });
+
+  it("falls back to Unknown for a missing author", () => {
+    expect(buildExplainUserMessage({ body: "hi" })).toContain("Unknown");
+  });
+
+  it("tolerates a null/undefined comment", () => {
+    expect(() => buildExplainUserMessage(null)).not.toThrow();
+    expect(() => buildExplainUserMessage(undefined)).not.toThrow();
+  });
+
+  it("lists referenced links when provided, filtering non-http", () => {
+    const msg = buildExplainUserMessage(
+      { author: { name: "Za" }, body: "see this" },
+      { links: ["https://example.com/a", "ftp://nope", "https://example.com/b"] }
+    );
+    expect(msg).toContain("Links referenced");
+    expect(msg).toContain("https://example.com/a");
+    expect(msg).toContain("https://example.com/b");
+    expect(msg).not.toContain("ftp://nope");
+  });
+
+  it("omits the links block when none are provided", () => {
+    const msg = buildExplainUserMessage({ author: { name: "Za" }, body: "hi" });
+    expect(msg).not.toContain("Links referenced");
   });
 });

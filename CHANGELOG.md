@@ -4,6 +4,23 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06-16
+
+### Added — ✦ Explain (per-message inline AI)
+- **Per-message ✦ Explain button.** Every message now carries a persistent, always-visible **✦** button at its top-right (X/Grok-style — not hidden behind hover). Click it and BetterSSC explains *that* message inline, in a distinct block attached right under it: a one-line plain-language gist + 2–4 tight bullets, a **Sources** list when web search ran, and an "Only visible to you" footer. Local-only — nothing is posted to Substack, same privacy story as Summary/Ask. Dismiss (`✕`) or retry per block.
+- **Thread-aware context.** Explain walks **up** the clicked message's reply/quote ancestors (`parent_id` + `quote_id`, cycle- and depth-bounded to 12) and sends the whole thread oldest→newest, so a terse reply is explained in the context of what it answers. Pure ancestor-walk in `lib/ai-context.js` (`collectThreadForExplain`), unit-tested for ordering, cycles, dangling parents, depth cap, and the quote-vs-parent preference.
+- **Vision — embedded images go to the model.** Charts/screenshots attached to the message (and its thread) are sent as real image input. Anthropic + OpenAI receive the image **URL** (their servers fetch it — any host, no CORS); Google receives inline **base64** (pre-fetched client-side via existing `substackcdn`/`s3`/`giphy` host permissions, fail-soft). Capped at 4 images, SVG excluded, 4 MB per image. New `images` param on the provider layer (`buildRequest` → image blocks attached to the last user turn), unit-tested across all three providers (URL + base64 shapes; text-only calls left byte-for-byte unchanged).
+- **Links surfaced for web reading.** http(s) URLs in the message bodies are extracted (deduped, capped at 6, 500-char ceiling) and handed to the model with an instruction to read them via web search — no `<all_urls>` permission grab; the provider's native web search does the fetching.
+- **Professional-trader persona.** The explainer speaks like a seasoned desk trader — sharp, decodes jargon instead of hiding behind it, separates the claim from its read, and never buries the risk. No "as an AI" hedging.
+- **Web search on by default** for Explain (Anthropic / Google), reusing Ask mode's gating + citation rendering.
+
+### Changed
+- **Reaction hover toolbar repositioned** to the **left** of the new ✦ button (same top line), so the persistent ✦ is never covered and the popup never spills below into the next message's row. The emoji picker opens just under it.
+- **New `--ai-spark` color** (bright, inviting violet) for AI affordances — distinct from the indigo `--accent`, applied to the ✦ trigger so it reads clearly as "AI."
+
+### Fixed
+- **`_explain*` markers survive poll/WS re-ingest.** `ingestComment` now carries forward the inline explanation (and any in-flight pending state) when a message is re-parsed by the polling loop, so a live update can't silently drop a rendered explanation — same carry-forward discipline as the optimistic-send reconcile path.
+
 ## [0.4.0] — 2026-06-16
 
 ### Added
