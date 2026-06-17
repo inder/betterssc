@@ -2283,8 +2283,11 @@ button {
 .msg-explain {
   margin: 6px 0 2px 0;
   padding: 8px 10px 6px 10px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-bg-soft);
+  /* AI-spark violet, not the feed's indigo --accent, so an Explain block
+     reads as a distinct AI affordance (matches its ✦ trigger) instead of
+     blending into the accent-tinted message cards around it. */
+  border-left: 3px solid var(--ai-spark);
+  background: var(--ai-spark-soft);
   border-radius: 0 8px 8px 0;
   font-size: 13.5px;
   line-height: 1.5;
@@ -2306,7 +2309,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--ai-spark);
 }
 .msg-explain.is-pending .msg-explain-label {
   /* gentle pulse while the model thinks */
