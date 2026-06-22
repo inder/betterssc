@@ -1,7 +1,45 @@
 {
-  "mode": "auto-skip",
-  "sha": "769dfad340186834b6d3fea319eeefd8965668a3",
+  "mode": "full",
+  "sha": "50e764dbd1d36979e8f4d1750e680f85e37b4c27",
   "branch": "main",
-  "ts": "2026-06-17T06:02:34.300Z",
-  "skip_reason": "Third targeted fix-pass on the ✦ Explain feature (v0.5.0/0.5.1 already retro'd this session). app.js-only, ~110 net LOC, no new tests/schema/contracts. Pre-push review verdict SHIP IT, 0 critical / 0 should-fix. Block-placement + surgical-render-to-kill-scroll-teleport — no new learning class beyond the already-banked live-eyes lesson."
+  "ts": "2026-06-22T23:31:20.797Z",
+  "what_went_right": [
+    "The riskiest external dependency was verified empirically BEFORE any code: the agent confirmed the Yahoo v8 chart endpoint returns regularMarketPrice + chartPreviousClose keyless for both equities (AAPL 297.01) and crypto (BTC-USD), and discovered Stooq was dead and dropped it with graceful degrade — applying the project's own decode-protocol-from-har-before-implement memory to a price API.",
+    "The /loop design-review bracket fired correctly and was independent (foreground heavy-reasoner), returning GO-with-2-changes, and BOTH changes were honored in the final diff: the rAF right-edge geometry coupling was replaced with a CSS marquee + per-symbol 20s TTL cache refreshed on animationiteration (diff lines 209-215, 451-454), and topics were quality-gated to >=2 distinct authors + stoplist + ranked below tickers/people (diff line 16).",
+    "Both code-review should-fix items were actually applied, not waved off: the repeat cap landed as Math.min(8, Math.max(1, ...)) (diff line 330) and the changePct divide-by-zero guard landed as prev != null && prev !== 0 (diff line 537).",
+    "Tests genuinely ran and re-ran — npx vitest run was invoked multiple times including a re-verify after the should-fix changes, with the new pure module lib/trending.js carrying 18 unit tests including an adversarial near-positive ('does NOT surface a word repeated by a single author', diff line 1055) and the full 462-test suite green.",
+    "Extraction logic was isolated in a pure, side-effect-free module (lib/trending.js) away from the DOM/marquee, so the trending-detection rules are independently unit-testable — the design-review's testability requirement was structurally satisfied, not just asserted.",
+    "The agent self-applied the ui-affordance-needs-live-eyes memory the design review cited (every geometry decision = a correction round) by choosing a deterministic CSS-marquee + TTL approach over a live-only-verifiable rAF approach — pre-empting the exact correction-round tail that bit prior BetterSSC UI features."
+  ],
+  "what_went_wrong": [],
+  "three_whys": [
+    "Why 1 (why did this go right?): A 494-line feature with a new service-worker price-fetch message contract, a new live external API, and a scrolling-UI surface shipped clean — no user corrections, both reviews' findings applied, full 462-test suite green — because every high-risk decision was de-risked BEFORE code rather than discovered in a correction round.",
+    "Why 2 (why was each risk de-risked before code?): The agent ran the /loop building-iteration bracket as designed — an independent foreground design review on the riskiest decisions AND empirical Yahoo price-source verification, in parallel, before writing code, then an independent end-of-iteration code review on the diff — so the rAF geometry-coupling miss, the topic-noise miss, the divide-by-zero, and the dead Stooq source were all surfaced by independent reviewers ahead of (or at) commit instead of by the user.",
+    "Why 3 (why did the bracket actually run with its findings honored, instead of being honor-system-skipped?): The work was driven by a single, fully-specified /goal with a Stop hook holding the session to the directive, and the agent loaded the relevant project memories (decode-protocol-from-har-before-implement, ui-affordance-needs-live-eyes, feature-bundling-causes-styling-iteration-tail) up front — so the discipline that prior BetterSSC features learned the hard way (WS-protocol guessing, live-eyes UI iteration tails) was pre-loaded and applied on the first pass rather than re-learned."
+  ],
+  "drift_checklist": [
+    {
+      "signal": "user_corrections",
+      "finding": "none",
+      "citations": []
+    },
+    {
+      "signal": "dismissed_review_findings",
+      "finding": "none",
+      "citations": []
+    },
+    {
+      "signal": "tests_skipped_or_unrun",
+      "finding": "none",
+      "citations": []
+    },
+    {
+      "signal": "repeated_questions",
+      "finding": "none",
+      "citations": []
+    }
+  ],
+  "learnings_written": [],
+  "clean_ship": true,
+  "note": "Independent general-purpose retro agent, no shared context. Clean ship: 0 learnings, all 4 drift signals none. Both code-review should-fix items (repeats cap, changePct prev!==0 guard) verified applied in diff. Stamped directly (betterssc has no scripts/retro-receipt.ts). Re-stamped to HEAD: 3 follow-up commits (hover-halt fix, 2h-window tuning, docs+timer-cleanup) all retro-auto-skip-eligible and pre-push reviewed (0 critical)."
 }
