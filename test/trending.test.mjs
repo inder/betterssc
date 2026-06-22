@@ -156,7 +156,7 @@ describe("window + recency + caps", () => {
     const out = run(
       [
         c("NVDA fresh", { msAgo: 1000 }),
-        c("TSLA stale", { msAgo: 60 * 60 * 1000 }), // 1h ago, default window 45m
+        c("TSLA stale", { msAgo: 60 * 60 * 1000 }), // 1h ago — outside the explicit 45m window passed below
       ],
       { windowMs: 45 * 60 * 1000 }
     );

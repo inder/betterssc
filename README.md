@@ -25,11 +25,11 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.5.2)
+## What it does (v0.6.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
-Read side at a glance: vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries + free-form Q&A, **per-message ✦ Explain** (with vision + link reading), silent full-chat prefetch so scrolling-up history is instant. Details below.
+Read side at a glance: a **rolling trending ticker bar** with live prices, vi-key navigation, search + filters, inline ticker charts, desktop notifications, AI summaries + free-form Q&A, **per-message ✦ Explain** (with vision + link reading), silent full-chat prefetch so scrolling-up history is instant. Details below.
 
 ### Reading the chat
 
@@ -39,6 +39,16 @@ Read side at a glance: vi-key navigation, search + filters, inline ticker charts
 - Inline images, click for a full-screen lightbox. If an image fails to load it falls back to a "📎 image (click to open)" link.
 - **Click any ticker symbol to open a free TradingView chart.** Both `$TICKER` syntax (`$NASA`, `$DXYZ`, `$BRK.B`) AND bare ALL-CAPS tickers from a curated allowlist (`AAPL`, `TSLA`, `BTC`, `SPY`, `QQQ`, etc.) render as accent-pill links. The modal embeds the daily chart with drawing tools (horizontal line, trend line, fib, etc.). `$5` / `$100` dollar amounts are skipped; `Meta` / `meta` lowercase stays text.
 - Light theme by default, dark theme one click away. Choice is remembered across reloads.
+
+### 📈 The trending ticker bar
+
+A CNBC/Bloomberg-style **TRENDING** strip sits under the header and scrolls right→left, showing what the chat is talking about *right now* — pulled live from the messages, no setup.
+
+- **Three kinds of chips:** trending **stock/crypto tickers**, **@mentioned people**, and **topic keywords** (1–2 words each).
+- **Click any chip to search.** It drops the term into the search box and runs the search instantly — tickers search the bare symbol, people search `@name`, topics search the word.
+- **Live prices on ticker chips.** Stock and crypto chips show a recent price with a green ▲ / red ▼ percent change, pulled from Yahoo Finance (fetched through the extension's background worker, so no API key and no CORS pain). If a symbol isn't price-able the chip just shows the symbol.
+- **Hover eases the strip to a halt** so the chip under your cursor stops moving and is clickable; move away and it glides back up to speed. Respects `prefers-reduced-motion` (no auto-scroll; scroll it by hand instead).
+- **How chips are chosen:** the bar looks at the **last 2 hours** of chat, scores each candidate by frequency with newer mentions weighted more (so what's hot now leads, but a heavily-discussed earlier mover still shows). Tickers are matched by `$SYMBOL` (any symbol, known or unknown) **or** bare ALL-CAPS symbols from the built-in list; `$MSFT` and `MSFT` are deduped to one chip. People come from real @mentions. Topics are gated — a word only trends if **two different people** said it (and it clears a stopword/length filter), so chat filler doesn't leak in. Tickers rank first, then people, then topics.
 
 ### Finding stuff (search + filter)
 

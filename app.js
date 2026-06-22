@@ -1487,7 +1487,10 @@ function rampTickerSpeed(target) {
     const k = Math.min(1, (t - startT) / dur);
     // easeInOutQuad
     const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    if (!_tickerAnim) return;
+    if (!_tickerAnim) {
+      _tickerRampRAF = null;
+      return;
+    }
     _tickerAnim.playbackRate = start + (target - start) * e;
     if (k < 1) {
       _tickerRampRAF = requestAnimationFrame(step);
@@ -6640,6 +6643,7 @@ function bindEventHandlers() {
     if (state.ws) state.ws.close();
     if (_pollTimer) clearInterval(_pollTimer);
     if (_markViewedTimer) clearInterval(_markViewedTimer);
+    stopTickerRefreshTimer();
   });
 }
 
