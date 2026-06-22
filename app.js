@@ -1328,6 +1328,8 @@ const _tickerPriceInflight = new Set();
 let _tickerSig = ""; // signature of the current chip set (skip needless rebuilds)
 let _tickerSymbols = []; // unique ticker symbols currently in the bar
 let _tickerRefreshTimer = null;
+let _tickerAnim = null; // the running CSSAnimation (for hover deceleration)
+let _tickerRampRAF = null; // in-flight playbackRate ramp
 
 function renderTicker() {
   const bar = document.getElementById("tickerBar");
@@ -1451,9 +1453,49 @@ function buildTickerTrack(track, items) {
   if (!reduce && setW > 0) {
     const durationS = setW / TICKER_SPEED_PX_S;
     track.style.animation = `bsscTickerScroll ${durationS}s linear infinite`;
+    // Grab the live CSSAnimation handle so hover can ramp its playbackRate
+    // down to a halt (and back). getAnimations() reflects the inline
+    // shorthand we just set. Preserve the current speed if a ramp was
+    // mid-flight when the track got rebuilt.
+    const prevRate = _tickerAnim ? _tickerAnim.playbackRate : 1;
+    _tickerAnim = (track.getAnimations && track.getAnimations()[0]) || null;
+    if (_tickerAnim) _tickerAnim.playbackRate = prevRate;
   } else {
     track.style.animation = "none";
+    _tickerAnim = null;
   }
+}
+
+// Smoothly ramp the marquee's playback speed toward `target` (1 = full
+// speed, 0 = halted) over ~300ms. Used so hovering the bar eases it to a
+// stop — the chip under the cursor stays put and is clickable — instead of
+// scrolling out from under the pointer.
+function rampTickerSpeed(target) {
+  if (!_tickerAnim) return;
+  if (_tickerRampRAF) {
+    cancelAnimationFrame(_tickerRampRAF);
+    _tickerRampRAF = null;
+  }
+  const start = _tickerAnim.playbackRate;
+  if (Math.abs(start - target) < 0.001) {
+    _tickerAnim.playbackRate = target;
+    return;
+  }
+  const startT = performance.now();
+  const dur = 300;
+  const step = (t) => {
+    const k = Math.min(1, (t - startT) / dur);
+    // easeInOutQuad
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    if (!_tickerAnim) return;
+    _tickerAnim.playbackRate = start + (target - start) * e;
+    if (k < 1) {
+      _tickerRampRAF = requestAnimationFrame(step);
+    } else {
+      _tickerRampRAF = null;
+    }
+  };
+  _tickerRampRAF = requestAnimationFrame(step);
 }
 
 // Update price/change text inside already-rendered ticker chips. Runs on
@@ -1547,6 +1589,7 @@ function stopTickerRefreshTimer() {
 
 // Click a chip → drop its term into the search box and run the search.
 function bindTickerBar() {
+  const bar = document.getElementById("tickerBar");
   const track = document.getElementById("tickerTrack");
   if (!track) return;
   track.addEventListener("click", (e) => {
@@ -1554,6 +1597,17 @@ function bindTickerBar() {
     if (!chip || !chip.dataset.term) return;
     searchForTerm(chip.dataset.term);
   });
+  // Hover the strip → ease the scroll to a halt so the chip under the
+  // cursor stops moving and is clickable; leave → ease back to full speed.
+  if (bar) {
+    bar.addEventListener("mouseenter", () => rampTickerSpeed(0));
+    bar.addEventListener("mouseleave", () => rampTickerSpeed(1));
+    // Keyboard focus on a chip should also halt it.
+    bar.addEventListener("focusin", () => rampTickerSpeed(0));
+    bar.addEventListener("focusout", () => {
+      if (!bar.matches(":hover")) rampTickerSpeed(1);
+    });
+  }
   // Refresh prices once per marquee loop — i.e. each time the chips
   // re-enter from the right. TTL-gated inside refreshStaleTickerPrices so
   // this never floods the endpoint.

@@ -226,10 +226,10 @@ button {
      copy for a seamless loop. */
   animation: bsscTickerScroll linear infinite;
 }
-.ticker-bar:hover .ticker-track,
-.ticker-track:focus-within {
-  animation-play-state: paused;
-}
+/* Hover deceleration is driven in JS (Web Animations API playbackRate
+   ramp), NOT a CSS :hover { animation-play-state } rule — the latter is
+   dead here because the inline `animation` shorthand set by JS overrides
+   it. See rampTickerSpeed() in app.js. */
 @keyframes bsscTickerScroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
