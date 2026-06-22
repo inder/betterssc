@@ -1317,7 +1317,7 @@ function renderAll() {
 // scrolling past gets a fresh price every few seconds, without hammering
 // the endpoint or coupling network I/O to pixel geometry.
 
-const TICKER_WINDOW_MS = 45 * 60 * 1000; // how far back "trending" looks
+const TICKER_WINDOW_MS = 2 * 60 * 60 * 1000; // how far back "trending" looks (2h)
 const TICKER_PRICE_TTL_MS = 20_000; // re-fetch a symbol's price after this
 const TICKER_SPEED_PX_S = 55; // constant scroll speed, px/sec
 const TICKER_MAX_ITEMS = 24;
