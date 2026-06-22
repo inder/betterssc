@@ -70,6 +70,7 @@ import {
   buildFocusFilter,
   splitTerms,
 } from "./lib/focus.js";
+import { extractTrending } from "./lib/trending.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -1296,8 +1297,281 @@ function renderAll() {
   // state.comments to find it).
   renderChatHeader();
   renderProxyBanner();
+  renderTicker();
   if (state.searchQuery || state.threadFilter || !isFocusEmpty(state.focusFilter))
     applySearch();
+}
+
+// ============================================================
+// ROLLING TICKER BAR
+// ============================================================
+// A CNBC/Bloomberg-style strip under the header. Shows what the chat is
+// talking about RIGHT NOW — trending stock tickers, @mentioned people, and
+// topic keywords — scrolling right→left. Click a chip to search the chat
+// for it. Ticker chips carry a recent price pulled (via the background
+// service worker, to bypass CORS) from Yahoo Finance.
+//
+// "Price updates when the symbol re-appears on the right" is honored as:
+// a per-symbol TTL price cache refreshed once per marquee loop
+// (animationiteration) plus a slow safety timer — so a symbol that keeps
+// scrolling past gets a fresh price every few seconds, without hammering
+// the endpoint or coupling network I/O to pixel geometry.
+
+const TICKER_WINDOW_MS = 45 * 60 * 1000; // how far back "trending" looks
+const TICKER_PRICE_TTL_MS = 20_000; // re-fetch a symbol's price after this
+const TICKER_SPEED_PX_S = 55; // constant scroll speed, px/sec
+const TICKER_MAX_ITEMS = 24;
+const TICKER_REFRESH_TIMER_MS = 12_000; // safety re-check of stale prices
+
+const _tickerPrices = new Map(); // SYM → {price, change, changePct, currency, asOf}
+const _tickerPriceInflight = new Set();
+let _tickerSig = ""; // signature of the current chip set (skip needless rebuilds)
+let _tickerSymbols = []; // unique ticker symbols currently in the bar
+let _tickerRefreshTimer = null;
+
+function renderTicker() {
+  const bar = document.getElementById("tickerBar");
+  const track = document.getElementById("tickerTrack");
+  if (!bar || !track) return;
+
+  // Gather only the comments inside the trending window — walk state.order
+  // (sorted oldest→newest) backward and stop once we cross the cutoff, so
+  // extraction cost is bounded by the window, not total history size.
+  const now = Date.now();
+  const cutoff = now - TICKER_WINDOW_MS;
+  const recent = [];
+  for (let i = state.order.length - 1; i >= 0; i--) {
+    const c = state.comments.get(state.order[i]);
+    if (!c) continue;
+    const t = new Date(c.created_at).getTime();
+    if (Number.isFinite(t) && t < cutoff) break;
+    recent.push(c);
+  }
+
+  const items = extractTrending(recent, {
+    now,
+    windowMs: TICKER_WINDOW_MS,
+    maxItems: TICKER_MAX_ITEMS,
+  });
+
+  if (!items.length) {
+    bar.classList.add("hidden");
+    _tickerSig = "";
+    track.innerHTML = "";
+    stopTickerRefreshTimer();
+    return;
+  }
+
+  bar.classList.remove("hidden");
+  _tickerSymbols = items
+    .filter((it) => it.kind === "ticker")
+    .map((it) => it.symbol);
+
+  // Only rebuild the DOM when the chip SET changes — otherwise every 12s
+  // poll would reset the scroll animation to the start (visible stutter).
+  const sig = items.map((it) => it.kind + ":" + it.label).join("|");
+  if (sig !== _tickerSig) {
+    _tickerSig = sig;
+    buildTickerTrack(track, items);
+    startTickerRefreshTimer();
+  }
+  // Always (re)paint prices into the existing chips — a poll may land after
+  // a price refresh resolved.
+  paintTickerPrices();
+  // Kick a refresh for any ticker whose price is missing or stale.
+  refreshStaleTickerPrices();
+}
+
+// Build one chip element for a trending item.
+function buildTickerChip(item) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "ticker-chip";
+  chip.dataset.term = item.term;
+  chip.dataset.kind = item.kind;
+  chip.title = `Search the chat for ${item.label}`;
+
+  if (item.kind === "ticker") {
+    chip.dataset.symbol = item.symbol;
+    const sym = document.createElement("span");
+    sym.className = "ticker-chip-sym";
+    sym.textContent = item.symbol;
+    const price = document.createElement("span");
+    price.className = "ticker-chip-price";
+    const chg = document.createElement("span");
+    chg.className = "ticker-chip-chg";
+    chip.append(sym, price, chg);
+  } else {
+    const kind = document.createElement("span");
+    kind.className = "ticker-chip-kind";
+    kind.textContent = item.kind === "person" ? "@" : "#";
+    const label = document.createElement("span");
+    label.className = "ticker-chip-sym";
+    label.textContent = item.label;
+    chip.append(kind, label);
+  }
+  return chip;
+}
+
+// Build the scrolling track: one "set" of chips wide enough to fill the
+// viewport, duplicated once so a translateX(-50%) loop is seamless.
+function buildTickerTrack(track, items) {
+  track.style.animation = "none"; // reset before remeasure
+  track.innerHTML = "";
+
+  // 1) lay down a single base copy and measure it
+  const base = document.createDocumentFragment();
+  for (const it of items) base.appendChild(buildTickerChip(it));
+  track.appendChild(base);
+  const viewport = document.getElementById("tickerViewport");
+  const viewportW = (viewport && viewport.clientWidth) || 0;
+  const baseW = track.scrollWidth || 0;
+
+  // 2) repeat the base until one "set" is at least the viewport width, so
+  //    there's never a visible gap as the loop wraps. Cap at 8 copies: if a
+  //    first-paint race ever reports baseW unrealistically small, we must
+  //    not clone hundreds of chips.
+  const repeats =
+    baseW > 0 && viewportW > 0
+      ? Math.min(8, Math.max(1, Math.ceil(viewportW / baseW)))
+      : 1;
+  const baseChildren = Array.from(track.children);
+  // We already have 1 base copy; we need `repeats` copies for one set, then
+  // duplicate the whole set → repeats * 2 total copies.
+  const totalCopies = repeats * 2;
+  for (let copy = 1; copy < totalCopies; copy++) {
+    for (const node of baseChildren) track.appendChild(node.cloneNode(true));
+  }
+
+  // 3) constant-speed animation: one set scrolls past in setW / speed sec.
+  const setW = baseW * repeats;
+  const reduce =
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduce && setW > 0) {
+    const durationS = setW / TICKER_SPEED_PX_S;
+    track.style.animation = `bsscTickerScroll ${durationS}s linear infinite`;
+  } else {
+    track.style.animation = "none";
+  }
+}
+
+// Update price/change text inside already-rendered ticker chips. Runs on
+// every render and whenever a price fetch resolves. Touches ALL copies.
+function paintTickerPrices() {
+  const track = document.getElementById("tickerTrack");
+  if (!track) return;
+  const chips = track.querySelectorAll('.ticker-chip[data-kind="ticker"]');
+  for (const chip of chips) {
+    const sym = chip.dataset.symbol;
+    const rec = _tickerPrices.get(sym);
+    const priceEl = chip.querySelector(".ticker-chip-price");
+    const chgEl = chip.querySelector(".ticker-chip-chg");
+    if (!priceEl || !chgEl) continue;
+    if (!rec || rec.error || typeof rec.price !== "number") {
+      priceEl.textContent = "";
+      chgEl.textContent = "";
+      chgEl.className = "ticker-chip-chg";
+      continue;
+    }
+    priceEl.textContent = formatTickerPrice(rec.price);
+    if (typeof rec.changePct === "number" && Number.isFinite(rec.changePct)) {
+      const up = rec.changePct > 0.0005;
+      const down = rec.changePct < -0.0005;
+      const arrow = up ? "▲" : down ? "▼" : "▬";
+      chgEl.textContent = `${arrow}${Math.abs(rec.changePct).toFixed(2)}%`;
+      chgEl.className =
+        "ticker-chip-chg " + (up ? "up" : down ? "down" : "flat");
+    } else {
+      chgEl.textContent = "";
+      chgEl.className = "ticker-chip-chg";
+    }
+  }
+}
+
+function formatTickerPrice(p) {
+  if (p >= 1000) return p.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  if (p >= 1) return p.toFixed(2);
+  // Sub-$1 (e.g. SHIB, DOGE) — show enough significant digits to be useful.
+  return Number(p.toPrecision(4)).toString();
+}
+
+// Ask the background worker (bypasses CORS) for prices of any ticker that's
+// missing a price or whose price is older than the TTL.
+function refreshStaleTickerPrices() {
+  if (!_tickerSymbols.length) return;
+  const now = Date.now();
+  const need = [];
+  for (const sym of _tickerSymbols) {
+    if (_tickerPriceInflight.has(sym)) continue;
+    const rec = _tickerPrices.get(sym);
+    if (!rec || now - rec.asOf > TICKER_PRICE_TTL_MS) need.push(sym);
+  }
+  if (!need.length) return;
+  for (const s of need) _tickerPriceInflight.add(s);
+  try {
+    chrome.runtime.sendMessage({ type: "fetchPrices", symbols: need }, (resp) => {
+      for (const s of need) _tickerPriceInflight.delete(s);
+      // chrome.runtime.lastError fires if the SW was asleep / errored.
+      if (chrome.runtime.lastError || !resp || !resp.ok || !resp.prices) return;
+      const at = Date.now();
+      for (const [sym, rec] of Object.entries(resp.prices)) {
+        if (rec && typeof rec.price === "number") {
+          _tickerPrices.set(sym, { ...rec, asOf: rec.asOf || at });
+        } else {
+          // Stamp a failed lookup so we don't retry it every tick; TTL still
+          // lets us try again later.
+          _tickerPrices.set(sym, { error: true, asOf: at });
+        }
+      }
+      paintTickerPrices();
+    });
+  } catch (_) {
+    for (const s of need) _tickerPriceInflight.delete(s);
+  }
+}
+
+function startTickerRefreshTimer() {
+  if (_tickerRefreshTimer) return;
+  _tickerRefreshTimer = setInterval(
+    refreshStaleTickerPrices,
+    TICKER_REFRESH_TIMER_MS
+  );
+}
+function stopTickerRefreshTimer() {
+  if (_tickerRefreshTimer) {
+    clearInterval(_tickerRefreshTimer);
+    _tickerRefreshTimer = null;
+  }
+}
+
+// Click a chip → drop its term into the search box and run the search.
+function bindTickerBar() {
+  const track = document.getElementById("tickerTrack");
+  if (!track) return;
+  track.addEventListener("click", (e) => {
+    const chip = e.target.closest(".ticker-chip");
+    if (!chip || !chip.dataset.term) return;
+    searchForTerm(chip.dataset.term);
+  });
+  // Refresh prices once per marquee loop — i.e. each time the chips
+  // re-enter from the right. TTL-gated inside refreshStaleTickerPrices so
+  // this never floods the endpoint.
+  track.addEventListener("animationiteration", refreshStaleTickerPrices);
+}
+
+// Set the search input to `term` and apply — shared by the ticker chips.
+// Mirrors filterByAuthorName (the click-author affordance).
+function searchForTerm(term) {
+  if (!term) return;
+  const input = document.getElementById("searchInput");
+  if (input) input.value = term;
+  state.searchQuery = term;
+  applySearch();
+  // Surface the first hit if the user was scrolled away.
+  if (state.searchHits && state.searchHits.length) {
+    focusSearchHit(state.searchActiveIdx || 0);
+  }
 }
 
 // renderAll() but keep a given message visually pinned. renderAll rebuilds the
@@ -6002,6 +6276,7 @@ function toggleTheme() {
 // ============================================================
 
 function bindEventHandlers() {
+  bindTickerBar();
   const stream = document.getElementById("stream");
   stream.addEventListener(
     "scroll",

@@ -4,6 +4,16 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-22
+
+### Added — 📈 Rolling ticker bar (CNBC/Bloomberg style)
+- **A live "TRENDING" strip under the header** that scrolls right→left, showing what the chat is talking about right now — trending **stock tickers**, **@mentioned people**, and **topic keywords** (each 1–2 words). Pulled from the loaded comments in a 45-minute window, recency-weighted (newer mentions rank higher).
+- **Click a chip → instant chat search.** Clicking any chip drops its term into the search box and runs the search (tickers search the bare symbol, people search `@name`, topics search the word). Hover pauses the scroll so chips are clickable.
+- **Live prices on ticker chips.** Stock/crypto chips show a recent price + % change (green ▲ / red ▼), fetched from the Yahoo Finance v8 chart endpoint. The fetch runs in the **background service worker** (not the page) so it bypasses CORS — the endpoint is keyless/crumb-free. Crypto symbols map to the `<SYM>-USD` pair. New `https://query1/query2.finance.yahoo.com/*` host permissions.
+- **Prices refresh as a symbol re-appears on the right.** Honored via a per-symbol 20s TTL cache refreshed once per marquee loop (`animationiteration`) plus a 12s safety timer — so a recurring symbol gets a fresh price every few seconds, without coupling network I/O to pixel geometry or hammering the endpoint (inflight-set + TTL gated).
+- **Quality-gated extraction.** Tickers gated by `KNOWN_TICKERS`/`$`-prefix (near-zero false positives); people from mention targets; topics require ≥2 **distinct** authors + a strong stoplist + length ≥4 (one person repeating a word isn't "trending"). New pure `lib/trending.js` with 18 unit tests (adversarial near-positives included). Tickers rank first, then people, then topics.
+- Respects `prefers-reduced-motion` (no scroll; manual horizontal scroll instead).
+
 ## [0.5.2] — 2026-06-16
 
 ### Fixed

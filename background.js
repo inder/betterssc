@@ -5,7 +5,80 @@
 //   2. Relay notification triggers from app.js to chrome.notifications.
 //   3. Maintain unread-mention badge on the toolbar icon.
 
+import { CRYPTO_TICKERS } from "./lib/tickers.js";
+
 const APP_PAGE = "app.html";
+
+// ---- Stock/crypto price lookups (for the rolling ticker bar) ----
+//
+// Fetched HERE in the service worker, not in the app page: a background
+// fetch to a host listed in `host_permissions` is NOT subject to page-CORS,
+// so we can read Yahoo's JSON. The v8 chart endpoint is crumb/cookie-free
+// (unlike the v7 /quote endpoint). "Recent enough" price is the goal — we
+// read meta.regularMarketPrice + chartPreviousClose for the % change.
+//
+// Crypto symbols map to the "<SYM>-USD" Yahoo pair (BTC → BTC-USD).
+const YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/";
+
+const yahooSymbol = (symbol) =>
+  CRYPTO_TICKERS.has(symbol) ? `${symbol}-USD` : symbol;
+
+async function fetchOnePrice(symbol) {
+  const url =
+    YAHOO_CHART +
+    encodeURIComponent(yahooSymbol(symbol)) +
+    "?range=1d&interval=1d";
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const meta =
+    data &&
+    data.chart &&
+    Array.isArray(data.chart.result) &&
+    data.chart.result[0] &&
+    data.chart.result[0].meta;
+  if (!meta || typeof meta.regularMarketPrice !== "number") {
+    throw new Error("no price in response");
+  }
+  const price = meta.regularMarketPrice;
+  const prev =
+    typeof meta.chartPreviousClose === "number"
+      ? meta.chartPreviousClose
+      : typeof meta.previousClose === "number"
+        ? meta.previousClose
+        : null;
+  // Guard prev === 0 (new/odd listings) so we never divide by zero — keep
+  // this consistent with the `change` guard above.
+  const change = prev != null ? price - prev : null;
+  const changePct = prev != null && prev !== 0 ? (change / prev) * 100 : null;
+  return {
+    symbol,
+    price,
+    change,
+    changePct,
+    currency: meta.currency || "USD",
+    asOf: Date.now(),
+  };
+}
+
+// Resolve a batch of symbols, each independently (one failure doesn't sink
+// the batch). Returns { prices: { SYM: {...} | {error} } }.
+async function fetchPrices(symbols) {
+  const out = {};
+  const uniq = [...new Set((symbols || []).map((s) => String(s).toUpperCase()))];
+  await Promise.all(
+    uniq.map(async (sym) => {
+      try {
+        out[sym] = await fetchOnePrice(sym);
+      } catch (e) {
+        out[sym] = { symbol: sym, error: (e && e.message) || "fetch failed" };
+      }
+    })
+  );
+  return out;
+}
 
 const parseSubstackChatUrl = (url) => {
   if (!url) return null;
@@ -145,6 +218,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.action.setBadgeBackgroundColor({ color: "#f23f42" });
     sendResponse({ ok: true });
     return true;
+  }
+  if (msg.type === "fetchPrices") {
+    fetchPrices(msg.symbols)
+      .then((prices) => sendResponse({ ok: true, prices }))
+      .catch((e) =>
+        sendResponse({ ok: false, error: (e && e.message) || "failed" })
+      );
+    return true; // keep the message channel open for the async response
   }
 });
 

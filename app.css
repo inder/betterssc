@@ -163,9 +163,124 @@ button {
   /* Composer now lives INSIDE .main so the members rail can extend the
      full height of the chat column. The old auto-row for composer is
      gone — .main carries it. */
-  grid-template-rows: var(--header-h) 1fr var(--footer-h);
+  /* Rows: header · ticker bar (auto; collapses to 0 when hidden) · main · footer */
+  grid-template-rows: var(--header-h) auto 1fr var(--footer-h);
   height: 100vh;
 }
+
+/* ROLLING TICKER BAR — CNBC/Bloomberg style, scrolls right→left.
+   Lives between the header and main; full chat-column width. */
+.ticker-bar {
+  display: flex;
+  align-items: stretch;
+  height: 30px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  z-index: 9;
+  user-select: none;
+}
+.ticker-bar-label {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--bg-primary);
+  background: var(--ai-spark);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ticker-bar-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  overflow: hidden;
+  /* fade the chips at both edges so they don't pop in/out hard */
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent 100%
+  );
+}
+.ticker-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  will-change: transform;
+  /* duration set inline by JS for a constant scroll speed regardless of
+     how many chips are present; -50% lands at the start of the duplicate
+     copy for a seamless loop. */
+  animation: bsscTickerScroll linear infinite;
+}
+.ticker-bar:hover .ticker-track,
+.ticker-track:focus-within {
+  animation-play-state: paused;
+}
+@keyframes bsscTickerScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker-bar-viewport { overflow-x: auto; }
+}
+.ticker-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 3px 10px;
+  margin: 0 3px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.ticker-chip:hover {
+  background: var(--bg-hover);
+}
+.ticker-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ticker-chip-sym {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+.ticker-chip-kind {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.ticker-chip-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.ticker-chip-chg {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.ticker-chip-chg.up { color: var(--success); }
+.ticker-chip-chg.down { color: var(--danger); }
+.ticker-chip-chg.flat { color: var(--text-muted); }
 
 /* HEADER */
 .header {

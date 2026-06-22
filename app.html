@@ -185,6 +185,20 @@
         </div>
       </div>
 
+      <!-- Rolling ticker bar — CNBC/Bloomberg style. Trending tickers,
+           people, and topics scroll right→left; click a chip to search. -->
+      <div
+        id="tickerBar"
+        class="ticker-bar hidden"
+        role="region"
+        aria-label="Trending in this chat"
+      >
+        <span class="ticker-bar-label" aria-hidden="true">TRENDING</span>
+        <div class="ticker-bar-viewport" id="tickerViewport">
+          <div class="ticker-track" id="tickerTrack"></div>
+        </div>
+      </div>
+
       <main class="main">
         <section class="stream" id="stream">
           <div class="loading-banner hidden" id="historyLoading">
