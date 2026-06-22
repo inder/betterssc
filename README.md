@@ -4,7 +4,7 @@ A Chrome extension that gives Substack Chat a Discord-style makeover.
 
 ![tests](https://img.shields.io/badge/tests-440%2F440-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.5.2** (Jun 16, 2026) — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). Previous: **v0.4.0** — 🎯 Focus mode (filter the feed to terms + tagged people, reply-tree aware), send images and GIFs, GIPHY GIF picker, Discord-style composer, emoji popover, silent background prefetch of full chat history. 440/440 tests passing.
+Latest release: **v0.6.0** (Jun 22, 2026) — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). Previous: **v0.5.2** — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). 462/462 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
