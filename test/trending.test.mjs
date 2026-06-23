@@ -191,3 +191,89 @@ describe("window + recency + caps", () => {
     expect(run(null)).toEqual([]);
   });
 });
+
+describe("recency/frequency blend (recencyAlpha)", () => {
+  const min = (n) => n * 60 * 1000;
+
+  // The canonical case from the design discussion: a sustained mover the room
+  // discussed across the window (A) vs a fresh 3x burst (B).
+  //   A — 8 mentions, 8 distinct authors, spread 40–110 min ago
+  //   B — 3 mentions, 3 distinct authors, all in the last ~minute
+  const sustainedVsBurst = () => {
+    const out = [];
+    [110, 100, 90, 80, 70, 60, 50, 40].forEach((m, i) =>
+      out.push(c("$AAA strong", { authorId: 100 + i, msAgo: min(m) }))
+    );
+    [0.2, 0.4, 0.6].forEach((m, i) =>
+      out.push(c("$BBB hot", { authorId: 200 + i, msAgo: min(m) }))
+    );
+    return out;
+  };
+
+  it("pure recency (α=1) ranks the fresh burst first — old behavior", () => {
+    const out = run(sustainedVsBurst(), { recencyAlpha: 1 });
+    const tickers = out.filter((i) => i.kind === "ticker");
+    expect(tickers[0].symbol).toBe("BBB");
+  });
+
+  it("blended (α=0.65) flips it: the sustained mover ranks first", () => {
+    const out = run(sustainedVsBurst(), { recencyAlpha: 0.65 });
+    const tickers = out.filter((i) => i.kind === "ticker");
+    expect(tickers[0].symbol).toBe("AAA");
+  });
+
+  it("α defaults to 1.0 (no behavior change unless opted in)", () => {
+    const def = run(sustainedVsBurst());
+    const alpha1 = run(sustainedVsBurst(), { recencyAlpha: 1 });
+    expect(def.map((i) => i.label)).toEqual(alpha1.map((i) => i.label));
+  });
+
+  it("exposes freq and rank on returned items", () => {
+    const out = run([c("NVDA up", { authorId: 1 })], { recencyAlpha: 0.65 });
+    const nvda = out.find((i) => i.symbol === "NVDA");
+    expect(nvda.freq).toBe(1);
+    expect(typeof nvda.rank).toBe("number");
+    expect(nvda.rank).toBeGreaterThan(0);
+  });
+});
+
+describe("per-author frequency cap (anti-spam)", () => {
+  it("one author repeating a ticker cannot out-rank two-author interest", () => {
+    // Spammer posts $ZZZ 6x recently; a separate symbol $YYY gets 2 mentions
+    // from 2 distinct authors, slightly older. With the cap, the spammer's
+    // effective frequency is bounded so it can't dominate purely on volume.
+    const comments = [];
+    for (let i = 0; i < 6; i++)
+      comments.push(c("$ZZZ", { authorId: 1, msAgo: i * 1000 }));
+    comments.push(c("$YYY", { authorId: 2, msAgo: 30 * 60 * 1000 }));
+    comments.push(c("$YYY", { authorId: 3, msAgo: 30 * 60 * 1000 }));
+
+    const out = run(comments, { recencyAlpha: 0.65, perAuthorFreqCap: 3 });
+    const zzz = out.find((i) => i.symbol === "ZZZ");
+    const yyy = out.find((i) => i.symbol === "YYY");
+    // 6 posts from one author count as at most 3 toward frequency.
+    expect(zzz.freq).toBe(3);
+    expect(yyy.freq).toBe(2);
+  });
+
+  it("distinct authors accumulate frequency beyond the per-author cap", () => {
+    // 5 distinct authors each mention $WWW once → effective freq 5, above the
+    // cap of 3, because the cap is per-author not global.
+    const comments = [];
+    for (let a = 0; a < 5; a++)
+      comments.push(c("$WWW", { authorId: 10 + a, msAgo: 1000 }));
+    const out = run(comments, { recencyAlpha: 0.65, perAuthorFreqCap: 3 });
+    const www = out.find((i) => i.symbol === "WWW");
+    expect(www.freq).toBe(5);
+  });
+
+  it("author-less occurrences are pooled into a single capped bucket", () => {
+    const anon = (msAgo) => ({ body: "$QQQ", created_at: isoAt(msAgo) });
+    const out = run([anon(0), anon(1000), anon(2000), anon(3000)], {
+      recencyAlpha: 0.65,
+      perAuthorFreqCap: 3,
+    });
+    const qqq = out.find((i) => i.symbol === "QQQ");
+    expect(qqq.freq).toBe(3); // 4 anon posts capped to 3
+  });
+});

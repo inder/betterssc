@@ -1321,6 +1321,11 @@ const TICKER_WINDOW_MS = 2 * 60 * 60 * 1000; // how far back "trending" looks (2
 const TICKER_PRICE_TTL_MS = 20_000; // re-fetch a symbol's price after this
 const TICKER_SPEED_PX_S = 55; // constant scroll speed, px/sec
 const TICKER_MAX_ITEMS = 24;
+// Recency/frequency blend for trending rank: rank = recency^α · freq^(1-α).
+// α=1 is the old pure-recency behavior; 0.65 keeps recency in the lead while
+// letting a symbol the room discussed a lot (capped per author) out-rank a
+// momentary one-off blip. Tuning experiment — revert to 1.0 to disable.
+const TICKER_RECENCY_ALPHA = 0.65;
 const TICKER_REFRESH_TIMER_MS = 12_000; // safety re-check of stale prices
 
 const _tickerPrices = new Map(); // SYM → {price, change, changePct, currency, asOf}
@@ -1354,6 +1359,7 @@ function renderTicker() {
     now,
     windowMs: TICKER_WINDOW_MS,
     maxItems: TICKER_MAX_ITEMS,
+    recencyAlpha: TICKER_RECENCY_ALPHA,
   });
 
   if (!items.length) {
