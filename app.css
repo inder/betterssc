@@ -3187,6 +3187,14 @@ button {
   background: var(--accent-bg-soft);
   border-color: var(--accent);
 }
+/* The card is an <a>; without this the global a:hover underlines every line of
+   card text. The card is clickable, not a text link — and it has no genuine
+   inline links — so never underline its text in any state. */
+.msg-link-card,
+.msg-link-card:hover,
+.msg-link-card * {
+  text-decoration: none;
+}
 .msg-link-card-img {
   flex: 0 0 auto;
   width: 76px;
