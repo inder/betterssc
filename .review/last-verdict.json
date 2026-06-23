@@ -1,12 +1,12 @@
 {
-  "sha": "2db7592",
+  "sha": "e8149c2",
   "branch": "main",
-  "ts": "2026-06-22T19:46:00Z",
+  "ts": "2026-06-23T00:00:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "3+ should-fix findings including an invariant violation (https-only for og:image) and an attr() parsing bug that enables card content spoofing; feature is new security-sensitive surface",
+  "retro_reasoning": "2+ should-fix issues found; feature touches iframe lifecycle, search path, and a new exported function — real learning surface",
   "critical_count": 0,
   "should_fix_count": 3,
-  "nit_count": 1,
-  "files_reviewed": 4
+  "nit_count": 3,
+  "files_reviewed": 5
 }

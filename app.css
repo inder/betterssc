@@ -2024,6 +2024,85 @@ button {
 }
 
 /* ============================================================
+   Inline chart pane — TradingView mini-charts pinned at the top
+   of the feed when a search resolves to ticker(s)
+   ============================================================ */
+.chart-pane {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.chart-pane.hidden {
+  display: none;
+}
+
+.chart-card {
+  position: relative;
+  /* Cap the width so a single ticker doesn't stretch across the whole row —
+     it grows to max-width then leaves empty space. With 3 tickers each lands
+     just under the cap (the "right size"); with 1-2 they stay that size and
+     don't balloon. Wraps on narrow viewports. */
+  flex: 1 1 280px;
+  min-width: 200px;
+  max-width: 430px;
+  height: 90px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.chart-card-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* ⤢ expand-to-full-chart button. Pinned BOTTOM-right so it never overlaps
+   TradingView's own logo (which sits top-right of the mini widget). */
+.chart-card-expand {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.chart-card:hover .chart-card-expand {
+  opacity: 1;
+}
+
+.chart-card-expand:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.chart-card-expand:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ============================================================
    Proxy-disconnected banner — shown when consecutive polls fail
    ============================================================ */
 .proxy-banner {

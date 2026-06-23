@@ -4,6 +4,18 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-23
+
+### Added — 📊 Inline ticker charts on search
+- **Searching a ticker now shows a live TradingView mini-chart per symbol, pinned to the top of the feed above the results.** Click a ticker chip in the trending bar (or type `$HPE`, `HPE DELL`, or a known symbol into search) and a compact intraday chart (symbol · price · % change · sparkline) appears for each ticker, with the matching messages below.
+- **Click the ⤢ on any card to open the full advanced-chart modal** (the same drawing-tools chart as clicking an inline `$TICKER`).
+- **What charts:** `$SYMBOL` always; a bare symbol from the curated allowlist in any case (typed `tsla`); and a bare ALL-CAPS token only when the *whole query* is symbol-shaped — so a trending chip's bare `HPE`/`DELL` and an `HPE DELL` query chart, but a stray capitalized word in prose (`the HPE merger`) or a lowercase word (`great`) don't. Capped at 6 charts. Author/command filters (`@name`, `from:`, `has:`, `since:`) never chart. New pure `extractQueryTickers` in `lib/trending.js` (16 new tests).
+- **Self-contained + cheap.** Each chart is a sandboxed `mini-symbol-overview` iframe that fetches its own data from TradingView (no quotes streamed from BetterSSC, no API key). Iframes rebuild only when the symbol set or theme changes — never on poll re-renders — and the feed snaps to the top only once when charts first appear, so polling never yanks your scroll. The pane re-themes on light/dark toggle.
+- code-reviewer caught + fixed before ship: a redundant `focusSearchHit` in the chip-click path re-scrolled a message hit to center and buried the chart the click just summoned (now skipped for ticker queries); `extractQueryTickers` rejected slashless `key:value` commands only by accident (now explicit).
+
+### Fixed — 🧹 Trending bar topic noise
+- **Links and the filler word "like" no longer trend as topic chips.** URLs are stripped before topic extraction — both scheme/`www.` URLs and bare `host.tld/path` references — so `https`, `www`, and host words (`tradingview`, `bloomberg`) never surface; `like`/`likes`/`liked`/`liking` joined the stopword list. 529 tests passing.
+
 ## [0.7.1] — 2026-06-22
 
 ### Changed — 🐦 Tweet-shaped link previews for X / Twitter

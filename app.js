@@ -76,7 +76,7 @@ import {
   buildFocusFilter,
   splitTerms,
 } from "./lib/focus.js";
-import { extractTrending } from "./lib/trending.js";
+import { extractTrending, extractQueryTickers } from "./lib/trending.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -1644,8 +1644,15 @@ function searchForTerm(term) {
   if (input) input.value = term;
   state.searchQuery = term;
   applySearch();
-  // Surface the first hit if the user was scrolled away.
-  if (state.searchHits && state.searchHits.length) {
+  // Surface the first hit if the user was scrolled away — EXCEPT for a ticker
+  // query, where applySearch has already pinned the feed to the top to keep
+  // the chart(s) in view. Scrolling a message hit to center here would bury
+  // the chart the click just summoned.
+  if (
+    state.searchHits &&
+    state.searchHits.length &&
+    !extractQueryTickers(term).length
+  ) {
     focusSearchHit(state.searchActiveIdx || 0);
   }
 }
@@ -5632,6 +5639,120 @@ function closeTickerModal() {
   if (el) el.remove();
 }
 
+// ============================================================
+// INLINE CHART PANE (ticker search → mini-charts at top of feed)
+// ============================================================
+//
+// When the search box resolves to one or more tickers (a trending-chip
+// click, a typed $SYMBOL, or an all-caps query — see extractQueryTickers),
+// we show a TradingView "mini-symbol-overview" iframe per symbol pinned to
+// the top of the feed, ABOVE the search results. Each is compact (price +
+// change + sparkline); clicking the ⤢ button opens the existing full
+// advanced-chart modal. The pane lives inside #stream but OUTSIDE #messages,
+// so renderMessages()'s rebuild never touches it.
+//
+// _chartPaneKey caches the rendered (theme|symbols) signature so the heavy
+// iframes are only rebuilt when the set or theme actually changes — applySearch
+// runs on every keystroke and every poll-driven re-render, and reloading the
+// iframes each time would flicker.
+let _chartPaneKey = "";
+
+function currentChartTheme() {
+  return document.documentElement.getAttribute("data-theme") === "dark"
+    ? "dark"
+    : "light";
+}
+
+// Returns true iff the pane's CONTENT changed (newly shown or a different
+// symbol set) — the caller uses this to scroll the chart into view exactly
+// once, never on the steady-state poll re-renders that re-call applySearch.
+function renderChartPane(symbols) {
+  const pane = document.getElementById("chartPane");
+  if (!pane) return false;
+
+  if (!symbols || !symbols.length) {
+    if (_chartPaneKey) {
+      pane.replaceChildren();
+      pane.classList.add("hidden");
+      _chartPaneKey = "";
+    }
+    return false;
+  }
+
+  const theme = currentChartTheme();
+  const key = theme + "|" + symbols.join(",");
+  if (key === _chartPaneKey && !pane.classList.contains("hidden")) return false;
+
+  // A pure theme change rebuilds the iframes but is NOT a content change, so
+  // it must not trigger a scroll. Compare on the symbol portion for that.
+  const symbolsChanged = _chartPaneKey.split("|")[1] !== symbols.join(",");
+  const frag = document.createDocumentFragment();
+  for (const symbol of symbols) frag.appendChild(buildMiniChartCard(symbol, theme));
+  pane.replaceChildren(frag);
+  pane.classList.remove("hidden");
+  _chartPaneKey = key;
+  return symbolsChanged;
+}
+
+// Re-theme the open chart pane after a light/dark toggle. applyTheme doesn't
+// re-render the feed, so without this the mini-charts keep their old theme
+// until the symbol set changes.
+function refreshChartPaneTheme() {
+  if (!_chartPaneKey) return;
+  const symbols = _chartPaneKey.split("|")[1];
+  if (!symbols) return;
+  _chartPaneKey = ""; // force a rebuild under the new theme
+  renderChartPane(symbols.split(",").filter(Boolean));
+}
+
+function buildMiniChartCard(symbol, theme) {
+  const card = document.createElement("div");
+  card.className = "chart-card";
+
+  const config = {
+    symbol,
+    width: "100%",
+    height: "100%",
+    locale: "en",
+    dateRange: "1D",
+    colorTheme: theme,
+    isTransparent: true,
+    autosize: true,
+    largeChartUrl: "",
+  };
+  const iframe = document.createElement("iframe");
+  iframe.className = "chart-card-iframe";
+  iframe.title = symbol + " price chart";
+  iframe.src =
+    "https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#" +
+    encodeURIComponent(JSON.stringify(config));
+  iframe.setAttribute("frameborder", "0");
+  iframe.setAttribute("scrolling", "no");
+  iframe.setAttribute(
+    "sandbox",
+    "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+  );
+
+  // Expand to the full advanced-chart modal. A dedicated button (rather than
+  // making the iframe itself clickable) avoids fighting the iframe for the
+  // click and keeps the mini-chart interactive.
+  const expand = document.createElement("button");
+  expand.type = "button";
+  expand.className = "chart-card-expand";
+  expand.textContent = "⤢";
+  expand.title = "Open " + symbol + " full chart";
+  expand.setAttribute("aria-label", "Open " + symbol + " full chart");
+  expand.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openTickerModal(symbol);
+  });
+
+  card.appendChild(iframe);
+  card.appendChild(expand);
+  return card;
+}
+
 // Kept name for compatibility with the existing click handler; just
 // opens the modal now.
 function toggleChatHeaderPanel() {
@@ -5762,6 +5883,13 @@ function applySearch() {
   const hasThread = !!state.threadFilter;
   const hasFocus = !isFocusEmpty(state.focusFilter);
 
+  // Inline ticker charts: if the query resolves to one or more symbols, show
+  // a mini-chart per symbol at the top of the feed. Computed (and the pane
+  // updated) up front so every early-return path below leaves it consistent —
+  // a command/@/empty query yields [] and clears the pane.
+  const chartSymbols = extractQueryTickers(raw);
+  const chartJustShown = renderChartPane(chartSymbols);
+
   // Drop the focus memo at the START of every pass. Its only job is to
   // avoid re-walking the same ancestor across the groups of THIS pass —
   // it must NOT survive across renders. History backfill (loadOlder /
@@ -5875,14 +6003,34 @@ function applySearch() {
   document.getElementById("searchCount").textContent = label;
   if (visibleHits.length) {
     hideSearchEmpty();
-    // Default-land on the NEWEST visible match. Chat usage almost always
-    // wants "show me the latest thing matching this filter". n/N cycle
-    // from here; wrap is fine.
-    const lastIdx = visibleHits.length - 1;
-    state.searchActiveIdx = lastIdx;
-    focusSearchHit(lastIdx);
+    if (chartSymbols.length) {
+      // Ticker search: keep the chart(s) visible at the top of the feed
+      // instead of auto-scrolling to the newest hit (which would bury them).
+      // Highlight the FIRST visible match and let n/N walk down from there.
+      // Only snap to the top when the chart was JUST shown — never on the
+      // poll-driven re-renders that would otherwise yank the user back up.
+      state.searchActiveIdx = 0;
+      focusSearchHit(0, { scroll: false });
+      if (chartJustShown) {
+        const stream = document.getElementById("stream");
+        if (stream) stream.scrollTop = 0;
+      }
+    } else {
+      // Default-land on the NEWEST visible match. Chat usage almost always
+      // wants "show me the latest thing matching this filter". n/N cycle
+      // from here; wrap is fine.
+      const lastIdx = visibleHits.length - 1;
+      state.searchActiveIdx = lastIdx;
+      focusSearchHit(lastIdx);
+    }
   } else {
     showSearchEmpty(raw);
+    // Charted a ticker nobody's mentioned yet — still surface the chart
+    // (once, on first show — not on every poll).
+    if (chartSymbols.length && chartJustShown) {
+      const stream = document.getElementById("stream");
+      if (stream) stream.scrollTop = 0;
+    }
   }
 }
 
@@ -6506,7 +6654,7 @@ function resetUnreadWhileHidden() {
   document.title = _baseTitle;
 }
 
-function focusSearchHit(idx) {
+function focusSearchHit(idx, opts = {}) {
   const id = state.searchHits[idx];
   if (!id) return;
   const node = document.querySelector(`[data-id="${cssEscape(id)}"]`);
@@ -6516,7 +6664,11 @@ function focusSearchHit(idx) {
     .forEach((n) => n.classList.remove("search-active"));
   const groupNode = node.closest(".msg-group");
   if (groupNode) groupNode.classList.add("search-active");
-  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  // opts.scroll === false highlights the match without moving the viewport —
+  // used by the ticker-chart path so the chart stays pinned at the top.
+  if (opts.scroll !== false) {
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 }
 
 const cssEscape = (s) =>
@@ -6704,6 +6856,8 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", theme);
   const btn = document.getElementById("themeToggle");
   if (btn) btn.textContent = theme === "light" ? "☀" : "☾";
+  // Keep any open inline ticker charts in sync with the new theme.
+  refreshChartPaneTheme();
   try {
     chrome.storage &&
       chrome.storage.local &&

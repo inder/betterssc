@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-440%2F440-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-529%2F529-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.7.1** (Jun 22, 2026) — 🔗 **Link previews** (when someone posts a link, an opt-in, local-only card shows the page's title, description, site, and thumbnail under the message — fetched in *your* browser, cookieless, never shared back to Substack). **X/Twitter links render as a tweet card** (avatar + @handle, full text, large media). Previous: **v0.6.0** — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). 515/515 tests passing.
+Latest release: **v0.8.0** (Jun 23, 2026) — 📊 **Inline ticker charts on search** (search a ticker — click a trending chip or type `$HPE` / `HPE DELL` — and a compact live TradingView mini-chart for each symbol pins to the top of the feed above the matching messages; click ⤢ for the full chart). Also 🧹 **trending-bar cleanup** (links and the filler word "like" no longer leak in as topic chips). Previous: **v0.7.1** — 🔗 **Link previews** (opt-in, local-only card with a page's title/description/site/thumbnail, fetched cookieless in your browser; X/Twitter links render as a tweet card). 529/529 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -46,9 +46,10 @@ A CNBC/Bloomberg-style **TRENDING** strip sits under the header and scrolls righ
 
 - **Three kinds of chips:** trending **stock/crypto tickers**, **@mentioned people**, and **topic keywords** (1–2 words each).
 - **Click any chip to search.** It drops the term into the search box and runs the search instantly — tickers search the bare symbol, people search `@name`, topics search the word.
+- **Ticker searches show a live chart.** Click a ticker chip — or type `$HPE`, `HPE DELL`, or any known symbol into search — and a compact TradingView **mini-chart per symbol** (price · % change · intraday sparkline) pins to the top of the feed, above the matching messages. Click the **⤢** on any card for the full advanced-chart modal. Up to 6 at once; lowercase prose and `@`/command filters never chart.
 - **Live prices on ticker chips.** Stock and crypto chips show a recent price with a green ▲ / red ▼ percent change, pulled from Yahoo Finance (fetched through the extension's background worker, so no API key and no CORS pain). If a symbol isn't price-able the chip just shows the symbol.
 - **Hover eases the strip to a halt** so the chip under your cursor stops moving and is clickable; move away and it glides back up to speed. Respects `prefers-reduced-motion` (no auto-scroll; scroll it by hand instead).
-- **How chips are chosen:** the bar looks at the **last 2 hours** of chat, scores each candidate by frequency with newer mentions weighted more (so what's hot now leads, but a heavily-discussed earlier mover still shows). Tickers are matched by `$SYMBOL` (any symbol, known or unknown) **or** bare ALL-CAPS symbols from the built-in list; `$MSFT` and `MSFT` are deduped to one chip. People come from real @mentions. Topics are gated — a word only trends if **two different people** said it (and it clears a stopword/length filter), so chat filler doesn't leak in. Tickers rank first, then people, then topics.
+- **How chips are chosen:** the bar looks at the **last 2 hours** of chat, scores each candidate by frequency with newer mentions weighted more (so what's hot now leads, but a heavily-discussed earlier mover still shows). Tickers are matched by `$SYMBOL` (any symbol, known or unknown) **or** bare ALL-CAPS symbols from the built-in list; `$MSFT` and `MSFT` are deduped to one chip. People come from real @mentions. Topics are gated — a word only trends if **two different people** said it (and it clears a stopword/length filter), and **URLs are stripped first** so link fragments (`https`, `www`, host words like `tradingview`) never trend. Tickers rank first, then people, then topics.
 
 ### 🔗 Link previews (opt-in)
 

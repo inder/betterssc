@@ -8,7 +8,7 @@
 //   - adversarial near-positives that MUST NOT become chips
 
 import { describe, it, expect } from "vitest";
-import { extractTrending } from "../lib/trending.js";
+import { extractTrending, extractQueryTickers } from "../lib/trending.js";
 
 const NOW = 1_700_000_000_000;
 const isoAt = (msAgo) => new Date(NOW - msAgo).toISOString();
@@ -149,6 +149,42 @@ describe("topics — gated", () => {
     const topicLabels = out.filter((i) => i.kind === "topic").map((i) => i.label);
     expect(topicLabels).not.toContain("nvda");
   });
+
+  it("does NOT surface 'like' filler even across many authors", () => {
+    const out = run([
+      c("i like this setup", { authorId: 1 }),
+      c("yeah i like it too", { authorId: 2 }),
+      c("like a clean breakout", { authorId: 3 }),
+    ]);
+    const topics = out.filter((i) => i.kind === "topic").map((i) => i.label);
+    expect(topics).not.toContain("like");
+  });
+
+  it("does NOT leak URL scheme/host fragments (https, www, com) as topics", () => {
+    const out = run([
+      c("chart here https://tradingview.com/chart/abc", { authorId: 1 }),
+      c("see https://www.example.com/news for more", { authorId: 2 }),
+      c("source: https://tradingview.com/x", { authorId: 3 }),
+    ]);
+    const topics = out.filter((i) => i.kind === "topic").map((i) => i.label);
+    expect(topics).not.toContain("https");
+    expect(topics).not.toContain("http");
+    expect(topics).not.toContain("www");
+    expect(topics).not.toContain("com");
+    expect(topics).not.toContain("tradingview");
+  });
+
+  it("strips bare (schemeless) domain references so host words don't trend", () => {
+    const out = run([
+      c("story on tradingview.com/symbols/HPE today", { authorId: 1 }),
+      c("see bloomberg.com/markets for context", { authorId: 2 }),
+      c("tradingview.com again has the chart", { authorId: 3 }),
+    ]);
+    const topics = out.filter((i) => i.kind === "topic").map((i) => i.label);
+    expect(topics).not.toContain("tradingview");
+    expect(topics).not.toContain("bloomberg");
+    expect(topics).not.toContain("markets");
+  });
 });
 
 describe("window + recency + caps", () => {
@@ -234,6 +270,71 @@ describe("recency/frequency blend (recencyAlpha)", () => {
     expect(nvda.freq).toBe(1);
     expect(typeof nvda.rank).toBe("number");
     expect(nvda.rank).toBeGreaterThan(0);
+  });
+});
+
+describe("extractQueryTickers (search-box → chart symbols)", () => {
+  it("charts a single all-caps token (the trending-chip click case)", () => {
+    // HPE / DELL aren't in KNOWN_TICKERS — they trend via the $-cashtag — but
+    // the chip search drops the bare symbol into the box. A symbol-only query
+    // still charts it.
+    expect(extractQueryTickers("HPE")).toEqual(["HPE"]);
+    expect(extractQueryTickers("DELL")).toEqual(["DELL"]);
+  });
+
+  it("charts every $-prefixed cashtag regardless of KNOWN_TICKERS", () => {
+    expect(extractQueryTickers("$HPE and $DELL")).toEqual(["HPE", "DELL"]);
+    expect(extractQueryTickers("$zzzz")).toEqual(["ZZZZ"]);
+  });
+
+  it("charts a multi-token all-caps query", () => {
+    expect(extractQueryTickers("HPE DELL")).toEqual(["HPE", "DELL"]);
+    expect(extractQueryTickers("HPE, DELL")).toEqual(["HPE", "DELL"]);
+  });
+
+  it("charts a lowercase KNOWN_TICKERS symbol typed into search", () => {
+    expect(extractQueryTickers("tsla")).toEqual(["TSLA"]);
+    expect(extractQueryTickers("nvda")).toEqual(["NVDA"]);
+  });
+
+  it("does NOT chart a stray capitalized word inside prose", () => {
+    // HPE is uppercase but not KNOWN, and the query is not symbol-only.
+    expect(extractQueryTickers("the HPE merger")).toEqual([]);
+  });
+
+  it("does NOT chart a lowercase prose word", () => {
+    expect(extractQueryTickers("great")).toEqual([]);
+    expect(extractQueryTickers("recession fears")).toEqual([]);
+  });
+
+  it("ignores author and command filters (slashed and bare key:value)", () => {
+    expect(extractQueryTickers("@elon")).toEqual([]);
+    expect(extractQueryTickers("/from:elon")).toEqual([]);
+    expect(extractQueryTickers("from:elon")).toEqual([]);
+    expect(extractQueryTickers("/has:link")).toEqual([]);
+    expect(extractQueryTickers("has:image")).toEqual([]);
+    expect(extractQueryTickers("since:3")).toEqual([]);
+  });
+
+  it("dedupes and uppercases", () => {
+    expect(extractQueryTickers("$nvda NVDA")).toEqual(["NVDA"]);
+  });
+
+  it("strips trailing punctuation", () => {
+    expect(extractQueryTickers("$HPE.")).toEqual(["HPE"]);
+  });
+
+  it("caps the number of charted symbols at 6", () => {
+    const out = extractQueryTickers("AAA BBB CCC DDD EEE FFF GGG");
+    expect(out).toEqual(["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"]);
+    expect(out).not.toContain("GGG"); // the 7th is dropped, not just truncated silently
+  });
+
+  it("returns [] for empty / non-string input", () => {
+    expect(extractQueryTickers("")).toEqual([]);
+    expect(extractQueryTickers("   ")).toEqual([]);
+    expect(extractQueryTickers(null)).toEqual([]);
+    expect(extractQueryTickers(undefined)).toEqual([]);
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "betterssc",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Discord-style Chrome extension for Substack Chat",
   "private": true,
   "type": "module",
