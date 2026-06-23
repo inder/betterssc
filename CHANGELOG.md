@@ -4,6 +4,13 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-22
+
+### Changed — 🐦 Tweet-shaped link previews for X / Twitter
+- **X/Twitter status links now render as a tweet card** instead of the generic preview: an **avatar + display name + @handle** header with the X brand mark, the full tweet text, and the embedded media rendered **large** (full card width) below — matching how the tweet looks on X as closely as the Open Graph data allows. New pure `parseXStatus` / `xAuthorName` / `buildXInfo` / `unavatarUrl` in `lib/unfurl.js` (15 new tests).
+- **Author avatar.** X's `og:image` is the embedded media (not the face) for a tweet with media, so the avatar is resolved from the handle via `unavatar.io/twitter/<handle>` (https, `referrerpolicy=no-referrer`). If unavatar can't resolve it (load error), the slot falls back to the **X glyph** rather than a broken image. For a media-less tweet (`og:image` is a `/profile_images/` URL) that image *is* the avatar, and no large media is shown.
+- Same XSS contract as the generic card — name/handle/text via `textContent`, images https-only; the X logo is an inline SVG built node-by-node (no `innerHTML`). 515 tests passing.
+
 ## [0.7.0] — 2026-06-22
 
 ### Added — 🔗 Link previews (opt-in, local-only)

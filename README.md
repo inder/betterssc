@@ -4,7 +4,7 @@ A Chrome extension that gives Substack Chat a Discord-style makeover.
 
 ![tests](https://img.shields.io/badge/tests-440%2F440-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.7.0** (Jun 22, 2026) — 🔗 **Link previews** (when someone posts a link, an opt-in, local-only card shows the page's title, description, site, and thumbnail under the message — fetched in *your* browser, cookieless, never shared back to Substack). Previous: **v0.6.0** — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). 500/500 tests passing.
+Latest release: **v0.7.1** (Jun 22, 2026) — 🔗 **Link previews** (when someone posts a link, an opt-in, local-only card shows the page's title, description, site, and thumbnail under the message — fetched in *your* browser, cookieless, never shared back to Substack). **X/Twitter links render as a tweet card** (avatar + @handle, full text, large media). Previous: **v0.6.0** — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). 515/515 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -57,6 +57,7 @@ When someone posts a link in the chat, BetterSSC can show a Discord-style previe
 - **Off by default.** Turn it on in **Chat preferences** (the ⚙ in the member rail). The first time you enable it, your browser asks permission to read the pages you preview — that's the broad host access this feature needs. Decline and the feature simply stays off.
 - **Local and per-viewer.** The preview is built in *your* browser from the linked page's [Open Graph](https://ogp.me/) metadata. It is never written back to Substack and never shared with other readers — each person who has the feature on unfurls the links they see, on their own machine.
 - **Cookieless.** The fetch sends no cookies, so it can't act as you on the linked site. Page text is rendered as inert text (no scripts run), and preview images load with no referrer.
+- **X / Twitter links render as a tweet.** A status link gets a tweet-shaped card — avatar + display name + @handle, the full tweet text, and the embedded image rendered large below — built from the tweet's Open Graph data so it matches the original as closely as possible. The avatar comes from [unavatar.io](https://unavatar.io); if it can't be resolved, the slot falls back to the X logo.
 - **Cheap.** Each link is fetched once per session and cached; a link that fails to unfurl is remembered as "no card" so it isn't retried.
 - Toggle it back off and BetterSSC immediately drops the cards and hands the page-read permission back.
 

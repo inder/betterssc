@@ -4,6 +4,10 @@ import {
   parseOgMetadata,
   decodeHtmlEntities,
   resolveImageUrl,
+  parseXStatus,
+  xAuthorName,
+  unavatarUrl,
+  buildXInfo,
   UNFURL_MAX_URL_LEN,
   UNFURL_MAX_TITLE_LEN,
   UNFURL_MAX_DESC_LEN,
@@ -271,5 +275,112 @@ describe("parseOgMetadata — adversarial / hostile inputs", () => {
     const r = parseOgMetadata(html, "https://s.com/");
     expect(r.title).toBe("Early");
     expect(r.description).toBe(""); // beyond the 256KB slice
+  });
+});
+
+describe("parseXStatus", () => {
+  it("matches x.com and twitter.com status URLs, returns the handle", () => {
+    expect(parseXStatus("https://x.com/Mr_Derivatives/status/2069202516106215786"))
+      .toEqual({ handle: "Mr_Derivatives" });
+    expect(parseXStatus("https://twitter.com/jack/status/20")).toEqual({
+      handle: "jack",
+    });
+    expect(parseXStatus("https://mobile.x.com/a/status/123")).toEqual({ handle: "a" });
+    expect(parseXStatus("https://x.com/u/statuses/123")).toEqual({ handle: "u" }); // old form
+  });
+
+  it("ignores query strings and trailing path on a status URL", () => {
+    expect(
+      parseXStatus("https://x.com/Mr_Derivatives/status/2069202516106215786?s=20&t=x")
+    ).toEqual({ handle: "Mr_Derivatives" });
+    expect(parseXStatus("https://x.com/u/status/123/photo/1")).toEqual({ handle: "u" });
+  });
+
+  it("returns null for non-status X URLs and non-X hosts", () => {
+    expect(parseXStatus("https://x.com/Mr_Derivatives")).toBe(null); // profile, not a tweet
+    expect(parseXStatus("https://x.com/search?q=spx")).toBe(null);
+    expect(parseXStatus("https://example.com/x/status/1")).toBe(null);
+    expect(parseXStatus("not a url")).toBe(null);
+  });
+
+  it("rejects a malformed handle (too long / bad chars)", () => {
+    expect(parseXStatus("https://x.com/" + "a".repeat(16) + "/status/1")).toBe(null);
+    expect(parseXStatus("https://x.com/has-dash/status/1")).toBe(null);
+  });
+});
+
+describe("xAuthorName", () => {
+  it("strips the (@handle) on X suffix", () => {
+    expect(xAuthorName("Heisenberg (@Mr_Derivatives) on X")).toBe("Heisenberg");
+    expect(xAuthorName("Jack (@jack) on Twitter")).toBe("Jack");
+  });
+  it("strips a bare 'on X' suffix", () => {
+    expect(xAuthorName("Some Name on X")).toBe("Some Name");
+  });
+  it("passes the title through when the pattern is absent", () => {
+    expect(xAuthorName("Just a headline")).toBe("Just a headline");
+  });
+  it("keeps parens that are part of the name", () => {
+    expect(xAuthorName("Acme (Official) (@acme) on X")).toBe("Acme (Official)");
+  });
+  it("is empty-safe", () => {
+    expect(xAuthorName("")).toBe("");
+    expect(xAuthorName(null)).toBe("");
+  });
+});
+
+describe("unavatarUrl", () => {
+  it("builds an https unavatar URL for a valid handle", () => {
+    expect(unavatarUrl("Mr_Derivatives")).toBe(
+      "https://unavatar.io/twitter/Mr_Derivatives"
+    );
+  });
+  it("returns null for an unsafe handle", () => {
+    expect(unavatarUrl("a/b")).toBe(null);
+    expect(unavatarUrl("a".repeat(16))).toBe(null);
+    expect(unavatarUrl("")).toBe(null);
+  });
+});
+
+describe("buildXInfo", () => {
+  const og = {
+    title: "Heisenberg (@Mr_Derivatives) on X",
+    description: "The $SPX likely would be trading well below 7,000…",
+    image: "https://pbs.twimg.com/media/ABC123.jpg",
+    siteName: "X (formerly Twitter)",
+    url: "https://x.com/Mr_Derivatives/status/2069202516106215786",
+  };
+
+  it("media tweet → large media + unavatar avatar + parsed name/handle", () => {
+    const x = buildXInfo(
+      "https://x.com/Mr_Derivatives/status/2069202516106215786",
+      og
+    );
+    expect(x).toEqual({
+      name: "Heisenberg",
+      handle: "@Mr_Derivatives",
+      avatarUrl: "https://unavatar.io/twitter/Mr_Derivatives",
+      media: "https://pbs.twimg.com/media/ABC123.jpg",
+    });
+  });
+
+  it("media-less tweet (og:image is a profile image) → that image is the avatar, no media", () => {
+    const x = buildXInfo("https://x.com/jack/status/20", {
+      ...og,
+      image: "https://pbs.twimg.com/profile_images/123/avatar.jpg",
+    });
+    expect(x.media).toBe(null);
+    expect(x.avatarUrl).toBe("https://pbs.twimg.com/profile_images/123/avatar.jpg");
+  });
+
+  it("falls back to the handle as name when og:title lacks the suffix", () => {
+    const x = buildXInfo("https://x.com/jack/status/20", { ...og, title: "" });
+    expect(x.name).toBe("jack");
+    expect(x.handle).toBe("@jack");
+  });
+
+  it("returns null for a non-X URL or missing OG data", () => {
+    expect(buildXInfo("https://reuters.com/a", og)).toBe(null);
+    expect(buildXInfo("https://x.com/jack/status/20", null)).toBe(null);
   });
 });

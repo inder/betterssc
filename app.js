@@ -20,6 +20,7 @@ import { SubstackRealtime } from "./lib/ws.js";
 import {
   firstUnfurlableUrl,
   parseOgMetadata,
+  buildXInfo,
   UNFURL_MAX_HTML_BYTES,
 } from "./lib/unfurl.js";
 import {
@@ -2094,6 +2095,9 @@ async function fetchUnfurl(url, commentId) {
       _unfurlCache.set(url, { ok: false });
       return;
     }
+    // Tweet-shaped card for X/Twitter status links (name/handle header, large
+    // media, avatar). null for everything else → generic card.
+    data.x = buildXInfo(res.url || url, data);
     _unfurlCache.set(url, { ok: true, data });
     insertUnfurlCard(commentId, url, data);
   } catch (_) {
@@ -2125,6 +2129,9 @@ function insertUnfurlCard(commentId, url, data) {
 // thing standing between us and XSS. The image is https-only (enforced in
 // parseOgMetadata) and loaded with no referrer + lazily.
 function renderUnfurlCard(url, data) {
+  // X/Twitter status → tweet-shaped card.
+  if (data.x) return renderXCard(url, data);
+
   const card = document.createElement("a");
   card.className = "msg-link-card";
   card.href = url;
@@ -2169,6 +2176,98 @@ function renderUnfurlCard(url, data) {
   }
 
   card.appendChild(textCol);
+  return card;
+}
+
+// The X logo as an inline SVG (built node-by-node, never innerHTML). Fill comes
+// from `currentColor` via CSS. Used both as the top-right brand mark and as the
+// avatar fallback when unavatar.io can't resolve a face.
+function makeXGlyph(cls) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  if (cls) svg.setAttribute("class", cls);
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute(
+    "d",
+    "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"
+  );
+  svg.appendChild(path);
+  return svg;
+}
+
+// Tweet-shaped card for an X/Twitter status link. Same XSS contract as the
+// generic card — name/handle/text are X-derived (attacker-controllable) and go
+// through textContent; images are https-only (resolveImageUrl) + no-referrer.
+// The avatar tries unavatar.io and falls back to the X glyph on load error.
+function renderXCard(url, data) {
+  const x = data.x;
+  const card = document.createElement("a");
+  card.className = "msg-link-card msg-link-card-x";
+  card.href = url;
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.dataset.url = url;
+
+  const head = document.createElement("div");
+  head.className = "msg-link-card-x-head";
+
+  const avatar = document.createElement("div");
+  avatar.className = "msg-link-card-x-avatar";
+  if (x.avatarUrl) {
+    const img = document.createElement("img");
+    img.src = x.avatarUrl;
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.alt = "";
+    // unavatar.io (or a dead profile image) failing to load → fall back to the
+    // X glyph in the same slot rather than a broken-image box.
+    img.addEventListener("error", () => {
+      avatar.replaceChildren(makeXGlyph("msg-link-card-x-avatar-glyph"));
+    });
+    avatar.appendChild(img);
+  } else {
+    avatar.appendChild(makeXGlyph("msg-link-card-x-avatar-glyph"));
+  }
+  head.appendChild(avatar);
+
+  const who = document.createElement("div");
+  who.className = "msg-link-card-x-who";
+  if (x.name) {
+    const nameEl = document.createElement("div");
+    nameEl.className = "msg-link-card-x-name";
+    nameEl.textContent = x.name;
+    who.appendChild(nameEl);
+  }
+  if (x.handle) {
+    const handleEl = document.createElement("div");
+    handleEl.className = "msg-link-card-x-handle";
+    handleEl.textContent = x.handle;
+    who.appendChild(handleEl);
+  }
+  head.appendChild(who);
+  head.appendChild(makeXGlyph("msg-link-card-x-logo"));
+  card.appendChild(head);
+
+  if (data.description) {
+    const text = document.createElement("div");
+    text.className = "msg-link-card-x-text";
+    text.textContent = data.description;
+    card.appendChild(text);
+  }
+
+  if (x.media) {
+    const media = document.createElement("img");
+    media.className = "msg-link-card-x-media";
+    media.src = x.media;
+    media.loading = "lazy";
+    media.referrerPolicy = "no-referrer";
+    media.alt = "";
+    media.addEventListener("error", () => media.remove());
+    card.appendChild(media);
+  }
+
   return card;
 }
 

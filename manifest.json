@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BetterSSC",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A Discord-style client for Substack Chat. Live updates, search, link previews, @mention notifications, send + reply + react.",
   "permissions": [
     "scripting",

@@ -3242,3 +3242,91 @@ button {
     height: 140px;
   }
 }
+
+/* ─── X / Twitter tweet card (v0.7.1) ─────────────────────────────────────
+   A tweet-shaped variant of the link preview: avatar + name/@handle header
+   with the X brand mark, the tweet text, then the embedded media rendered
+   large below (vs the generic card's small left thumbnail). */
+.msg-link-card-x {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+}
+.msg-link-card-x-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.msg-link-card-x-avatar {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+.msg-link-card-x-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.msg-link-card-x-avatar-glyph {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+.msg-link-card-x-who {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.msg-link-card-x-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msg-link-card-x-handle {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msg-link-card-x-logo {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  fill: var(--text-primary);
+  align-self: flex-start;
+}
+.msg-link-card-x-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Tweets are short; allow a generous clamp before truncating. */
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.msg-link-card-x-media {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
