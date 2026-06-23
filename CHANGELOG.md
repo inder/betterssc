@@ -4,6 +4,18 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-22
+
+### Added — 🔗 Link previews (opt-in, local-only)
+- **Open Graph unfurl cards under messages that contain a link.** When a chat message has a link, BetterSSC shows a Discord-style preview card (site name · title · description · thumbnail) built from the page's `og:*` / `twitter:*` / `<title>` metadata. New pure `lib/unfurl.js` (parser + URL selection) with 31 unit tests including adversarial HTML.
+- **Off by default; opt-in behind a host permission.** Enable in Chat preferences. Turning it on triggers `chrome.permissions.request` for `optional_host_permissions: ["http://*/*","https://*/*"]` from the Save-click user gesture — so the broad page-read access is never requested at install and never held unless the feature is on. Re-checked at boot via `chrome.permissions.contains`; revoking in `chrome://extensions` disables the feature. Turning it off relinquishes the permission.
+- **Local + per-viewer.** Each client unfurls the links it sees in its own browser session; nothing is written back to Substack (it would be reconciled away) and nothing is shared with other readers.
+- **Privacy/security posture.** The fetch is cookieless (`credentials: 'omit'`); the response body is streamed and capped at 256KB; all page-derived text renders via `textContent` (the `og:*` fields are attacker-controlled — never `innerHTML`); preview images are https-only and loaded with `referrerpolicy="no-referrer"`. Failed unfurls are negative-cached so a dead link isn't refetched on the constant poll re-renders.
+- code-reviewer caught + fixed before ship: `attr()` lacked a word boundary so a `data-content` shadow attribute could spoof the card text (fixed with a negative lookbehind); `resolveImageUrl` allowed `http://` images (tightened to https-only, matching the stated invariant); `res.text()` buffered the whole body when `Content-Length` was absent (switched to a streamed read that stops at the cap). 500/500 tests passing.
+
+### Changed
+- **Trending ticker rank now blends recency × frequency.** `rank = recency^α · effectiveFreq^(1-α)`, with each author's contribution to a symbol's frequency capped so one person can't fake broad interest. `app.js` opts in at α=0.65 (recency still leads); the `lib/trending.js` default stays α=1.0, identical to the old pure-recency ranking.
+
 ## [0.6.0] — 2026-06-22
 
 ### Added — 📈 Rolling ticker bar (CNBC/Bloomberg style)

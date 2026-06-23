@@ -4,7 +4,7 @@ A Chrome extension that gives Substack Chat a Discord-style makeover.
 
 ![tests](https://img.shields.io/badge/tests-440%2F440-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.6.0** (Jun 22, 2026) — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). Previous: **v0.5.2** — ✦ **Explain** (a per-message, always-visible AI button that explains *that* message inline — walks its reply thread, reads embedded chart images via vision, reads referenced links via web search, and answers in a professional-trader voice). 462/462 tests passing.
+Latest release: **v0.7.0** (Jun 22, 2026) — 🔗 **Link previews** (when someone posts a link, an opt-in, local-only card shows the page's title, description, site, and thumbnail under the message — fetched in *your* browser, cookieless, never shared back to Substack). Previous: **v0.6.0** — 📈 **Rolling ticker bar** (a CNBC/Bloomberg-style TRENDING strip under the header: trending tickers, @people, and topics from the last 2h of chat, scrolling right→left; click a chip to search; ticker chips show live Yahoo Finance prices; hover eases it to a halt). 500/500 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.6.0)
+## What it does (v0.7.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
@@ -49,6 +49,16 @@ A CNBC/Bloomberg-style **TRENDING** strip sits under the header and scrolls righ
 - **Live prices on ticker chips.** Stock and crypto chips show a recent price with a green ▲ / red ▼ percent change, pulled from Yahoo Finance (fetched through the extension's background worker, so no API key and no CORS pain). If a symbol isn't price-able the chip just shows the symbol.
 - **Hover eases the strip to a halt** so the chip under your cursor stops moving and is clickable; move away and it glides back up to speed. Respects `prefers-reduced-motion` (no auto-scroll; scroll it by hand instead).
 - **How chips are chosen:** the bar looks at the **last 2 hours** of chat, scores each candidate by frequency with newer mentions weighted more (so what's hot now leads, but a heavily-discussed earlier mover still shows). Tickers are matched by `$SYMBOL` (any symbol, known or unknown) **or** bare ALL-CAPS symbols from the built-in list; `$MSFT` and `MSFT` are deduped to one chip. People come from real @mentions. Topics are gated — a word only trends if **two different people** said it (and it clears a stopword/length filter), so chat filler doesn't leak in. Tickers rank first, then people, then topics.
+
+### 🔗 Link previews (opt-in)
+
+When someone posts a link in the chat, BetterSSC can show a Discord-style preview card under the message — the page's **site name, title, description, and thumbnail** — so you can tell what a link is before clicking it.
+
+- **Off by default.** Turn it on in **Chat preferences** (the ⚙ in the member rail). The first time you enable it, your browser asks permission to read the pages you preview — that's the broad host access this feature needs. Decline and the feature simply stays off.
+- **Local and per-viewer.** The preview is built in *your* browser from the linked page's [Open Graph](https://ogp.me/) metadata. It is never written back to Substack and never shared with other readers — each person who has the feature on unfurls the links they see, on their own machine.
+- **Cookieless.** The fetch sends no cookies, so it can't act as you on the linked site. Page text is rendered as inert text (no scripts run), and preview images load with no referrer.
+- **Cheap.** Each link is fetched once per session and cached; a link that fails to unfurl is remembered as "no card" so it isn't retried.
+- Toggle it back off and BetterSSC immediately drops the cards and hands the page-read permission back.
 
 ### Finding stuff (search + filter)
 
@@ -352,6 +362,7 @@ The roadmap below is my current wish list. What you actually need will reshape i
 - **v0.3** ✅ Ask BetterSSC AI mode + tunable output cap + native web search on Anthropic & Google.
 - **v0.4** ✅ 🎯 Focus mode — filter the feed to terms + tagged people, reply-tree aware. Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
 - **v0.5** ✅ ✦ Explain — per-message, always-visible AI button that explains *that* message inline. Thread-aware (walks reply/quote ancestors), reads embedded chart images via vision, reads referenced links via web search, professional-trader voice.
+- **v0.7** ✅ 🔗 Link previews — opt-in, local-only Open Graph unfurl cards under messages that contain a link. Fetched in your browser, cookieless, gated behind an on-demand host permission, never shared back to Substack.
 - **v0.6** OpenAI Responses API migration so Ask/Explain web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
 - **v0.6.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
 - **DMs + Tenor parity** Direct messages. Tenor GIF picker as an alternative to GIPHY if a user prefers it (TOS allows; would need to recapture Substack DM wire shape since group-chat shape doesn't always match).
@@ -388,6 +399,16 @@ The GIF button in the composer is the same story, smaller surface:
 - **What GIPHY sees:** your search queries and the IP they're sent from. They do NOT see any of your Substack chat content — the search is independent of the chat. Once you pick a GIF, the binary downloads to your browser and is re-uploaded to Substack from your browser. GIPHY never knows which chat you sent the GIF in or who saw it.
 - **What Substack sees:** the same thing as if you'd dragged a GIF in from your desktop — an `image/gif` upload from your own session.
 - Fully opt-in. Until you click `GIF` and configure a key, GIPHY's API isn't contacted.
+
+### 🔗 Link previews — opt-in, cookieless
+
+The link preview cards (v0.7) are off until you enable them, and they're the one feature that reaches outside Substack to arbitrary websites:
+
+- **You grant the access explicitly.** Enabling previews in Chat preferences triggers a Chrome permission prompt for broad host access (`http://*/*`, `https://*/*`) — declared as an *optional* permission, so it is NOT requested at install and NOT held unless you turn the feature on. Turn the feature off and BetterSSC relinquishes the permission.
+- **What the linked site sees:** when a preview is built, your browser makes one request to that page — so the site (and its image host) sees your IP, the same as if you'd clicked the link. The request is **cookieless** (`credentials: 'omit'`), so it carries no session and can't act as you. This is inherent to any link unfurl; it's why the feature is opt-in.
+- **What Substack sees:** nothing new. Previews are built and rendered entirely in your browser and are never written back to Substack or shared with other readers.
+- **No code execution.** Page metadata is rendered as inert text (`textContent`, never HTML), preview images are https-only and loaded with no referrer, and responses are size-capped. A hostile page can't run script or smuggle a tracking pixel through the card.
+- Previews are cached in memory for the tab's lifetime only, then forgotten.
 
 ## Known issues
 
