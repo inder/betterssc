@@ -18,6 +18,11 @@ import {
 } from "./lib/api.js";
 import { SubstackRealtime } from "./lib/ws.js";
 import {
+  firstUnfurlableUrl,
+  parseOgMetadata,
+  UNFURL_MAX_HTML_BYTES,
+} from "./lib/unfurl.js";
+import {
   formatRelativeTime,
   formatAbsoluteTime,
   segmentBody,
@@ -166,6 +171,12 @@ const state = {
   // suffix so the user can see off-filter activity without losing
   // their filter context. Always 0 when no filter is active.
   pendingNewMessagesOffFilter: 0,
+  // Link previews (v0.7) — local, per-viewer unfurl cards under messages that
+  // contain a link. OFF by default: it needs the broad optional host
+  // permission, requested via a user gesture from Chat preferences. Only ever
+  // true when BOTH bssc_link_previews is set AND the host permission is still
+  // granted (re-checked at boot, since the user can revoke in chrome://).
+  linkPreviews: false,
   watchedUserIds: new Set(),
   pinnedUserIds: new Set(),
   memberSort: "active", // "active" (most messages) or "name"
@@ -228,6 +239,7 @@ function showLanding() {
 async function init() {
   bindEventHandlers();
   restoreWatchedUsers();
+  restoreLinkPreviews();
 
   // Identity comes from background which inspects an open Substack tab.
   // Fallback: try to read from a known route once we hit the API.
@@ -1981,6 +1993,11 @@ function renderMessageItem(c, opts = {}) {
   // can take.
   appendAttachments(wrap, c);
 
+  // Link preview card (v0.7) — opt-in, local-only. Renders synchronously from
+  // cache when we've already unfurled this URL; otherwise kicks an async fetch
+  // that surgically inserts the card by message id (no full re-render).
+  if (state.linkPreviews) maybeAppendLinkPreview(wrap, c);
+
   const reactionsEl = buildReactionsEl(c);
   if (reactionsEl) wrap.appendChild(reactionsEl);
 
@@ -1989,6 +2006,170 @@ function renderMessageItem(c, opts = {}) {
   // group's LAST message (not inside the head's item) — see renderGroup.
 
   return wrap;
+}
+
+// ─── Link previews (v0.7) ───────────────────────────────────────────────────
+//
+// Local, per-viewer link unfurl. When the feature is enabled (state.linkPreviews
+// — gated behind an opt-in toggle + the broad host permission), a message that
+// contains a link gets a Discord-style preview card under it. The card is built
+// from the linked page's Open Graph / Twitter / <title> metadata, fetched in
+// THIS viewer's browser session. Nothing is written back to Substack.
+//
+// Caching is per-session and per-URL so the constant poll-driven re-renders
+// don't refetch: a "done" entry renders synchronously; an "error" entry is a
+// negative cache so a dead/blocked link is never retried this session.
+const _unfurlCache = new Map(); // url → { ok: true, data } | { ok: false }
+const _unfurlInflight = new Set(); // urls currently being fetched
+const UNFURL_TIMEOUT_MS = 12_000;
+
+// Find this message's first unfurlable link and either render its cached card
+// now or kick off the async fetch. Safe to call on every render — the caches
+// make repeat calls cheap and idempotent.
+function maybeAppendLinkPreview(wrap, c) {
+  if (!c || typeof c.body !== "string") return;
+  const url = firstUnfurlableUrl(c.body);
+  if (!url) return;
+  const cached = _unfurlCache.get(url);
+  if (cached) {
+    if (cached.ok) wrap.appendChild(renderUnfurlCard(url, cached.data));
+    return; // negative-cached → render nothing, never refetch
+  }
+  void fetchUnfurl(url, c.id);
+}
+
+// Read a Response body as text, stopping once we've accumulated `maxBytes`
+// (approx — counted as decoded chars, which is fine for an early-cutoff cap).
+// Falls back to res.text() if the body isn't a readable stream.
+async function readCapped(res, maxBytes) {
+  if (!res.body || typeof res.body.getReader !== "function") {
+    const t = await res.text();
+    return t.length > maxBytes ? t.slice(0, maxBytes) : t;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let html = "";
+  try {
+    while (html.length < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    // Stop the network read; ignore the rejection cancel() can produce.
+    try { await reader.cancel(); } catch (_) {}
+  }
+  return html.length > maxBytes ? html.slice(0, maxBytes) : html;
+}
+
+async function fetchUnfurl(url, commentId) {
+  if (_unfurlInflight.has(url) || _unfurlCache.has(url)) return;
+  _unfurlInflight.add(url);
+  try {
+    const res = await fetch(url, {
+      credentials: "omit", // cookieless — never attach the viewer's site session
+      redirect: "follow",
+      signal: AbortSignal.timeout(UNFURL_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      _unfurlCache.set(url, { ok: false });
+      return;
+    }
+    const ctype = (res.headers.get("content-type") || "").toLowerCase();
+    if (ctype && !ctype.includes("text/html") && !ctype.includes("application/xhtml")) {
+      _unfurlCache.set(url, { ok: false }); // PDFs, JSON, etc. — nothing to unfurl
+      return;
+    }
+    const clen = parseInt(res.headers.get("content-length") || "", 10);
+    if (Number.isFinite(clen) && clen > 8 * UNFURL_MAX_HTML_BYTES) {
+      _unfurlCache.set(url, { ok: false }); // pathologically large page
+      return;
+    }
+    // Stream the body and STOP at the byte cap. text() would buffer the whole
+    // response first — a chunked page with no Content-Length could be tens of
+    // MB before we get to slice it. OG tags live in <head>, so the cap is ample.
+    const html = await readCapped(res, UNFURL_MAX_HTML_BYTES);
+    const data = parseOgMetadata(html, res.url || url);
+    if (!data) {
+      _unfurlCache.set(url, { ok: false });
+      return;
+    }
+    _unfurlCache.set(url, { ok: true, data });
+    insertUnfurlCard(commentId, url, data);
+  } catch (_) {
+    // Timeout / network / CORS (host perm revoked mid-session) — negative-cache
+    // so the next poll re-render doesn't hammer a dead link.
+    _unfurlCache.set(url, { ok: false });
+  } finally {
+    _unfurlInflight.delete(url);
+  }
+}
+
+// Surgically attach a freshly-fetched card to a message already in the DOM,
+// without a full re-render (mirrors renderExplainInline). No-op if the message
+// scrolled out / was removed, or a card is already present (race guard).
+function insertUnfurlCard(commentId, url, data) {
+  if (!state.linkPreviews) return;
+  const stream = document.getElementById("stream");
+  if (!stream || commentId == null) return;
+  const node = stream.querySelector(
+    `.msg-item[data-id="${cssEscape(String(commentId))}"]`
+  );
+  if (!node) return;
+  if (node.querySelector(".msg-link-card")) return;
+  node.appendChild(renderUnfurlCard(url, data));
+}
+
+// Build the preview card. EVERY page-derived string is placed via textContent —
+// og:title/description/site_name are attacker-controlled, so this is the only
+// thing standing between us and XSS. The image is https-only (enforced in
+// parseOgMetadata) and loaded with no referrer + lazily.
+function renderUnfurlCard(url, data) {
+  const card = document.createElement("a");
+  card.className = "msg-link-card";
+  card.href = url;
+  card.target = "_blank";
+  card.rel = "noopener noreferrer";
+  card.dataset.url = url;
+
+  if (data.image) {
+    const img = document.createElement("img");
+    img.className = "msg-link-card-img";
+    img.src = data.image;
+    img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.alt = "";
+    // If the image 404s / is blocked, drop it so the card doesn't show a
+    // broken-image glyph.
+    img.addEventListener("error", () => img.remove());
+    card.appendChild(img);
+  }
+
+  const textCol = document.createElement("div");
+  textCol.className = "msg-link-card-text";
+
+  const site = data.siteName || "";
+  if (site) {
+    const siteEl = document.createElement("div");
+    siteEl.className = "msg-link-card-site";
+    siteEl.textContent = site;
+    textCol.appendChild(siteEl);
+  }
+  if (data.title) {
+    const titleEl = document.createElement("div");
+    titleEl.className = "msg-link-card-title";
+    titleEl.textContent = data.title;
+    textCol.appendChild(titleEl);
+  }
+  if (data.description) {
+    const descEl = document.createElement("div");
+    descEl.className = "msg-link-card-desc";
+    descEl.textContent = data.description;
+    textCol.appendChild(descEl);
+  }
+
+  card.appendChild(textCol);
+  return card;
 }
 
 // Build the inline "✦ Explained" block attached under a message. Three
@@ -2921,6 +3102,85 @@ function persistWatchedUsers() {
         bssc_watched_users: Array.from(state.watchedUserIds),
       });
   } catch (_) {}
+}
+
+// Broad host permission link previews need. Declared in manifest under
+// optional_host_permissions; granted on demand via a user gesture (the Chat
+// preferences Save click), never at install time.
+const LINK_PREVIEW_ORIGINS = ["http://*/*", "https://*/*"];
+
+// Resolve whether link previews are actually active: the user opted in AND the
+// host permission is still granted (they can revoke it in chrome://extensions
+// independently of our stored flag). Both must hold.
+function restoreLinkPreviews() {
+  try {
+    if (!chrome.storage || !chrome.storage.local) return;
+    chrome.storage.local.get(["bssc_link_previews"], (res) => {
+      const optedIn = !!(res && res.bssc_link_previews);
+      if (!optedIn) {
+        state.linkPreviews = false;
+        return;
+      }
+      // Opted in — confirm the permission survived since last session.
+      if (chrome.permissions && chrome.permissions.contains) {
+        chrome.permissions.contains(
+          { origins: LINK_PREVIEW_ORIGINS },
+          (granted) => {
+            state.linkPreviews = !!granted;
+            if (granted && state.order && state.order.length) renderAll();
+          }
+        );
+      } else {
+        state.linkPreviews = false;
+      }
+    });
+  } catch (_) {
+    state.linkPreviews = false;
+  }
+}
+
+// Apply a link-previews toggle from Chat preferences. Called synchronously
+// from the Save click so chrome.permissions.request keeps its user gesture.
+function applyLinkPreviewToggle(wanted) {
+  const persist = (v) => {
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({ bssc_link_previews: v });
+    } catch (_) {}
+  };
+
+  if (wanted) {
+    if (state.linkPreviews) {
+      persist(true); // already on — just keep the flag durable
+      return;
+    }
+    if (chrome.permissions && chrome.permissions.request) {
+      chrome.permissions.request(
+        { origins: LINK_PREVIEW_ORIGINS },
+        (granted) => {
+          state.linkPreviews = !!granted;
+          persist(!!granted); // deny → store false so the toggle reflects reality
+          if (granted) renderAll();
+        }
+      );
+    } else {
+      state.linkPreviews = false;
+      persist(false);
+    }
+    return;
+  }
+
+  // Turning OFF: drop the flag, re-render to strip any visible cards, and
+  // relinquish the broad permission so we're not holding access we don't use.
+  state.linkPreviews = false;
+  persist(false);
+  if (chrome.permissions && chrome.permissions.remove) {
+    try {
+      chrome.permissions.remove({ origins: LINK_PREVIEW_ORIGINS }, () => {});
+    } catch (_) {}
+  }
+  renderAll();
 }
 
 function restoreWatchedUsers() {
@@ -5000,6 +5260,23 @@ function openChatPrefsModal() {
   row.appendChild(label);
   body.appendChild(row);
 
+  // Link previews toggle — turning this ON triggers the broad host-permission
+  // request (the Save click below is the required user gesture).
+  const lpRow = document.createElement("div");
+  lpRow.className = "tune-toggle-row";
+  const lpCheckbox = document.createElement("input");
+  lpCheckbox.type = "checkbox";
+  lpCheckbox.id = "chatPrefsLinkPreviews";
+  lpCheckbox.checked = !!state.linkPreviews;
+  const lpLabel = document.createElement("label");
+  lpLabel.htmlFor = "chatPrefsLinkPreviews";
+  lpLabel.className = "tune-toggle-label";
+  lpLabel.textContent =
+    "Show link previews. When someone posts a link, fetch the page in YOUR browser and show a title/description/image card under the message. Local-only (never shared back to Substack), cookieless. Turning this on grants BetterSSC permission to read the pages you preview.";
+  lpRow.appendChild(lpCheckbox);
+  lpRow.appendChild(lpLabel);
+  body.appendChild(lpRow);
+
   const footer = document.createElement("footer");
   footer.className = "ai-settings-footer";
   const cancel = document.createElement("button");
@@ -5032,6 +5309,12 @@ function openChatPrefsModal() {
         chrome.storage.local &&
         chrome.storage.local.set({ bssc_auto_load_all: next });
     } catch (_) {}
+
+    // Link previews — handle the permission grant/revoke. MUST stay
+    // synchronous within this click handler so chrome.permissions.request
+    // keeps the user gesture (an awaited call would lose it).
+    applyLinkPreviewToggle(!!lpCheckbox.checked);
+
     closeChatPrefsModal();
   });
   footer.appendChild(cancel);

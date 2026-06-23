@@ -1,12 +1,12 @@
 {
-  "sha": "c032886",
+  "sha": "2db7592",
   "branch": "main",
-  "ts": "2026-06-16T00:00:00Z",
-  "verdict": "ship-it",
-  "retro_required": "no",
-  "retro_reasoning": "Diff is a focused surgical DOM fix under 120 lines of net new logic, no schema/contract changes, no critical findings",
+  "ts": "2026-06-22T19:46:00Z",
+  "verdict": "fix-these",
+  "retro_required": "yes",
+  "retro_reasoning": "3+ should-fix findings including an invariant violation (https-only for og:image) and an attr() parsing bug that enables card content spoofing; feature is new security-sensitive surface",
   "critical_count": 0,
-  "should_fix_count": 0,
+  "should_fix_count": 3,
   "nit_count": 1,
-  "files_reviewed": 1
+  "files_reviewed": 4
 }

@@ -28,6 +28,10 @@
     "https://media3.giphy.com/*",
     "https://media4.giphy.com/*"
   ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "declarative_net_request": {
     "rule_resources": [
       {
