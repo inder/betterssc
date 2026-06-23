@@ -1,21 +1,25 @@
 {
   "mode": "full",
-  "sha": "50e764dbd1d36979e8f4d1750e680f85e37b4c27",
+  "sha": "669ed52c6dffa6097c499d95a5236b106c66540b",
   "branch": "main",
-  "ts": "2026-06-22T23:31:20.797Z",
+  "ts": "2026-06-23T03:03:09.000Z",
   "what_went_right": [
-    "The riskiest external dependency was verified empirically BEFORE any code: the agent confirmed the Yahoo v8 chart endpoint returns regularMarketPrice + chartPreviousClose keyless for both equities (AAPL 297.01) and crypto (BTC-USD), and discovered Stooq was dead and dropped it with graceful degrade — applying the project's own decode-protocol-from-har-before-implement memory to a price API.",
-    "The /loop design-review bracket fired correctly and was independent (foreground heavy-reasoner), returning GO-with-2-changes, and BOTH changes were honored in the final diff: the rAF right-edge geometry coupling was replaced with a CSS marquee + per-symbol 20s TTL cache refreshed on animationiteration (diff lines 209-215, 451-454), and topics were quality-gated to >=2 distinct authors + stoplist + ranked below tickers/people (diff line 16).",
-    "Both code-review should-fix items were actually applied, not waved off: the repeat cap landed as Math.min(8, Math.max(1, ...)) (diff line 330) and the changePct divide-by-zero guard landed as prev != null && prev !== 0 (diff line 537).",
-    "Tests genuinely ran and re-ran — npx vitest run was invoked multiple times including a re-verify after the should-fix changes, with the new pure module lib/trending.js carrying 18 unit tests including an adversarial near-positive ('does NOT surface a word repeated by a single author', diff line 1055) and the full 462-test suite green.",
-    "Extraction logic was isolated in a pure, side-effect-free module (lib/trending.js) away from the DOM/marquee, so the trending-detection rules are independently unit-testable — the design-review's testability requirement was structurally satisfied, not just asserted.",
-    "The agent self-applied the ui-affordance-needs-live-eyes memory the design review cited (every geometry decision = a correction round) by choosing a deterministic CSS-marquee + TTL approach over a live-only-verifiable rAF approach — pre-empting the exact correction-round tail that bit prior BetterSSC UI features."
+    "Design/architecture was scoped before any code: the per-viewer (not per-poster) constraint, the local-only/never-shared-back invariant, and the optional_host_permissions-on-user-gesture permission model were all reasoned out and stated up front, honoring the project's decode-protocol/design-before-implement discipline (transcript design block + lib/unfurl.js header comments).",
+    "Threat model was understood and documented: attacker-controlled og:* strings, textContent-only rendering, cookieless fetch (credentials:'omit'), no-referrer images, byte/field-length caps, negative caching of dead links. The textContent XSS invariant held as written.",
+    "Pure logic was extracted into a node-testable lib/unfurl.js (string-in/data-out), enabling a strong unit suite without a DOM — 500 tests green (up from 469), including adversarial cases (script-bearing og:title verbatim, entity-encoded payload, javascript: image rejected, byte-cap cutoff).",
+    "The trending tune was designed as a safe, opt-in, one-line-revert change: DEFAULT_RECENCY_ALPHA=1.0 reproduces the old pure-recency ranking exactly, so callers that don't pass recencyAlpha are unchanged; the new behavior is gated behind the app.js call-site value, with a test asserting default==alpha-1 equivalence.",
+    "The per-author frequency cap was added with explicit anti-spam tests (one author 6x capped to 3; 5 distinct authors accumulate to 5; author-less occurrences pooled into one capped bucket) — the spam vector was considered and pinned, not assumed.",
+    "Mandatory code review ran before push, returned 0 critical / 3 should-fix / 1 nit, and ALL 3 should-fixes were folded in one pass WITH adversarial tests; the verdict + caught findings were written into the commit body per the persist-review-outcomes rule.",
+    "Permission lifecycle handled correctly: chrome.permissions.request kept synchronous inside the Save-click handler to preserve the user gesture, re-checked at boot via chrome.permissions.contains (revocation in chrome:// honored), and relinquished via chrome.permissions.remove on toggle-off."
   ],
-  "what_went_wrong": [],
+  "what_went_wrong": [
+    "Three security should-fixes on the new attacker-controlled-input surface were caught by the reviewer, not the author, despite the author having written the correct intent in comments: renderUnfurlCard's comment said the image is 'https-only (enforced in parseOgMetadata)' but resolveImageUrl had no scheme check until the fix; attr() matched a data-content shadow attribute (card-text spoof) until a negative-lookbehind was added; readCapped's streaming cap replaced an unbounded res.text() buffer. The comment claimed invariants the code did not yet enforce.",
+    "Two unrelated changes (the v0.7 link-preview feature and the trending recency/frequency tune) were committed as separate commits but shipped/reviewed in the same session/diff. Minor — they were cleanly separated into two commits, so this is a note, not a defect."
+  ],
   "three_whys": [
-    "Why 1 (why did this go right?): A 494-line feature with a new service-worker price-fetch message contract, a new live external API, and a scrolling-UI surface shipped clean — no user corrections, both reviews' findings applied, full 462-test suite green — because every high-risk decision was de-risked BEFORE code rather than discovered in a correction round.",
-    "Why 2 (why was each risk de-risked before code?): The agent ran the /loop building-iteration bracket as designed — an independent foreground design review on the riskiest decisions AND empirical Yahoo price-source verification, in parallel, before writing code, then an independent end-of-iteration code review on the diff — so the rAF geometry-coupling miss, the topic-noise miss, the divide-by-zero, and the dead Stooq source were all surfaced by independent reviewers ahead of (or at) commit instead of by the user.",
-    "Why 3 (why did the bracket actually run with its findings honored, instead of being honor-system-skipped?): The work was driven by a single, fully-specified /goal with a Stop hook holding the session to the directive, and the agent loaded the relevant project memories (decode-protocol-from-har-before-implement, ui-affordance-needs-live-eyes, feature-bundling-causes-styling-iteration-tail) up front — so the discipline that prior BetterSSC features learned the hard way (WS-protocol guessing, live-eyes UI iteration tails) was pre-loaded and applied on the first pass rather than re-learned."
+    "Why 1 (why did it ship clean despite a new security surface?): because the mandatory code-reviewer gate ran before push on a fresh adversarial pass and caught all three claimed-but-unenforced invariants, and every catch was folded with a test that fails without the enforcing line — so the gate, not the author's self-review, closed the gap.",
+    "Why 2 (why did the gate have something real to catch rather than rubber-stamping?): because the work was on a genuinely new, security-sensitive surface (cross-origin fetch of attacker-controlled pages) where the author's correct prose intent ('https-only', 'textContent-only') created an anchoring risk — a reader trusts the comment instead of re-verifying the line — so the independent reviewer reasoning from the code, not the comment, found the drift.",
+    "Why 3 (why was the author's prose-correct-but-code-incomplete state even possible?): because a security invariant stated in a comment is a SPEC, not a GATE — nothing executable failed when the enforcing line was absent, so the half-built enforcement passed the author's own happy-path tests and only an adversarial test (http-image-rejected, data-content-spoof) would have caught it at author time. That missing same-commit adversarial test is the durable lesson."
   ],
   "drift_checklist": [
     {
@@ -25,8 +29,15 @@
     },
     {
       "signal": "dismissed_review_findings",
-      "finding": "none",
-      "citations": []
+      "finding": "No findings dismissed. All 3 should-fixes were accepted and fixed with tests in one pass; the 1 nit was intentionally left because the reviewer advised it self-heals on the next poll, which is a reviewer-endorsed deferral, not a dismissal.",
+      "citations": [
+        {
+          "learning_id": "n/a",
+          "source_type": "transcript",
+          "source_ref": "4def077a-3a4a-43ac-9931-6688811a5cb8.jsonl",
+          "quote": "Three should-fixes, all valid. Fixing all three (the nit self-heals on next poll — reviewer said leave it)."
+        }
+      ]
     },
     {
       "signal": "tests_skipped_or_unrun",
@@ -39,7 +50,59 @@
       "citations": []
     }
   ],
-  "learnings_written": [],
-  "clean_ship": true,
-  "note": "Independent general-purpose retro agent, no shared context. Clean ship: 0 learnings, all 4 drift signals none. Both code-review should-fix items (repeats cap, changePct prev!==0 guard) verified applied in diff. Stamped directly (betterssc has no scripts/retro-receipt.ts). Re-stamped to HEAD: 3 follow-up commits (hover-halt fix, 2h-window tuning, docs+timer-cleanup) all retro-auto-skip-eligible and pre-push reviewed (0 critical)."
+  "learnings_written": [
+    {
+      "name": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "type": "feedback",
+      "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/comment-claimed-invariant-still-needs-the-enforcing-line.md"
+    }
+  ],
+  "evidence_citations": [
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "diff",
+      "source_ref": "app.js renderUnfurlCard comment (~line 301)",
+      "quote": "The image is https-only (enforced in parseOgMetadata) and loaded with no referrer + lazily."
+    },
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "diff",
+      "source_ref": "lib/unfurl.js resolveImageUrl (~line 915)",
+      "quote": "if (!/^https:\\/\\//i.test(resolved)) return null;"
+    },
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "diff",
+      "source_ref": "lib/unfurl.js attr() (~line 887-891)",
+      "quote": "// a hostile\n  // page could otherwise put `data-content=\"Fake\"` before the real `content=`\n  // to spoof the card text."
+    },
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "diff",
+      "source_ref": "test/unfurl.test.mjs (~line 1280)",
+      "quote": "it(\"is not spoofed by a data-content shadow attribute before content\", ..."
+    },
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "diff",
+      "source_ref": ".review/last-verdict.json",
+      "quote": "3 should-fix findings including an invariant violation (https-only for og:image) and an attr() parsing bug that enables card content spoofing; feature is new security-sensitive surface"
+    },
+    {
+      "learning_id": "comment-claimed-invariant-still-needs-the-enforcing-line",
+      "source_type": "transcript",
+      "source_ref": "4def077a-3a4a-43ac-9931-6688811a5cb8.jsonl",
+      "quote": "Fix 2 — resolveImageUrl https-only (matches the comment + invariant; http images would be mixed-content-blocked anyway)"
+    }
+  ],
+  "action_items": [
+    {
+      "title": "For attacker-controlled-input surfaces, pair each invariant comment with an enforcing line + same-commit adversarial test",
+      "scope": "project",
+      "description": "When v0.7+ adds any code that fetches/parses attacker-controlled external content (the unfurl path is the first such surface in BetterSSC), require for every security invariant stated in a comment: (a) the enforcing line in the same commit, (b) >=1 adversarial test that fails if that line is removed. The unfurl.test.mjs http-image-rejected + data-content-spoof tests are the model. Apply to any future expansion of the unfurl feature (e.g. allowlisting hosts, image proxying) so the reviewer isn't the first line of security enforcement.",
+      "source_learning": "comment-claimed-invariant-still-needs-the-enforcing-line"
+    }
+  ],
+  "memory_md_changes": [],
+  "claude_md_changes": []
 }
