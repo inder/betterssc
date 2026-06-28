@@ -128,25 +128,27 @@ describe("escaped truncation never splits an HTML entity", () => {
 
 describe("shouldForward", () => {
   it("forwards a fresh non-pending comment", () => {
-    expect(shouldForward(comment(), new Set(), 99)).toBe(true);
+    expect(shouldForward(comment(), new Set())).toBe(true);
   });
   it("skips pending optimistic rows", () => {
-    expect(shouldForward(comment({ _pending: true }), new Set(), 99)).toBe(false);
+    expect(shouldForward(comment({ _pending: true }), new Set())).toBe(false);
   });
   it("skips already-sent ids (idempotency)", () => {
-    expect(shouldForward(comment({ id: "c1" }), new Set(["c1"]), 99)).toBe(false);
+    expect(shouldForward(comment({ id: "c1" }), new Set(["c1"]))).toBe(false);
   });
-  it("skips own messages when self id is known", () => {
-    expect(shouldForward(comment({ author: { id: 7 } }), new Set(), 7)).toBe(false);
-    expect(shouldForward(comment({ author: { id: 7 } }), new Set(), "7")).toBe(false);
+  it("FORWARDS your own messages — the bridge mirrors the whole feed (no author skip)", () => {
+    // Regression guard for the v0.9.0 "no messages from Substack" bug: a solo
+    // user posting as themselves must still see their messages in Telegram.
+    expect(shouldForward(comment({ author: { id: 7 } }), new Set())).toBe(true);
   });
-  it("does NOT skip on authorship when self id is unknown (fail toward forwarding)", () => {
-    expect(shouldForward(comment({ author: { id: 7 } }), new Set(), null)).toBe(true);
-    expect(shouldForward(comment({ author: { id: 7 } }), new Set(), undefined)).toBe(true);
+  it("prevents echo of a Telegram-originated message via sentIds (not author)", () => {
+    // A post-back pre-claims its comment id in sentIds before it lands.
+    const postedBack = comment({ id: "pb1", author: { id: 7 } });
+    expect(shouldForward(postedBack, new Set(["pb1"]))).toBe(false);
   });
   it("rejects malformed comments", () => {
-    expect(shouldForward(null, new Set(), 1)).toBe(false);
-    expect(shouldForward({ body: "x" }, new Set(), 1)).toBe(false);
+    expect(shouldForward(null, new Set())).toBe(false);
+    expect(shouldForward({ body: "x" }, new Set())).toBe(false);
   });
 });
 
