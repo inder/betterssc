@@ -10,6 +10,7 @@ import {
   nextOffset,
   mapTelegramReaction,
   textForPostBack,
+  sessionBannerText,
 } from "../lib/telegram.js";
 
 const comment = (over = {}) => ({
@@ -171,6 +172,15 @@ describe("parseGetUpdates / nextOffset", () => {
   it("nextOffset = max update_id + 1, keeps offset on an empty poll", () => {
     expect(nextOffset(parseGetUpdates({ result: [] }), 100)).toBe(100);
     expect(nextOffset([{ updateId: 10 }, { updateId: 12 }, { updateId: 11 }], 0)).toBe(13);
+  });
+});
+
+describe("sessionBannerText", () => {
+  it("renders a bold dated banner", () => {
+    expect(sessionBannerText("June 28, 2026")).toBe("<b>—— Start of Substack chat · June 28, 2026 ——</b>");
+  });
+  it("escapes the date string defensively", () => {
+    expect(sessionBannerText("<b>x</b>")).toBe("<b>—— Start of Substack chat · &lt;b&gt;x&lt;/b&gt; ——</b>");
   });
 });
 

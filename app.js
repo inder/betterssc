@@ -608,7 +608,7 @@ function toggleTelegramStreaming() {
     telegramBridge.disableStreaming();
     t.streaming = false;
   } else {
-    telegramBridge.enableStreaming();
+    telegramBridge.enableStreaming(true); // announce: post the session banner
     t.streaming = true;
   }
   saveTelegramConfig();
