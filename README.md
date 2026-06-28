@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.7.0)
+## What it does (v0.9.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
@@ -125,6 +125,17 @@ Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights
 ### Live updates
 
 Polling once every 12 seconds, which is the same thing Substack's own native client does. The status pill in the header shows you what's live: 🟢 live poll or 🟢 ws on. WebSocket support is on the roadmap, polling handles things in the meantime.
+
+### ✈ Telegram bridge (stream the chat to a bot)
+
+Stream the live Substack Chat feed to your own Telegram bot — read it, post to it, and react from your phone — without leaving Telegram.
+
+- **Set it up in ~1 minute.** Create a bot with [@BotFather](https://t.me/BotFather) and copy its token. In BetterSSC, click the **✈** button in the header, paste the token (validated via `getMe`), then send your bot any message in Telegram so it can reach you (a bot can't message you until you message it first). BetterSSC captures the chat automatically — then hit **Start streaming**.
+- **Stream (read):** every new chat message appears in your Telegram chat with a **bold author header** (the bot is the nominal sender, so the original author rides in the text). Images forward as photos; other attachments get a `📎` marker.
+- **Post back:** type a message to the bot and it posts to the Substack thread **as you**. (Messages starting with `/` are treated as bot commands and not posted.)
+- **React back:** react to a streamed message in Telegram and the closest Substack reaction lands on the matching comment. Unmapped reactions are skipped, never guessed.
+- **Runs only while the BetterSSC tab is open** — no server, no always-on background process. The bot token lives only in `chrome.storage` and is never logged. Latency is ~12s with the tab active (longer when the tab is hidden, due to browser timer throttling).
+- **Not supported (yet):** replies/threading, AI features in Telegram, operation while Chrome is closed, sending media *from* Telegram, and multiple threads. Reaction changes/removals are lossy.
 
 ### Sending (when you do want to write)
 

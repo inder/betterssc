@@ -4,6 +4,17 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-27
+
+### Added — ✈ Telegram bridge (stream Substack Chat to a Telegram bot)
+- **Stream the live chat feed to your own Telegram bot, and post + react back from Telegram.** Click the new ✈ button in the header, paste a bot token from [@BotFather](https://t.me/BotFather), message your bot once (so it can reach you), and toggle streaming on. New chat messages then appear in your Telegram chat, each with a **bold author header** (the bot is the nominal sender, so the original author is carried in the text). Inline **images** forward as photos (`sendPhoto`, with a text+link fallback if Telegram can't fetch the URL); non-image attachments get a `📎 [attachment]` marker.
+- **Post back:** type a message to the bot in Telegram and it posts to the Substack thread **as you** (via the existing logged-in tab-proxy). `/`-prefixed bot commands (e.g. `/start`) are not posted.
+- **React back:** react to a streamed message in Telegram and the closest Substack reaction is applied to the matching comment. The emoji→reaction map is grounded by reverse-indexing the real reaction catalog; an unmapped reaction is skipped rather than guessed.
+- **Bridge runs only while the BetterSSC tab is open** (no server, no always-on). The bot token is stored locally in `chrome.storage` and never logged; it does, unavoidably, appear in the `api.telegram.org/bot<token>/…` request URL (Telegram's API design). New `https://api.telegram.org/*` host permission.
+- **Architecture:** pure logic in `lib/telegram.js` (formatting, HTML-escaping with entity-safe truncation, forward decision, getUpdates parsing, reaction mapping — 34 unit tests); IO/control in `lib/telegram-bridge.js` (api.telegram.org calls, serialized send queue, getUpdates poll with chat-id capture, echo-loop prevention, reentrancy guard). 563 tests passing.
+- **Reviews:** independent design review (caught an echo-race — a posted-back message could loop back to Telegram — fixed by pre-claiming the comment id before the post) + independent code review on each slice (escaped-output truncation holes and a silent post-failure both fixed, with adversarial truncation fixtures added).
+- **Not yet supported:** replies/threading; AI features in Telegram; operation while Chrome is closed; sending media *from* Telegram; multiple threads. Reaction *removal* and reaction *changes* are lossy (a changed reaction leaves both on Substack); reactions only map for messages sent since the tab last loaded.
+
 ## [0.8.0] — 2026-06-23
 
 ### Added — 📊 Inline ticker charts on search
