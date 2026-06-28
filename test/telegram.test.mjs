@@ -11,7 +11,6 @@ import {
   mapTelegramReaction,
   textForPostBack,
   sessionBannerText,
-  replyTargetId,
   quotePreview,
 } from "../lib/telegram.js";
 
@@ -177,18 +176,6 @@ describe("parseGetUpdates / nextOffset", () => {
   });
 });
 
-describe("replyTargetId", () => {
-  it("prefers quote.id, then quote_id, then parent_id", () => {
-    expect(replyTargetId(comment({ quote: { id: "q1" }, quote_id: "q2", parent_id: "p3" }))).toBe("q1");
-    expect(replyTargetId(comment({ quote_id: "q2", parent_id: "p3" }))).toBe("q2");
-    expect(replyTargetId(comment({ parent_id: "p3" }))).toBe("p3");
-  });
-  it("is null for a non-reply", () => {
-    expect(replyTargetId(comment())).toBe(null);
-    expect(replyTargetId(null)).toBe(null);
-  });
-});
-
 describe("quotePreview", () => {
   it("extracts author name + body from comment.quote", () => {
     expect(quotePreview(comment({ quote: { id: "q", body: "the AMZN take", author: { name: "Fiona" } } }))).toEqual({
@@ -217,7 +204,7 @@ describe("formatMessageForTelegram — quote blockquote (includeQuote)", () => {
       "<blockquote><b>Fiona</b>\nAMZN Amazon — record volume.</blockquote>\n<b>TDV2020</b>\nI am surprised Trendspider missed the rebalance."
     );
   });
-  it("omits the blockquote when includeQuote is false (native reply will carry it)", () => {
+  it("omits the blockquote when includeQuote is false", () => {
     const { text } = formatMessageForTelegram(reply, { includeQuote: false });
     expect(text).not.toContain("<blockquote>");
     expect(text).toBe("<b>TDV2020</b>\nI am surprised Trendspider missed the rebalance.");
