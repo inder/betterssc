@@ -15,6 +15,7 @@
     "https://*.substack.com/*",
     "https://*.s3.amazonaws.com/*",
     "https://substackcdn.com/*",
+    "https://api.telegram.org/*",
     "https://query1.finance.yahoo.com/*",
     "https://query2.finance.yahoo.com/*",
     "https://api.openai.com/*",

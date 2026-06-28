@@ -45,6 +45,7 @@ import {
   incrementUnreadMentions,
 } from "./lib/notify.js";
 import { reactionEmojiFor } from "./lib/emojis.js";
+import { createTelegramBridge } from "./lib/telegram-bridge.js";
 import {
   PROVIDERS,
   callProvider,
@@ -139,6 +140,10 @@ const state = {
   postUuid: null,
   targetReplyId: null,
   user: null, // {id, name, handle} from _analyticsConfig (via background)
+  // Telegram bridge (v0.9) — mirror of the persisted bridge config. The live
+  // controller lives in telegramBridge (lib/telegram-bridge.js); this is what
+  // we save to / restore from chrome.storage. streaming defaults OFF.
+  telegram: { token: null, chatId: null, streaming: false, bot: null },
   publication: null, // /api/v1/publication/public/<id> response
   comments: new Map(), // id → comment
   order: [], // ordered list of comment ids, oldest → newest
@@ -335,6 +340,252 @@ function startPollingFallback() {
   // First poll fires after one interval — initial load already covers t=0.
 }
 
+// ── Telegram bridge (v0.9) ───────────────────────────────────────────────────
+// Streams the Substack chat feed to a user-configured Telegram bot. Pure logic
+// is in lib/telegram.js; the IO/control loop is in lib/telegram-bridge.js. This
+// app-side glue owns persistence, the header button, and the config modal.
+const telegramBridge = createTelegramBridge({
+  getCurrentCommentIds: () => state.order,
+  getSelfId: () =>
+    state.user && state.user.id != null ? state.user.id : null,
+  onChatIdCaptured: (chatId) => {
+    state.telegram.chatId = chatId;
+    saveTelegramConfig();
+    renderTelegramButton();
+    refreshTelegramModal();
+  },
+  onProbeEvent: null,
+  log: console.log,
+});
+
+function saveTelegramConfig() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_telegram_bot_token: state.telegram.token || "",
+        bssc_telegram_chat_id: state.telegram.chatId,
+        bssc_telegram_streaming: !!state.telegram.streaming,
+      });
+  } catch (_) {}
+}
+
+// Restore from the boot storage payload. Starts the inbound poll if a token
+// exists (so chat-id capture + the live probe always work) and re-applies the
+// persisted streaming flag.
+function restoreTelegramFromStorage(res) {
+  if (!res) return;
+  const token =
+    typeof res.bssc_telegram_bot_token === "string" && res.bssc_telegram_bot_token
+      ? res.bssc_telegram_bot_token
+      : null;
+  const chatId =
+    res.bssc_telegram_chat_id != null ? res.bssc_telegram_chat_id : null;
+  const streaming = !!res.bssc_telegram_streaming;
+  state.telegram.token = token;
+  state.telegram.chatId = chatId;
+  state.telegram.streaming = streaming && !!token && chatId != null;
+  telegramBridge.setConfig({
+    token,
+    chatId,
+    streaming: state.telegram.streaming,
+  });
+  if (token) telegramBridge.startPoll();
+  if (state.telegram.streaming) telegramBridge.enableStreaming();
+  renderTelegramButton();
+}
+
+// Header button reflects three states: not-configured (grey), configured-but-
+// off, and streaming-on (active).
+function renderTelegramButton() {
+  const btn = document.getElementById("telegramBtn");
+  if (!btn) return;
+  const t = state.telegram;
+  const configured = !!t.token && t.chatId != null;
+  btn.classList.toggle("tg-on", configured && !!t.streaming);
+  btn.classList.toggle("tg-configured", configured);
+  btn.textContent = "✈";
+  btn.title = !t.token
+    ? "Telegram: connect a bot to stream the chat"
+    : t.chatId == null
+    ? "Telegram: bot connected — message it to finish setup"
+    : t.streaming
+    ? "Telegram: streaming ON (click to manage)"
+    : "Telegram: streaming OFF (click to manage)";
+}
+
+// Click handler: opens the config/manage modal.
+function onTelegramButtonClick() {
+  openTelegramConfig();
+}
+
+let _tgModalEl = null;
+function refreshTelegramModal() {
+  if (_tgModalEl && document.body.contains(_tgModalEl)) {
+    const body = _tgModalEl.querySelector(".tg-modal-body");
+    if (body) renderTelegramModalBody(body);
+  }
+}
+
+function openTelegramConfig() {
+  if (_tgModalEl) closeTelegramConfig();
+  const backdrop = document.createElement("div");
+  backdrop.className = "tg-backdrop";
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) closeTelegramConfig();
+  });
+  const modal = document.createElement("div");
+  modal.className = "tg-modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-label", "Telegram bridge settings");
+  const header = document.createElement("div");
+  header.className = "tg-modal-head";
+  header.innerHTML = "<span>✈ Telegram bridge</span>";
+  const close = document.createElement("button");
+  close.className = "tg-modal-close";
+  close.textContent = "✕";
+  close.title = "Close";
+  close.addEventListener("click", closeTelegramConfig);
+  header.appendChild(close);
+  const body = document.createElement("div");
+  body.className = "tg-modal-body";
+  modal.appendChild(header);
+  modal.appendChild(body);
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+  _tgModalEl = backdrop;
+  renderTelegramModalBody(body);
+}
+
+function closeTelegramConfig() {
+  if (_tgModalEl && _tgModalEl.parentNode) _tgModalEl.parentNode.removeChild(_tgModalEl);
+  _tgModalEl = null;
+}
+
+function renderTelegramModalBody(body) {
+  const t = state.telegram;
+  body.innerHTML = "";
+  const note = (txt, cls) => {
+    const p = document.createElement("p");
+    p.className = "tg-note" + (cls ? " " + cls : "");
+    p.textContent = txt;
+    return p;
+  };
+
+  if (!t.token) {
+    // Step 1 — token entry.
+    body.appendChild(
+      note(
+        "Create a bot with @BotFather in Telegram, copy the token it gives you, and paste it here. The token is stored locally and never leaves your browser except to call Telegram."
+      )
+    );
+    const input = document.createElement("input");
+    input.type = "password";
+    input.className = "tg-input";
+    input.placeholder = "123456789:ABCdef…  (bot token)";
+    input.autocomplete = "off";
+    const status = note("", "tg-status");
+    const connect = document.createElement("button");
+    connect.className = "tg-btn-primary";
+    connect.textContent = "Connect";
+    connect.addEventListener("click", async () => {
+      const token = input.value.trim();
+      if (!token) {
+        status.textContent = "Paste a bot token first.";
+        return;
+      }
+      connect.disabled = true;
+      status.textContent = "Validating…";
+      try {
+        const me = await telegramBridge.validateToken(token);
+        state.telegram.token = token;
+        state.telegram.bot = me && me.username ? "@" + me.username : null;
+        telegramBridge.setConfig({ token });
+        saveTelegramConfig();
+        telegramBridge.startPoll();
+        renderTelegramButton();
+        renderTelegramModalBody(body);
+      } catch (e) {
+        connect.disabled = false;
+        status.textContent =
+          "Invalid token — " + ((e && e.message) || "could not reach Telegram") + ".";
+      }
+    });
+    body.appendChild(input);
+    body.appendChild(connect);
+    body.appendChild(status);
+    return;
+  }
+
+  // Token is set.
+  body.appendChild(
+    note("Connected bot: " + (t.bot || "(unknown)"), "tg-ok")
+  );
+
+  if (t.chatId == null) {
+    // Step 2 — capture chat id. A bot cannot message you until you message it.
+    body.appendChild(
+      note(
+        "Almost there. Open Telegram, find " +
+          (t.bot || "your bot") +
+          ", and send it any message (e.g. /start). This page is listening and will capture the chat automatically — watch this dialog."
+      )
+    );
+    const waiting = note("Waiting for your message to the bot…", "tg-status");
+    body.appendChild(waiting);
+  } else {
+    // Step 3 — manage streaming.
+    body.appendChild(note("Chat linked. Ready to stream.", "tg-ok"));
+    const toggle = document.createElement("button");
+    toggle.className = t.streaming ? "tg-btn-danger" : "tg-btn-primary";
+    toggle.textContent = t.streaming ? "Stop streaming" : "Start streaming";
+    toggle.addEventListener("click", () => {
+      toggleTelegramStreaming();
+      renderTelegramModalBody(body);
+    });
+    body.appendChild(toggle);
+    body.appendChild(
+      note(
+        t.streaming
+          ? "New chat messages are being forwarded to your Telegram. Streaming runs only while this tab is open."
+          : "Streaming is off. Turn it on to forward new chat messages to Telegram."
+      )
+    );
+  }
+
+  // Disconnect option (always available once a token is set).
+  const disconnect = document.createElement("button");
+  disconnect.className = "tg-btn-text";
+  disconnect.textContent = "Disconnect bot";
+  disconnect.addEventListener("click", () => {
+    // Full teardown — clears the bridge's per-bot offset/sentIds so reconnecting
+    // a different bot doesn't reuse stale state.
+    telegramBridge.reset();
+    state.telegram = { token: null, chatId: null, streaming: false, bot: null };
+    saveTelegramConfig();
+    renderTelegramButton();
+    renderTelegramModalBody(body);
+  });
+  body.appendChild(disconnect);
+}
+
+function toggleTelegramStreaming() {
+  const t = state.telegram;
+  if (!t.token || t.chatId == null) {
+    openTelegramConfig();
+    return;
+  }
+  if (t.streaming) {
+    telegramBridge.disableStreaming();
+    t.streaming = false;
+  } else {
+    telegramBridge.enableStreaming();
+    t.streaming = true;
+  }
+  saveTelegramConfig();
+  renderTelegramButton();
+}
+
 // "User is away" — fires alerts when EITHER the tab is hidden in its own
 // window OR the window/app is not focused. document.hidden alone misses
 // the case where you switched to another browser window or another app
@@ -389,6 +640,10 @@ async function pollNewMessages() {
     const added = state.comments.size - before;
     if (added > 0) {
       renderAll();
+      // Forward new messages to Telegram if streaming is on. Fire-and-forget
+      // (it only enqueues) so Telegram latency never stalls the poll loop —
+      // _pollInflight must reset promptly in finally.
+      telegramBridge.forwardNewMessages(newlyAdded);
       incrementUnreadWhileHidden(added);
       // For each new comment pick at most ONE alert in priority order:
       // reply-to-me → watched-user. (@mentions fire separately from
@@ -3332,6 +3587,9 @@ function restoreWatchedUsers() {
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
         "bssc_giphy_api_key",
+        "bssc_telegram_bot_token",
+        "bssc_telegram_chat_id",
+        "bssc_telegram_streaming",
       ],
       (res) => {
         if (!res) return;
@@ -3381,6 +3639,7 @@ function restoreWatchedUsers() {
         if (typeof res.bssc_giphy_api_key === "string" && res.bssc_giphy_api_key) {
           state.giphyApiKey = res.bssc_giphy_api_key;
         }
+        restoreTelegramFromStorage(res);
       }
     );
   } catch (_) {}
@@ -7128,6 +7387,13 @@ function bindEventHandlers() {
   const focusBtn = document.getElementById("focusBtn");
   if (focusBtn) {
     focusBtn.addEventListener("click", openFocusDialog);
+  }
+
+  // ✈ Telegram bridge button — opens the connect/manage modal.
+  const telegramBtn = document.getElementById("telegramBtn");
+  if (telegramBtn) {
+    telegramBtn.addEventListener("click", onTelegramButtonClick);
+    renderTelegramButton();
   }
 
   // Click anywhere on the header-left (pub avatar + name) expands the

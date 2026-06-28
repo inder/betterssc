@@ -3417,3 +3417,121 @@ button {
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
 }
+
+/* ── Telegram bridge (v0.9) ─────────────────────────────────────────────── */
+.tg-btn.tg-configured {
+  color: #229ED9; /* Telegram blue */
+}
+.tg-btn.tg-on {
+  color: #fff;
+  background: #229ED9;
+  border-color: #229ED9;
+}
+.tg-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9000;
+}
+.tg-modal {
+  width: min(440px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.tg-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.tg-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+.tg-modal-close:hover {
+  color: var(--text-primary);
+}
+.tg-modal-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tg-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.tg-note.tg-ok {
+  color: #1a9b5b;
+  font-weight: 600;
+}
+.tg-note.tg-status {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.tg-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+.tg-btn-primary,
+.tg-btn-danger {
+  align-self: flex-start;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #fff;
+}
+.tg-btn-primary {
+  background: #229ED9;
+}
+.tg-btn-primary:hover {
+  background: #1b87ba;
+}
+.tg-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.tg-btn-danger {
+  background: #c0392b;
+}
+.tg-btn-danger:hover {
+  background: #a83224;
+}
+.tg-btn-text {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 2px 0;
+}
+.tg-btn-text:hover {
+  color: #c0392b;
+}
