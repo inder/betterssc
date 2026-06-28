@@ -11,6 +11,8 @@ import {
   mapTelegramReaction,
   textForPostBack,
   sessionBannerText,
+  replyTargetId,
+  quotePreview,
 } from "../lib/telegram.js";
 
 const comment = (over = {}) => ({
@@ -172,6 +174,64 @@ describe("parseGetUpdates / nextOffset", () => {
   it("nextOffset = max update_id + 1, keeps offset on an empty poll", () => {
     expect(nextOffset(parseGetUpdates({ result: [] }), 100)).toBe(100);
     expect(nextOffset([{ updateId: 10 }, { updateId: 12 }, { updateId: 11 }], 0)).toBe(13);
+  });
+});
+
+describe("replyTargetId", () => {
+  it("prefers quote.id, then quote_id, then parent_id", () => {
+    expect(replyTargetId(comment({ quote: { id: "q1" }, quote_id: "q2", parent_id: "p3" }))).toBe("q1");
+    expect(replyTargetId(comment({ quote_id: "q2", parent_id: "p3" }))).toBe("q2");
+    expect(replyTargetId(comment({ parent_id: "p3" }))).toBe("p3");
+  });
+  it("is null for a non-reply", () => {
+    expect(replyTargetId(comment())).toBe(null);
+    expect(replyTargetId(null)).toBe(null);
+  });
+});
+
+describe("quotePreview", () => {
+  it("extracts author name + body from comment.quote", () => {
+    expect(quotePreview(comment({ quote: { id: "q", body: "the AMZN take", author: { name: "Fiona" } } }))).toEqual({
+      author: "Fiona",
+      body: "the AMZN take",
+    });
+  });
+  it("falls back to 'Reply' when the quote has no author name", () => {
+    expect(quotePreview(comment({ quote: { body: "x" } }))).toEqual({ author: "Reply", body: "x" });
+  });
+  it("is null when there is no quote", () => {
+    expect(quotePreview(comment())).toBe(null);
+    expect(quotePreview(comment({ quote: {} }))).toBe(null);
+  });
+});
+
+describe("formatMessageForTelegram — quote blockquote (includeQuote)", () => {
+  const reply = comment({
+    author: { id: 9, name: "TDV2020" },
+    body: "I am surprised Trendspider missed the rebalance.",
+    quote: { id: "fq", body: "AMZN Amazon — record volume.", author: { name: "Fiona" } },
+  });
+  it("prepends an escaped <blockquote> when includeQuote is true", () => {
+    const { text } = formatMessageForTelegram(reply, { includeQuote: true });
+    expect(text).toBe(
+      "<blockquote><b>Fiona</b>\nAMZN Amazon — record volume.</blockquote>\n<b>TDV2020</b>\nI am surprised Trendspider missed the rebalance."
+    );
+  });
+  it("omits the blockquote when includeQuote is false (native reply will carry it)", () => {
+    const { text } = formatMessageForTelegram(reply, { includeQuote: false });
+    expect(text).not.toContain("<blockquote>");
+    expect(text).toBe("<b>TDV2020</b>\nI am surprised Trendspider missed the rebalance.");
+  });
+  it("default (no opts) omits the blockquote", () => {
+    expect(formatMessageForTelegram(reply).text).not.toContain("<blockquote>");
+  });
+  it("stays under 4096 and entity-safe with a huge quoted body", () => {
+    const big = formatMessageForTelegram(
+      comment({ body: "z".repeat(5000), quote: { id: "q", body: "&".repeat(5000), author: { name: "A" } } }),
+      { includeQuote: true }
+    );
+    expect(big.text.length).toBeLessThanOrEqual(4096);
+    expect(hasPartialEntity(big.text)).toBe(false);
   });
 });
 
