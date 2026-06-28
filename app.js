@@ -356,7 +356,36 @@ const telegramBridge = createTelegramBridge({
   },
   onProbeEvent: null,
   log: console.log,
+  // Write-back (slices 5-6). Substack honors the client-chosen id as the comment
+  // id, so the bridge generates it and pre-claims it in sentIds before posting.
+  makeClientId: () => composerUuid(),
+  postSubstackMessage: postSubstackFromTelegram,
+  addSubstackReaction: addSubstackReactionFromTelegram,
 });
+
+// Post a Telegram-originated message to the Substack thread, as the logged-in
+// user (via the tab-proxy). Returns the comment id (== clientId, honored by
+// Substack) or null. Reconciles into the overlay immediately when possible so
+// the message shows without waiting for the next poll.
+async function postSubstackFromTelegram(text, clientId) {
+  if (!state.postUuid || !state.user) return null;
+  const { body, mentions } = buildCommentBody(text, {});
+  if (!body) return null;
+  const res = await apiPostComment(state.postUuid, { id: clientId, body, mentions });
+  try {
+    const freshly = extractFreshComment(res, clientId, state.user);
+    if (freshly) {
+      reconcilePending({ comments: state.comments, order: state.order }, freshly);
+      renderAll();
+    }
+  } catch (_) {}
+  return clientId;
+}
+
+// Add a Telegram-originated reaction to a Substack comment.
+async function addSubstackReactionFromTelegram(commentId, reactionName) {
+  await apiPostReaction(commentId, reactionName);
+}
 
 function saveTelegramConfig() {
   try {

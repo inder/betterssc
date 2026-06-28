@@ -9,6 +9,7 @@ import {
   parseGetUpdates,
   nextOffset,
   mapTelegramReaction,
+  textForPostBack,
 } from "../lib/telegram.js";
 
 const comment = (over = {}) => ({
@@ -168,6 +169,25 @@ describe("parseGetUpdates / nextOffset", () => {
   it("nextOffset = max update_id + 1, keeps offset on an empty poll", () => {
     expect(nextOffset(parseGetUpdates({ result: [] }), 100)).toBe(100);
     expect(nextOffset([{ updateId: 10 }, { updateId: 12 }, { updateId: 11 }], 0)).toBe(13);
+  });
+});
+
+describe("textForPostBack", () => {
+  it("returns trimmed text for a normal message", () => {
+    expect(textForPostBack("  hello world  ")).toBe("hello world");
+  });
+  it("skips empty / whitespace-only", () => {
+    expect(textForPostBack("")).toBe(null);
+    expect(textForPostBack("   ")).toBe(null);
+    expect(textForPostBack(null)).toBe(null);
+    expect(textForPostBack(undefined)).toBe(null);
+  });
+  it("skips slash commands (so /start never leaks into the Substack thread)", () => {
+    expect(textForPostBack("/start")).toBe(null);
+    expect(textForPostBack("  /help me")).toBe(null);
+  });
+  it("preserves a message that merely contains a slash", () => {
+    expect(textForPostBack("see a/b testing")).toBe("see a/b testing");
   });
 });
 
