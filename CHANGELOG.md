@@ -4,16 +4,18 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
-## [0.9.0] — 2026-06-27
+## [0.9.0] — 2026-06-28
 
 ### Added — ✈ Telegram bridge (stream Substack Chat to a Telegram bot)
 - **Stream the live chat feed to your own Telegram bot, and post + react back from Telegram.** Click the new ✈ button in the header, paste a bot token from [@BotFather](https://t.me/BotFather), message your bot once (so it can reach you), and toggle streaming on. New chat messages then appear in your Telegram chat, each with a **bold author header** (the bot is the nominal sender, so the original author is carried in the text). Inline **images** forward as photos (`sendPhoto`, with a text+link fallback if Telegram can't fetch the URL); non-image attachments get a `📎 [attachment]` marker.
 - **Post back:** type a message to the bot in Telegram and it posts to the Substack thread **as you** (via the existing logged-in tab-proxy). `/`-prefixed bot commands (e.g. `/start`) are not posted.
 - **React back:** react to a streamed message in Telegram and the closest Substack reaction is applied to the matching comment. The emoji→reaction map is grounded by reverse-indexing the real reaction catalog; an unmapped reaction is skipped rather than guessed.
+- **Reply context:** a forwarded reply carries the message it quotes as an inline `<blockquote>` (quoted author + snippet) above the reply, so reply chains stay legible. (Native Telegram replies were tried but dropped — the bot is the sender, so Telegram mislabeled the quote with the bot's name instead of the real author.)
+- **Session banner:** clicking *Start streaming* posts a one-time `—— Start of Substack chat · <date> ——` marker so the Telegram chat shows where a session's stream begins (toggle-only, not re-posted on reload).
 - **Bridge runs only while the BetterSSC tab is open** (no server, no always-on). The bot token is stored locally in `chrome.storage` and never logged; it does, unavoidably, appear in the `api.telegram.org/bot<token>/…` request URL (Telegram's API design). New `https://api.telegram.org/*` host permission.
-- **Architecture:** pure logic in `lib/telegram.js` (formatting, HTML-escaping with entity-safe truncation, forward decision, getUpdates parsing, reaction mapping — 34 unit tests); IO/control in `lib/telegram-bridge.js` (api.telegram.org calls, serialized send queue, getUpdates poll with chat-id capture, echo-loop prevention, reentrancy guard). 563 tests passing.
+- **Architecture:** pure logic in `lib/telegram.js` (formatting, HTML-escaping with entity-safe truncation, forward decision, getUpdates parsing, reaction mapping, quote/blockquote formatting — unit-tested); IO/control in `lib/telegram-bridge.js` (api.telegram.org calls, serialized send queue, getUpdates poll with chat-id capture, echo-loop prevention, reentrancy guard). 572 tests passing.
 - **Reviews:** independent design review (caught an echo-race — a posted-back message could loop back to Telegram — fixed by pre-claiming the comment id before the post) + independent code review on each slice (escaped-output truncation holes and a silent post-failure both fixed, with adversarial truncation fixtures added).
-- **Not yet supported:** replies/threading; AI features in Telegram; operation while Chrome is closed; sending media *from* Telegram; multiple threads. Reaction *removal* and reaction *changes* are lossy (a changed reaction leaves both on Substack); reactions only map for messages sent since the tab last loaded.
+- **Not yet supported:** *posting* threaded replies from Telegram (incoming reply context is shown via the inline quote, but a message you type in Telegram posts as a top-level comment); AI features in Telegram; operation while Chrome is closed; sending media *from* Telegram; multiple threads. Reaction *removal* and reaction *changes* are lossy (a changed reaction leaves both on Substack); reactions only map for messages sent since the tab last loaded.
 
 ## [0.8.0] — 2026-06-23
 

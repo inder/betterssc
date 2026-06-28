@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-529%2F529-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-572%2F572-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.8.0** (Jun 23, 2026) — 📊 **Inline ticker charts on search** (search a ticker — click a trending chip or type `$HPE` / `HPE DELL` — and a compact live TradingView mini-chart for each symbol pins to the top of the feed above the matching messages; click ⤢ for the full chart). Also 🧹 **trending-bar cleanup** (links and the filler word "like" no longer leak in as topic chips). Previous: **v0.7.1** — 🔗 **Link previews** (opt-in, local-only card with a page's title/description/site/thumbnail, fetched cookieless in your browser; X/Twitter links render as a tweet card). 529/529 tests passing.
+Latest release: **v0.9.0** (Jun 28, 2026) — ✈ **Telegram bridge** (stream the Substack Chat feed to your own Telegram bot, and post + react back from Telegram; replies carry their quoted message with correct author attribution). Previous: **v0.8.0** — 📊 **Inline ticker charts on search** (click a trending chip or type `$HPE` / `HPE DELL` for a compact live TradingView mini-chart per symbol) plus 🧹 **trending-bar cleanup**. 572/572 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
