@@ -4,6 +4,9 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Fixed — Dead Substack proxy tab surfaced Chrome's raw permission error
+- **Chat load / send / react could fail with `Failed to load chat: executeScript failed (tab closed?): Cannot access contents of the page. Extension manifest must request permission to access the respective host.`** when the Substack tab BetterSSC proxies API calls through had navigated away, closed, or gone to sleep in the background. Retries now exclude tab ids that already failed injection so a second open Substack tab gets picked instead of re-hitting the same dead one, falling back to the sole tab when it's the only candidate (so a single-tab transient failure still gets its retry). Final failure now shows an actionable message instead of the raw Chrome text. `lib/api.js`, 5 new regression tests (577/577 passing).
+
 ## [0.9.0] — 2026-06-28
 
 ### Added — ✈ Telegram bridge (stream Substack Chat to a Telegram bot)
