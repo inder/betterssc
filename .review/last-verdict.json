@@ -1,12 +1,12 @@
 {
-  "sha": "d855bf8c73648dc5fbee172f967288265b246e7c",
+  "sha": "4f7172043e1bbe8d62c5b0d7ecded56c83daeef2",
   "branch": "main",
-  "ts": "2026-06-30T21:02:59Z",
+  "ts": "2026-08-09T02:02:48Z",
   "verdict": "fix-these",
-  "retro_required": "yes",
-  "retro_reasoning": "Recurrence of the same user-visible bug class as memory entry telegram-mirror-no-self-skip (own messages absent from Telegram), different mechanism — worth banking.",
+  "retro_required": "no",
+  "retro_reasoning": "Sub-100-line inert scaffolding slice, no criticals, no schema change — loop docs cover the arc.",
   "critical_count": 0,
-  "should_fix_count": 1,
-  "nit_count": 2,
+  "should_fix_count": 2,
+  "nit_count": 3,
   "files_reviewed": 1
 }

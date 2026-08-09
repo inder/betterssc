@@ -1,90 +1,97 @@
 {
   "mode": "full",
-  "sha": "5059b1c373f7a62a7c2f16761092f0e9467517e6",
+  "sha": "c51edb0406f6b48dbd74ececb702bca2402340bc",
   "branch": "main",
-  "ts": "2026-06-24T00:00:00.000Z",
+  "ts": "2026-07-15T21:35:00.000Z",
   "what_went_right": [
-    "Mandatory code-reviewer ran before push and surfaced 3 Should-fixes (0 Critical); ALL three were folded in before the commit landed — none dismissed. The headline catch (the double-scroll burying the chart on the exact chip-click path the feature exists for) was a real behavioral bug invisible to the pure unit tests.",
-    "The new pure logic (extractQueryTickers in lib/trending.js) shipped with 16 dedicated tests covering the trending-chip bare-symbol case, $-cashtags, multi-token all-caps, lowercase-KNOWN-ticker, stray-capitalized-prose rejection, command/author filters, dedup, the 6-symbol cap (explicitly asserting the 7th is DROPPED not silently truncated), and empty/non-string input. Full suite 529/529 green, run before push.",
-    "Iframe lifecycle was designed for the right cost model up front: _chartPaneKey caches the (theme|symbols) signature so the heavy TradingView iframes rebuild ONLY when the symbol set or theme changes — never on the per-keystroke / per-poll applySearch re-renders that would otherwise flicker. The chartPane lives inside #stream but OUTSIDE #messages so renderMessages()'s rebuild never touches it, and the top-snap fires exactly once (chartJustShown) so polling never yanks the scroll.",
-    "The trending-noise fix was correctly defense-in-depth: URLs are stripped before topic extraction (URL_RE handles both scheme/www and bare host.tld forms) AND the scheme/host fragments were added to TOPIC_STOPWORDS as belt-and-suspenders, with 3 new tests proving https/www/com/host-words/bare-domains don't trend.",
-    "extractQueryTickers explicitly rejects slashless key:value commands (from:elon, has:image, since:3) via the /^\\w+:/ guard rather than relying on them happening to fail the downstream symbol checks — the reviewer's second Should-fix, fixed by making the doc-comment contract actually true."
+    "The two-step review (review-gatherer bundle -> independent code-reviewer verdict) caught a real regression in the FIRST draft before it ever landed on main: excluding the failed tab id could empty the candidate pool for the single-tab case, turning a recoverable transient failure into an immediate zero-retry error. .review/last-verdict.json confirms should_fix_count: 3, critical_count: 0 and the fix was folded into the same single commit (c51edb0) that shipped -- no follow-up fixup commit was needed, unlike this project's prior bg-prefetch saga which took 3 commits to fully land the equivalent class of fix.",
+    "proxyFetch and proxyFetchBinary both got the identical exclude-Set/attempts-loop treatment in the same commit -- no symmetric-fix miss of the kind this project's memory has repeatedly flagged (new-pre-step-in-send-path-must-propagate-to-retry-path, symmetric-invariant-fixes-must-touch-both-sides). The shared pool-fallback logic lives once, centrally, in findProxyTab, so both callers inherit the fix uniformly rather than needing two independent patches.",
+    "Tests were written for both directions of the regression, not just the original bug: 'falls through to a second open substack.com tab when the first fails injection' (multi-tab) AND 'retries the SAME tab on a transient failure when it's the only one open' (single-tab, the reviewer's regression catch). Full suite 577/577 green after the fix, verified independently in this retro.",
+    "The user-facing error message was upgraded from Chrome's raw, unactionable 'manifest must request permission' text to a message that tells the user exactly what to do (open/refresh https://substack.com/chat), with a dedicated test asserting the new copy, not just that SOME error is thrown."
   ],
   "what_went_wrong": [
-    "Three live UI-sizing corrections were needed post-first-cut: card stretched full-row -> capped, then 'still smaller, maybe 2/3rds size'; and the ⤢ expand icon overlapped TradingView's own top-right logo and had to be moved (now pinned bottom-right). The first cut did not front-load chart-card geometry / control-overlap despite this being a known recurring BetterSSC failure mode for UI the agent can't drive live.",
-    "Version state was discovered stale at commit time — package.json was at 0.6.0 while CHANGELOG/tags were at 0.7.1 — and had to be reconciled to 0.8.0 mid-ship. A lingering version-drift smell that surfaced as cleanup work rather than being caught earlier."
+    "This is literally iteration N+1 on the same lib/api.js proxy-tab surface: commit 114170a (2026-06-06) already shipped a fix for this exact live error message ('executeScript failed (tab closed?)...') via a bare retry. That retry only covered the narrow TOCTOU race window -- because chrome.tabs.query returns tabs in stable order, a persistently (not just transiently) dead tab would get reselected by the retry and fail again. The user hit the same raw error a second time 5+ weeks later, meaning the June 6 fix was incomplete for the common case it was supposed to solve, and that incompleteness was never caught until it recurred live.",
+    "The FIRST draft of the July 15 fix introduced a real regression of its own in the process of fixing the June 6 gap: excluding the failed tab unconditionally would empty the candidate pool and return zero retries for a user with exactly one Substack tab open (the majority deployment), which is worse than the pre-fix behavior for that exact case. This was caught by the independent reviewer, not by the work-agent's own reasoning before writing the code -- the same 'harden one path without auditing what happens to the degenerate/common case' shape this project's memory has now recorded four separate times across different features.",
+    "Test coverage is asymmetric between the two proxy functions: proxyFetch got 4 dedicated regression tests (multi-tab fallthrough, single-tab-still-retries, final actionable error, no-tab-open distinct message) but proxyFetchBinary got only 1 (multi-tab fallthrough). The single-tab-retry-still-works and final-actionable-error paths for proxyFetchBinary's own attempts-loop wrapper are exercised only indirectly (via the shared findProxyTab tests through the proxyFetch describe block), not directly for the binary path."
   ],
   "three_whys": [
-    "Why 1: The chip-click ticker search momentarily showed the chart then immediately scrolled it out of view (caught as a code-reviewer Should-fix, not in the live demo).",
-    "Why 2: applySearch was updated for the new ticker-query behavior (focusSearchHit with scroll:false + a one-time stream.scrollTop=0 to pin the chart), but the caller searchForTerm STILL called focusSearchHit unconditionally afterward — and that later, scroll:true call won, overriding the helper's just-set intent.",
-    "Why 3: When a shared helper both sets state and performs a side-effect (scroll/focus), adding a scroll:false opt-out to the helper is necessary but not sufficient — every caller that independently drives the SAME side-effect must also be audited and guarded, because the side-effect that fires LAST silently wins. The fix only adding the opt-out to the helper without grepping callers would have left the bug live."
+    "Why 1: On 2026-07-15 a user again hit the raw, unactionable Chrome error ('executeScript failed (tab closed?): Cannot access contents of the page. Extension manifest must request permission...') surfacing straight into the chat UI -- the exact same error message BetterSSC had already shipped a fix for 5+ weeks earlier (commit 114170a, 2026-06-06).",
+    "Why 2: The June 6 fix's retry (re-invoke findProxyTab() with no exclusion after invalidating the cache) only helped inside a narrow TOCTOU race window. Because chrome.tabs.query returns tabs in stable order, a tab that was persistently unreachable (closed, navigated away, backgrounded/discarded) would simply be reselected by the retry and fail again -- the retry mechanism never tried a DIFFERENT tab, so it added no real recovery value once a second live Substack tab existed but wasn't being considered.",
+    "Why 3 (root cause): The July 15 fix correctly diagnosed why 2 and set out to exclude already-tried tab ids so a different, live tab would get picked on retry -- but the first draft implemented the exclusion unconditionally, without an explicit branch for the case where filtering empties the candidate pool. That is precisely the numerically dominant real-world deployment (exactly one Substack tab open), so the hardening silently regressed the common case it was meant to protect. This is the same recurring authoring gap this project's memory already names in three other incidents (new-cursor-consumer-needs-symmetric-mutex-not-one-way-priority, symmetric-invariant-fixes-must-touch-both-sides, new-pre-step-in-send-path-must-propagate-to-retry-path): a partial mechanism that looks like it covers the case, but wasn't checked against the degenerate/most-common input, and was only caught by an INDEPENDENT reviewer rather than by the work-agent's own pre-write reasoning."
   ],
   "drift_checklist": [
     {
       "signal": "user_corrections",
-      "finding": "Three live UI-sizing/placement corrections on the chart cards: (1) cards stretched full-row, user asked them capped to a fixed size with empty space rather than ballooning; (2) ⤢ maximize icon overlapped TradingView's own logo, user said 'put them in separate locations'; (3) 'still smaller, maybe 2/3rds size'. These are functionality-accepted, geometry-iterated — re-confirms the existing live-eyes memory rather than a new class.",
+      "finding": "none",
+      "citations": []
+    },
+    {
+      "signal": "dismissed_review_findings",
+      "finding": "none -- all 3 should-fix findings from .review/last-verdict.json (critical_count: 0, should_fix_count: 3) were folded into the single landed commit: the single-tab-pool-empty regression (pool fallback fix), the untested proxyFetchBinary fallthrough path (new fallthrough test added), and order-fragile test mock hygiene (beforeEach resets chrome.tabs.get/query/executeScript mocks so tests don't leak state between runs).",
       "citations": [
         {
-          "source_type": "transcript",
-          "source_ref": "a69b6d68 user msg",
-          "quote": "i like the intraday charts - but they shoudl always the sized to this size - when there are 3 tickres, they are the right size. so maybe even with 1 ticker, you leave empty space but have it sized no more than what you see in this screenshot. secondly your ticker maximize icon is overlaying the TV icon and none of them is distinguishable. you need to put them in separate locations."
-        },
-        {
-          "source_type": "transcript",
-          "source_ref": "a69b6d68 user msg",
-          "quote": "i think the chart needs to be still smaller. maybe 2/3rds size of what you are showing now."
+          "source_type": "diff",
+          "source_ref": "test/api-proxy-tab.test.mjs @@ beforeEach",
+          "quote": "chrome.tabs.get.mockResolvedValue(null); // no cached tab survives between tests\n  chrome.tabs.query.mockReset();\n  chrome.scripting.executeScript.mockReset();"
         }
       ]
     },
     {
-      "signal": "dismissed_review_findings",
-      "finding": "none",
-      "citations": []
-    },
-    {
       "signal": "tests_skipped_or_unrun",
-      "finding": "none",
-      "citations": []
+      "finding": "none -- full suite (21 files, 577 tests) re-run independently during this retro and confirmed 577/577 passing, including the new test/api-proxy-tab.test.mjs (5/5).",
+      "citations": [
+        {
+          "source_type": "commit",
+          "source_ref": "c51edb0406f6b48dbd74ececb702bca2402340bc",
+          "quote": "test/api-proxy-tab.test.mjs | 135 ++++++++++++++++++++++++++++++++++++++++++++"
+        }
+      ]
     },
     {
       "signal": "repeated_questions",
-      "finding": "none",
+      "finding": "none -- single autonomous bug-fix session triggered by a user screenshot + 'how do we resolve this', no evidence of the agent re-asking the same clarifying question.",
       "citations": []
     }
   ],
   "learnings_written": [
     {
-      "name": "shared-helper-side-effect-scroll-double-fires-from-caller",
+      "name": "retry-exclusion-must-fall-back-when-candidate-pool-empties",
       "type": "feedback",
-      "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/shared-helper-side-effect-scroll-double-fires-from-caller.md"
+      "path": "/Users/indersabharwal/.claude/projects/-Users-indersabharwal-betterssc/memory/retry-exclusion-must-fall-back-when-candidate-pool-empties.md"
     }
   ],
   "evidence_citations": [
     {
-      "learning_id": "shared-helper-side-effect-scroll-double-fires-from-caller",
-      "source_type": "transcript",
-      "source_ref": "a69b6d68 code-reviewer tool_result",
-      "quote": "app.js:1649 — Double-scroll on trending-chip click with ticker query. ... For a ticker query, applySearch already ran focusSearchHit(0, { scroll: false }) and set stream.scrollTop = 0. The second focusSearchHit call at line 1649 passes no opts -> opts.scroll !== false -> scrollIntoView(...) fires, scrolling the viewport from the chart-pane top to the first message hit. The chart pane the user was supposed to see is immediately buried."
+      "learning_id": "retry-exclusion-must-fall-back-when-candidate-pool-empties",
+      "source_type": "diff",
+      "source_ref": "lib/api.js @@ findProxyTab (c51edb0406f6b48dbd74ececb702bca2402340bc)",
+      "quote": "const candidates = tabs.filter((t) => !skip.has(t.id));\n  const pool = candidates.length ? candidates : tabs;"
     },
     {
-      "learning_id": "shared-helper-side-effect-scroll-double-fires-from-caller",
-      "source_type": "diff",
-      "source_ref": "5059b1c app.js @@ searchForTerm",
-      "quote": "if (\n    state.searchHits &&\n    state.searchHits.length &&\n    !extractQueryTickers(term).length\n  ) {\n    focusSearchHit(state.searchActiveIdx || 0);\n  }"
+      "learning_id": "retry-exclusion-must-fall-back-when-candidate-pool-empties",
+      "source_type": "commit",
+      "source_ref": "114170ae63a33c5f664e4f6c88c0baa906051045",
+      "quote": "No retry on executeScript failure. If the cached tab navigated off substack.com or was closed between findProxyTab() and executeScript() (TOCTOU), the whole call died. Now we invalidate the cache, re-find a tab, and try once more before throwing."
     },
     {
-      "learning_id": "shared-helper-side-effect-scroll-double-fires-from-caller",
-      "source_type": "diff",
-      "source_ref": "5059b1c app.js @@ focusSearchHit",
-      "quote": "function focusSearchHit(idx, opts = {}) { ... if (opts.scroll !== false) { node.scrollIntoView({ behavior: \"smooth\", block: \"center\" }); }"
+      "learning_id": "retry-exclusion-must-fall-back-when-candidate-pool-empties",
+      "source_type": "memory",
+      "source_ref": "new-cursor-consumer-needs-symmetric-mutex-not-one-way-priority.md",
+      "quote": "The bug class: when you add a SECOND consumer of an existing single-consumer-protected resource, you don't just need to check the lock \u2014 you need to TAKE it the same way the existing consumer does. The polling check is necessary but not sufficient."
     }
   ],
   "action_items": [
     {
-      "title": "Front-load chart-card geometry + control-overlap into the FIRST cut for any embedded-widget UI",
+      "title": "Add proxyFetchBinary test parity for single-tab-retry and final-error paths",
       "scope": "project",
-      "description": "This ship needed 3 live corrections (full-width->capped->2/3 size; ⤢ overlapping TradingView's own logo). This re-confirms ui-affordance-needs-live-eyes-not-headless-dom-presence rather than a new class. When embedding a third-party widget (TradingView mini-chart, etc.) the agent can't drive live: in the first cut, (a) cap the card to a fixed max-width so 1-2 instances don't balloon, (b) inventory the widget's OWN chrome (TradingView pins its logo top-right) and place any added controls in a non-colliding corner, (c) stage ONE live-eyes checklist for size/overlap. Cite the existing memory; do not write a duplicate.",
-      "source_learning": "shared-helper-side-effect-scroll-double-fires-from-caller"
+      "description": "test/api-proxy-tab.test.mjs gives proxyFetch (via fetchInbox) 4 dedicated regression tests -- multi-tab fallthrough, single-tab-still-retries-on-transient-failure, final actionable error message, and no-tab-open distinct message -- but proxyFetchBinary (via putChatMediaBinary) only got 1 (multi-tab fallthrough), even though it wraps the same tried-Set/attempts-loop pattern around the same shared findProxyTab. Add the missing 3 tests to proxyFetchBinary's describe block so a future edit to its own retry-loop wrapper (not just findProxyTab) gets the same regression coverage proxyFetch has.",
+      "source_learning": "retry-exclusion-must-fall-back-when-candidate-pool-empties"
+    },
+    {
+      "title": "Treat exclusion-based retry hardening as incomplete until the empty-pool branch is explicit and tested",
+      "scope": "global",
+      "description": "Any retry/failover/candidate-selection logic that maintains an exclusion set of already-tried/already-failed items (a proxy-tab picker excluding dead tabs, a connection-pool retry excluding a dead node, a load-balancer failover excluding a tripped backend) has the same latent trap: filtering out the failed candidate can empty the pool, and the single/only-candidate case is usually the numerically DOMINANT real-world deployment, not a rare edge case. The fix pattern is mechanical and cheap to apply everywhere it recurs: after writing the exclusion filter, explicitly decide and test what happens when it returns empty (fall back to the unfiltered set, or surface a distinct 'no alternative' error) rather than leaving the empty-array behavior implicit. This is a generalizable software-engineering principle, not specific to BetterSSC's proxy-tab architecture, and is not covered by any existing promoted CLAUDE.md lesson.",
+      "source_learning": "retry-exclusion-must-fall-back-when-candidate-pool-empties"
     }
   ],
   "memory_md_changes": [],
