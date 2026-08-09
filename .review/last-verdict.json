@@ -1,12 +1,12 @@
 {
-  "sha": "47c5cdda788b936b4982a756a268e24d3d3d9c4b",
+  "sha": "9825be08e6f3ec11fdc5d186704f11ce090bad00",
   "branch": "main",
-  "ts": "2026-08-09T03:20:00Z",
+  "ts": "2026-08-09T04:27:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "226-line diff, named slice of a multi-slice /loop arc in a domain with existing memory entries; 2 should-fix findings, both fixed before push (one caught mid-gather by review-gatherer, one by code-reviewer)",
+  "retro_reasoning": "Memory-dense domain (composer/moderation) plus a real should-fix (burst-typing collision) found on a live dogfood path and fixed before push; also a content-fidelity fix (reword changing factual claims) surfaced by live dogfooding, not by review",
   "critical_count": 0,
-  "should_fix_count": 2,
-  "nit_count": 3,
-  "files_reviewed": 3
+  "should_fix_count": 1,
+  "nit_count": 2,
+  "files_reviewed": 2
 }
