@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-572%2F572-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-626%2F626-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.9.0** (Jun 28, 2026) — ✈ **Telegram bridge** (stream the Substack Chat feed to your own Telegram bot, and post + react back from Telegram; replies carry their quoted message with correct author attribution). Previous: **v0.8.0** — 📊 **Inline ticker charts on search** (click a trending chip or type `$HPE` / `HPE DELL` for a compact live TradingView mini-chart per symbol) plus 🧹 **trending-bar cleanup**. 572/572 tests passing.
+Latest release: **v0.10.0** (Aug 8, 2026) — 🛡️ **AI moderation before posting** (opt-in, bring-your-own-key review of your own outgoing messages — reworks blunt-but-not-offensive framing with your explicit confirmation, hard-blocks offensive content and replies to political messages, never touches anyone else's messages). Previous: **v0.9.0** — ✈ **Telegram bridge** (stream the Substack Chat feed to your own Telegram bot, and post + react back from Telegram; replies carry their quoted message with correct author attribution). 626/626 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.9.0)
+## What it does (v0.10.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
@@ -150,6 +150,16 @@ Stream the live Substack Chat feed to your own Telegram bot — read it, post to
 - @mention autocomplete pulls from the people you've already seen in chat.
 - Reply UI puts a Discord-style quoted block on your message locally so you can see what you're answering.
 - Failed sends keep your text and show a Retry button. If the message had an attachment, the original `File` is stashed on the pending row so retry re-runs the full register + PUT, not just the comment POST — so a failed-then-retried GIF doesn't silently send as text-only.
+
+### 🛡️ AI moderation before posting (bring your own key)
+
+Turn it on in Chat preferences and your own outgoing messages get reviewed before they post — never anyone else's.
+
+- **Send normally.** A plain-text message waits briefly (configurable, default 2s) to catch a rapid-fire burst of follow-ups and merge them into one reviewed message, then your AI provider reviews it. A message with a mention, reply, or attachment skips straight to review — no merge window, since a reword could otherwise mangle an `@name` token.
+- **Three outcomes.** Clean: posts as typed, nothing changes. Blunt or poorly-framed but not outright offensive (the default verdict for tone problems): the composer shows the AI's reworded version and stops — you edit it or press Send yourself, it never auto-posts on a timer. Offensive, or a reply to a message the AI classifies as political: blocked. Send stays disabled until you actually edit the flagged text; your original message, any staged attachment, and your reply target are all still right there.
+- **Fails closed.** A network error, timeout, or a response BetterSSC can't parse never results in a silent unreviewed post — you're told what happened and your text is intact, ready to resend.
+- **Skip review** is a one-click settings toggle once you trust it — bypasses AI review and sends immediately.
+- Same BYOK key as AI Insights below (OpenAI / Anthropic / Google) — nothing new to configure. Uses the cheapest model on your provider and your last ~100 messages as background context for tone; web search is off here, for speed.
 
 ## AI Insights
 
@@ -376,6 +386,8 @@ The roadmap below is my current wish list. What you actually need will reshape i
 - **v0.4** ✅ 🎯 Focus mode — filter the feed to terms + tagged people, reply-tree aware. Discord-style composer with icon cluster on the right + chat-column-only width. Send images + GIFs (PNG / JPEG / GIF / WebP) via 📷 + drag-drop + clipboard paste. GIPHY GIF picker (BYOK, with inline onboarding to get a free key). Emoji popover. Silent background prefetch of full chat history.
 - **v0.5** ✅ ✦ Explain — per-message, always-visible AI button that explains *that* message inline. Thread-aware (walks reply/quote ancestors), reads embedded chart images via vision, reads referenced links via web search, professional-trader voice.
 - **v0.7** ✅ 🔗 Link previews — opt-in, local-only Open Graph unfurl cards under messages that contain a link. Fetched in your browser, cookieless, gated behind an on-demand host permission, never shared back to Substack.
+- **v0.9** ✅ ✈ Telegram bridge — stream Substack Chat to your own Telegram bot, post + react back from Telegram.
+- **v0.10** ✅ 🛡️ AI moderation before posting — opt-in, BYOK review of your own outgoing messages before they post; reword-with-confirmation for tone, hard block for offensive content and replies to political messages.
 - **v0.6** OpenAI Responses API migration so Ask/Explain web search works on OpenAI too. Edit + delete your own messages. Multi-image attachments per send.
 - **v0.6.x** Multi-chat support: left rail across every chat you're in, unread badges, Cmd-K quick switcher.
 - **DMs + Tenor parity** Direct messages. Tenor GIF picker as an alternative to GIPHY if a user prefers it (TOS allows; would need to recapture Substack DM wire shape since group-chat shape doesn't always match).
@@ -403,6 +415,16 @@ When you choose to use the **✨ AI** feature (Summary or Ask), the privacy stor
 - Provider error strings are bounded at 200 chars and `sk-…` patterns are masked before rendering — defense-in-depth so an accidental key fragment in a verbose error body can't survive into the visible DOM.
 - The feature is fully opt-in. Until you open the dropdown and configure a key, none of these endpoints are contacted.
 - If you don't want any chat content reaching a third party, simply don't use AI. Everything else works exactly the same.
+
+### AI moderation — opt-in BYOK
+
+Same key, same direct-to-provider path as AI Insights above, triggered by your own outgoing sends instead of a button click:
+
+- **Only YOUR outgoing messages are ever reviewed** — nothing anyone else posts is read, analyzed, or sent anywhere by this feature.
+- **What's sent to the provider:** the draft message you're about to post, plus your last ~100 chat messages as background context (so the model can judge tone in context, not in a vacuum) and, if you're replying, the parent message you're replying to (so it can judge whether that parent is political).
+- Uses the same `chrome.storage.local` key as AI Insights — no separate key, no separate setup.
+- Web search is off for this feature (unlike Ask mode) — nothing beyond the chat context above ever leaves your browser for this call.
+- Fully opt-in, off by default. Turn it off in Chat preferences at any time and your sends go back to posting exactly as before, with zero AI involvement.
 
 ### GIPHY picker — opt-in BYOK
 
