@@ -38,6 +38,8 @@ import {
   PREFETCH_PILL_VISIBLE_MS,
   PREFETCH_PILL_REMOVE_MS,
   computeRetryDelay,
+  AI_MODERATION_DEBOUNCE_OPTIONS_MS,
+  resolveAiModerationSettings,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -212,6 +214,17 @@ const state = {
   aiAskBusy: false,
   aiAskMaxTokens: null, // commit 5 wires the Tune dialog row
   aiAskWebSearch: null, // commit 5; null = default-on at call site
+  // AI moderation before posting — reviews your OWN outgoing message for
+  // public-forum-appropriate framing before it sends. BYOK, same
+  // aiProvider/aiKeys as AI Insights above. Independent booleans:
+  // aiModerationEnabled=false means the feature is fully off and
+  // aiModerationSkipReview is ignored. aiModerationEnabled=true +
+  // aiModerationSkipReview=true means review is bypassed (send posts
+  // immediately) but the feature's config stays intact — skip is a quick
+  // temporary bypass, never a proxy for turning the feature off.
+  aiModerationEnabled: false,
+  aiModerationDebounceMs: 2000, // 1000 | 2000 | 3000 | 5000, select-only
+  aiModerationSkipReview: false,
 };
 
 // ============================================================
@@ -3615,6 +3628,9 @@ function restoreWatchedUsers() {
         "bssc_ai_ask_web_search",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
+        "bssc_ai_moderation_enabled",
+        "bssc_ai_moderation_debounce_ms",
+        "bssc_ai_moderation_skip",
         "bssc_giphy_api_key",
         "bssc_telegram_bot_token",
         "bssc_telegram_chat_id",
@@ -3665,6 +3681,14 @@ function restoreWatchedUsers() {
         if (typeof res.bssc_ai_format_template === "string") {
           state.aiFormatTemplate = res.bssc_ai_format_template;
         }
+        const resolvedModeration = resolveAiModerationSettings(res, {
+          enabled: state.aiModerationEnabled,
+          debounceMs: state.aiModerationDebounceMs,
+          skip: state.aiModerationSkipReview,
+        });
+        state.aiModerationEnabled = resolvedModeration.enabled;
+        state.aiModerationDebounceMs = resolvedModeration.debounceMs;
+        state.aiModerationSkipReview = resolvedModeration.skip;
         if (typeof res.bssc_giphy_api_key === "string" && res.bssc_giphy_api_key) {
           state.giphyApiKey = res.bssc_giphy_api_key;
         }
@@ -5671,6 +5695,61 @@ function openChatPrefsModal() {
   lpRow.appendChild(lpLabel);
   body.appendChild(lpRow);
 
+  // AI moderation toggle — reviews your own outgoing message for
+  // public-forum-appropriate framing before it posts. BYOK, same
+  // provider/key as AI Insights. Inert in this slice: nothing reads these
+  // fields yet, they just persist.
+  const modRow = document.createElement("div");
+  modRow.className = "tune-toggle-row";
+  const modCheckbox = document.createElement("input");
+  modCheckbox.type = "checkbox";
+  modCheckbox.id = "chatPrefsAiModeration";
+  modCheckbox.checked = !!state.aiModerationEnabled;
+  const modLabel = document.createElement("label");
+  modLabel.htmlFor = "chatPrefsAiModeration";
+  modLabel.className = "tune-toggle-label";
+  modLabel.textContent =
+    "Enable AI moderation before posting. Before a message sends, your configured AI provider reviews it for public-forum-appropriate framing and reworks it if needed. Uses the same key as AI Insights.";
+  modRow.appendChild(modCheckbox);
+  modRow.appendChild(modLabel);
+  body.appendChild(modRow);
+
+  const modDebounceRow = document.createElement("div");
+  modDebounceRow.className = "tune-toggle-row";
+  const modDebounceLabel = document.createElement("label");
+  modDebounceLabel.htmlFor = "chatPrefsAiModerationDebounce";
+  modDebounceLabel.className = "tune-toggle-label";
+  modDebounceLabel.textContent =
+    "Wait before reviewing (catches a quick follow-up message and merges it in first):";
+  const modDebounceSelect = document.createElement("select");
+  modDebounceSelect.id = "chatPrefsAiModerationDebounce";
+  modDebounceSelect.className = "tune-select";
+  for (const ms of AI_MODERATION_DEBOUNCE_OPTIONS_MS) {
+    const opt = document.createElement("option");
+    opt.value = String(ms);
+    opt.textContent = `${ms / 1000}s`;
+    if (state.aiModerationDebounceMs === ms) opt.selected = true;
+    modDebounceSelect.appendChild(opt);
+  }
+  modDebounceRow.appendChild(modDebounceLabel);
+  modDebounceRow.appendChild(modDebounceSelect);
+  body.appendChild(modDebounceRow);
+
+  const modSkipRow = document.createElement("div");
+  modSkipRow.className = "tune-toggle-row";
+  const modSkipCheckbox = document.createElement("input");
+  modSkipCheckbox.type = "checkbox";
+  modSkipCheckbox.id = "chatPrefsAiModerationSkip";
+  modSkipCheckbox.checked = !!state.aiModerationSkipReview;
+  const modSkipLabel = document.createElement("label");
+  modSkipLabel.htmlFor = "chatPrefsAiModerationSkip";
+  modSkipLabel.className = "tune-toggle-label";
+  modSkipLabel.textContent =
+    "Skip review and post directly. A quick bypass — your moderation settings above stay saved, review just doesn't run until you turn this back off.";
+  modSkipRow.appendChild(modSkipCheckbox);
+  modSkipRow.appendChild(modSkipLabel);
+  body.appendChild(modSkipRow);
+
   const footer = document.createElement("footer");
   footer.className = "ai-settings-footer";
   const cancel = document.createElement("button");
@@ -5708,6 +5787,19 @@ function openChatPrefsModal() {
     // synchronous within this click handler so chrome.permissions.request
     // keeps the user gesture (an awaited call would lose it).
     applyLinkPreviewToggle(!!lpCheckbox.checked);
+
+    state.aiModerationEnabled = !!modCheckbox.checked;
+    state.aiModerationDebounceMs = Number(modDebounceSelect.value) || 2000;
+    state.aiModerationSkipReview = !!modSkipCheckbox.checked;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_ai_moderation_enabled: state.aiModerationEnabled,
+          bssc_ai_moderation_debounce_ms: state.aiModerationDebounceMs,
+          bssc_ai_moderation_skip: state.aiModerationSkipReview,
+        });
+    } catch (_) {}
 
     closeChatPrefsModal();
   });

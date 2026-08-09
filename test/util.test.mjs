@@ -10,6 +10,8 @@ import {
   mentionsUser,
   uuid,
   chatNameAcronym,
+  AI_MODERATION_DEBOUNCE_OPTIONS_MS,
+  resolveAiModerationSettings,
 } from "../lib/util.js";
 
 describe("segmentBody", () => {
@@ -302,5 +304,95 @@ describe("chatNameAcronym", () => {
   it("is stable / deterministic across multiple calls", () => {
     const name = "Za's Market Terminal";
     expect(chatNameAcronym(name)).toBe(chatNameAcronym(name));
+  });
+});
+
+describe("AI_MODERATION_DEBOUNCE_OPTIONS_MS", () => {
+  it("is exactly the 4 values the settings <select> offers", () => {
+    expect(AI_MODERATION_DEBOUNCE_OPTIONS_MS).toEqual([1000, 2000, 3000, 5000]);
+  });
+});
+
+describe("resolveAiModerationSettings", () => {
+  const current = { enabled: false, debounceMs: 2000, skip: false };
+
+  it("adopts valid stored values for all 3 fields", () => {
+    const res = {
+      bssc_ai_moderation_enabled: true,
+      bssc_ai_moderation_debounce_ms: 3000,
+      bssc_ai_moderation_skip: true,
+    };
+    expect(resolveAiModerationSettings(res, current)).toEqual({
+      enabled: true,
+      debounceMs: 3000,
+      skip: true,
+    });
+  });
+
+  it("keeps the current value for a key entirely absent from storage (empty result, e.g. first-ever load)", () => {
+    expect(resolveAiModerationSettings({}, current)).toEqual(current);
+  });
+
+  it("keeps the current debounce when the stored value isn't one of the 4 whitelisted options", () => {
+    const res = { bssc_ai_moderation_debounce_ms: 4000 };
+    expect(resolveAiModerationSettings(res, current).debounceMs).toBe(2000);
+  });
+
+  it("rejects a stored debounce of the right value but wrong type (string, not number)", () => {
+    const res = { bssc_ai_moderation_debounce_ms: "2000" };
+    expect(resolveAiModerationSettings(res, current).debounceMs).toBe(2000);
+  });
+
+  it("rejects a non-boolean stored value for enabled/skip and keeps current", () => {
+    const res = {
+      bssc_ai_moderation_enabled: "true",
+      bssc_ai_moderation_skip: 1,
+    };
+    const resolved = resolveAiModerationSettings(res, current);
+    expect(resolved.enabled).toBe(false);
+    expect(resolved.skip).toBe(false);
+  });
+
+  it("resolves each field independently — one valid, one absent, one invalid, in the same call", () => {
+    const res = {
+      bssc_ai_moderation_enabled: true, // valid
+      // debounce_ms absent
+      bssc_ai_moderation_skip: "nope", // invalid type
+    };
+    expect(resolveAiModerationSettings(res, current)).toEqual({
+      enabled: true,
+      debounceMs: 2000,
+      skip: false,
+    });
+  });
+
+  it("round-trips through a chrome.storage.local-shaped get/set cycle", () => {
+    // Mirrors test/setup.mjs's chromeStub.storage.local semantics: get()
+    // omits absent keys from the result object rather than returning
+    // `undefined` for them.
+    const store = new Map();
+    const set = (obj) => {
+      for (const [k, v] of Object.entries(obj)) store.set(k, v);
+    };
+    const get = (keys) => {
+      const result = {};
+      for (const k of keys) if (store.has(k)) result[k] = store.get(k);
+      return result;
+    };
+    set({
+      bssc_ai_moderation_enabled: true,
+      bssc_ai_moderation_debounce_ms: 5000,
+      bssc_ai_moderation_skip: false,
+    });
+    const loaded = get([
+      "bssc_ai_moderation_enabled",
+      "bssc_ai_moderation_debounce_ms",
+      "bssc_ai_moderation_skip",
+    ]);
+    expect(resolveAiModerationSettings(loaded, current)).toEqual({
+      enabled: true,
+      debounceMs: 5000,
+      skip: false,
+    });
   });
 });
