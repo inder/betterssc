@@ -1,12 +1,12 @@
 {
-  "sha": "2e3bb1fe0c4f88c77a3893c3db19ee39a6a685a4",
+  "sha": "7528c4751e362469f439cc39a41c62666e998809",
   "branch": "main",
-  "ts": "2026-08-09T02:28:24Z",
-  "verdict": "do-not-merge",
+  "ts": "2026-08-09T02:52:00Z",
+  "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "Critical finding on a >200-line named-arc slice; snapshot-refactor missed-call-site is a bankable lesson class",
-  "critical_count": 1,
-  "should_fix_count": 1,
-  "nit_count": 1,
+  "retro_reasoning": ">200 LOC named-arc slice in a memory-rich domain with 2 should-fix findings, both fixed before push",
+  "critical_count": 0,
+  "should_fix_count": 2,
+  "nit_count": 3,
   "files_reviewed": 3
 }
