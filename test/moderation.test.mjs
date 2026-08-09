@@ -63,6 +63,20 @@ describe("buildModerationSystemPrompt", () => {
     expect(prompt).toContain("needs_reword");
     expect(prompt).toContain("political_reply");
   });
+
+  // Live dogfooding caught the model turning "Elon is pumping SpaceX
+  // stock" into "Elon is buying SpaceX stock" — a factually different
+  // claim (hyping/promoting vs. an actual purchase), not just a tone
+  // change. A prompt-text assertion can't verify live model compliance,
+  // but it does guarantee the guardrail can't be silently deleted by a
+  // future edit without a test noticing.
+  it("explicitly forbids changing the underlying claim when rewording, with the pumping/buying failure as a named example", () => {
+    const prompt = buildModerationSystemPrompt("ctx", { draftText: "x" });
+    expect(prompt).toMatch(/only tone and word choice, never the underlying claim/i);
+    expect(prompt).toContain("pumping SpaceX stock");
+    expect(prompt).toContain("buying SpaceX stock");
+    expect(prompt).toMatch(/prefer needs_reword: false over inventing a different claim/i);
+  });
 });
 
 describe("MODERATION_USER_MESSAGE", () => {
