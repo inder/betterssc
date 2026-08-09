@@ -7623,6 +7623,7 @@ import {
   MODERATION_CONTEXT_MESSAGE_LIMIT,
   MODERATION_CONTEXT_BUDGET_CHARS,
   MODERATION_NO_PROVIDER_MESSAGE,
+  MODERATION_COUNTDOWN_MS,
 } from "./lib/moderation.js";
 import {
   postComment as apiPostComment,
@@ -7682,6 +7683,20 @@ state.composer = state.composer || {
   // sends reviewed back-to-back would race for the single `pending` slot
   // exactly like the flush-ordering bug slice 2's design review caught.
   moderationReviewing: false,
+  // Reword-and-post countdown (slice 4). null while nothing is counting
+  // down. Unlike moderationReviewing, this does NOT gate Send being
+  // clickable — clicking Send during a countdown is the "post now"
+  // cancel action, not something to block. Shape while active:
+  // { timerId, snapshot }.
+  moderationCountdown: null,
+  // Hard-block-until-edited (slice 4). null when nothing is blocked; the
+  // exact flagged text otherwise — Send stays disabled (see
+  // refreshSendBtn) as long as the live composer value still equals
+  // this string. Set ONLY on an actual moderation verdict (offensive or
+  // political_reply), never on a transient review failure — a network
+  // hiccup shouldn't force the user to edit a perfectly fine message
+  // just to retry it.
+  moderationBlockedText: null,
 };
 
 // MIME allow-list + size cap for staged attachments. HAR captures
@@ -7717,10 +7732,17 @@ function mountComposer() {
     const txt = input.value || "";
     const empty = txt.trim().length === 0;
     const hasAttachment = !!state.composer.attachment;
+    // A moderationCountdown does NOT disable Send — clicking it during a
+    // countdown is the "post now" cancel action (handleComposerSendTrigger),
+    // not something to block.
+    const hardBlocked =
+      state.composer.moderationBlockedText !== null &&
+      input.value === state.composer.moderationBlockedText;
     sendBtn.disabled =
       (empty && !hasAttachment) ||
       !!state.composer.pending ||
-      !!state.composer.moderationReviewing;
+      !!state.composer.moderationReviewing ||
+      hardBlocked;
   };
 
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
@@ -7731,6 +7753,21 @@ function mountComposer() {
     if (state.composer._lastError) {
       clearComposerError();
       sendBtn.textContent = "Send";
+    }
+    // Editing while a countdown is showing cancels it — the reworded
+    // text does NOT auto-post once the user has changed anything.
+    if (state.composer.moderationCountdown) {
+      cancelModerationCountdown();
+    }
+    // Compares the untrimmed live value against the untrimmed value
+    // moderationBlockedText was set from (snapshot.rawText), so a
+    // char-for-char identical retype stays blocked rather than
+    // momentarily unblocking on a trim mismatch.
+    if (
+      state.composer.moderationBlockedText !== null &&
+      input.value !== state.composer.moderationBlockedText
+    ) {
+      state.composer.moderationBlockedText = null;
     }
     refreshSendBtn();
     // Commit 4: mention autocomplete trigger.
@@ -7744,13 +7781,13 @@ function mountComposer() {
     if (handleMentionKeydown(e, input)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submitComposer();
+      handleComposerSendTrigger();
     }
   });
 
   sendBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    submitComposer();
+    handleComposerSendTrigger();
   });
 
   // Set initial height so the textarea starts at exactly one row.
@@ -7888,6 +7925,11 @@ function tryStageAttachment(file) {
     );
     return false;
   }
+  // Staging an attachment doesn't fire the composer's `input` event (the
+  // only place a moderation countdown otherwise gets canceled), so
+  // without this a countdown could fire mid-window and clearComposerDraft
+  // would silently wipe the attachment the user just staged.
+  if (state.composer.moderationCountdown) cancelModerationCountdown();
   // Discard any prior staged attachment first (revokes its preview URL
   // so we don't leak Blob URLs across re-stages).
   clearStagedAttachment();
@@ -8471,6 +8513,11 @@ function renderComposerReplyBar() {
 // Called from the message hover toolbar's "Reply" button.
 function startReplyTo(comment) {
   if (!comment) return;
+  // Selecting a reply target doesn't fire the composer's `input` event
+  // (the only place a moderation countdown otherwise gets canceled), so
+  // without this a countdown could fire mid-window and clearComposerDraft
+  // would silently wipe the reply target the user just set.
+  if (state.composer.moderationCountdown) cancelModerationCountdown();
   setReplyTarget(state.composer, comment);
   renderComposerReplyBar();
 }
@@ -8673,8 +8720,23 @@ async function submitComposer() {
   // (slice 3), pending covers the network send. Both are single-consumer
   // windows: by the time either is set, the debounce/burst-catching
   // window (moderationHold, which deliberately does NOT gate re-entry)
-  // has already closed.
-  if (state.composer.pending || state.composer.moderationReviewing) return;
+  // has already closed. moderationCountdown is belt-and-suspenders —
+  // handleComposerSendTrigger already intercepts both send triggers
+  // before they ever reach here while a countdown is active, this just
+  // means a future third caller of submitComposer() can't slip past it.
+  // moderationBlockedText compares the UNTRIMMED input.value (matching
+  // how it was set from snapshot.rawText, itself untrimmed) — Enter
+  // doesn't respect the Send button's disabled attribute, so the
+  // hard-block needs its own stop here, not just in refreshSendBtn.
+  if (
+    state.composer.pending ||
+    state.composer.moderationReviewing ||
+    state.composer.moderationCountdown ||
+    (state.composer.moderationBlockedText !== null &&
+      input.value === state.composer.moderationBlockedText)
+  ) {
+    return;
+  }
   if (!state.postUuid) {
     showComposerError("No chat post loaded — refresh and try again.");
     return;
@@ -9072,28 +9134,51 @@ async function reviewModerationText(text, { replyingTo, mode }) {
   if (offensive || effectivePoliticalReply) {
     return { ok: true, blocked: true, reasoning };
   }
+  // needsReword is exposed to the caller (not just consumed here) so it
+  // can distinguish "approved as-is" from "approved after rewording" —
+  // string-comparing textToSend against the original would be fragile
+  // (a reword could coincidentally be byte-identical to the input) and
+  // it's needsReword, not a text diff, that decides whether the caller
+  // shows a countdown/reappear UI at all.
   if (mode === "full" && needsReword) {
-    return { ok: true, blocked: false, textToSend: reworded, reasoning };
+    return { ok: true, blocked: false, needsReword: true, textToSend: reworded, reasoning };
   }
-  return { ok: true, blocked: false, textToSend: text, reasoning };
+  return { ok: true, blocked: false, needsReword: false, textToSend: text, reasoning };
 }
 
 // Shared send path for both moderation branches (a resolved hold, or an
 // ineligible message past its flush) — runs the review, then either
-// sends the approved text or restores the composer on block/failure.
-// Sets moderationReviewing for its whole lifetime (see the state comment
-// on that field for why re-entry must be blocked here but not during
-// moderationHold).
+// sends the approved text (straight through, or via a cancelable
+// countdown when it was reworded), or restores the composer on
+// block/failure. Sets moderationReviewing for the REVIEW call only —
+// NOT held through the countdown, because Send must be CLICKABLE during
+// the countdown (clicking it is the "post now" cancel action, not
+// something to keep disabled). See the state comment on moderationHold
+// for why re-entry must be blocked here but not there.
 async function reviewAndSend(snapshot, input, sendBtn, mode) {
   state.composer.moderationReviewing = true;
+  showComposerNotice("AI is reviewing your message…");
   if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+  // Tracks whether startModerationCountdown took over the notice banner
+  // below — it's called synchronously (never awaited, see its own
+  // comment), so without this flag the finally's clearComposerNotice()
+  // would run in the SAME synchronous tick as the countdown's own
+  // showComposerNotice() call, wiping the "Reworded…" banner before it
+  // ever paints. Only the countdown branch sets this.
+  let countdownStarted = false;
   try {
     const review = await reviewModerationText(snapshot.rawText, {
       replyingTo: snapshot.replyingTo,
       mode,
     });
     if (!review.ok) {
-      restoreComposerAfterModerationFailure(input, snapshot, review.error);
+      // Transient failure (network/HTTP/timeout/unparseable) — NOT a
+      // moderation verdict. Never sets moderationBlockedText: the text
+      // itself was never judged, so it must stay freely resendable —
+      // only an actual `blocked` verdict earns the hard-block treatment.
+      restoreComposerAfterModerationFailure(input, snapshot, review.error, {
+        blocked: false,
+      });
       return;
     }
     if (review.blocked) {
@@ -9102,12 +9187,28 @@ async function reviewAndSend(snapshot, input, sendBtn, mode) {
         snapshot,
         "AI moderation flagged this message" +
           (review.reasoning ? ": " + review.reasoning : "") +
-          ". Edit and resend, or turn off moderation in Chat preferences."
+          ". Edit to resend, or turn off moderation in Chat preferences.",
+        { blocked: true }
+      );
+      return;
+    }
+    // Defensive: needsReword should only ever be true in "full" mode
+    // (reviewModerationText only sets it there), but a countdown/reword
+    // banner is meaningless without mode "full" — guard on both so a
+    // hypothetical future bug in that gate can't surface a reword UI on
+    // a block-only-mode message.
+    if (mode === "full" && review.needsReword) {
+      countdownStarted = true;
+      startModerationCountdown(
+        { ...snapshot, rawText: review.textToSend },
+        input,
+        sendBtn
       );
       return;
     }
     await performSend({ ...snapshot, rawText: review.textToSend }, input, sendBtn);
   } finally {
+    if (!countdownStarted) clearComposerNotice();
     state.composer.moderationReviewing = false;
     if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
   }
@@ -9127,7 +9228,14 @@ async function reviewAndSend(snapshot, input, sendBtn, mode) {
 // same class of edge case the text-only version already accepted.
 // Also sets _lastError so the same input-listener behavior that clears a
 // send-failure banner on edit (see mountComposer) applies here too.
-function restoreComposerAfterModerationFailure(input, snapshot, message) {
+//
+// opts.blocked: true ONLY for an actual moderation verdict (offensive or
+// political_reply) — sets moderationBlockedText so Send stays disabled
+// until the user actually edits away from the exact flagged text (see
+// refreshSendBtn and the input listener in mountComposer). false for a
+// transient review failure (network/timeout/unparseable) — that text was
+// never judged, so it must stay freely resendable, not hard-blocked.
+function restoreComposerAfterModerationFailure(input, snapshot, message, opts = {}) {
   if (input && !input.value) {
     input.value = snapshot.rawText;
     state.composer.mentions = snapshot.mentions || {};
@@ -9136,9 +9244,106 @@ function restoreComposerAfterModerationFailure(input, snapshot, message) {
     renderComposerAttachment();
     renderComposerReplyBar();
     autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    if (opts.blocked) {
+      state.composer.moderationBlockedText = snapshot.rawText;
+    }
   }
   state.composer._lastError = true;
   showComposerError(message);
+}
+
+// Arms the reword-and-post countdown (the arc's "reappears in the
+// composer... within 1-2 seconds it posts" behavior). NOT awaited by its
+// caller (reviewAndSend) — it only arms a timer and returns immediately,
+// entirely synchronously (no await before state.composer.moderationCountdown
+// is set), so there's no window where a rapid double Enter/click could
+// slip past both the old and new send paths.
+function startModerationCountdown(snapshot, input, sendBtn) {
+  input.value = snapshot.rawText;
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  showComposerNotice(
+    "Reworded for the channel — posting in a moment. Edit to cancel, or press Send to post now."
+  );
+  sendBtn.textContent = "Send now";
+  // Natural fire reuses finalizeModerationCountdown (post-now on an
+  // explicit Send/Enter) rather than duplicating its body — same
+  // teardown either way, just triggered by the clock instead of a click.
+  const timerId = setTimeout(finalizeModerationCountdown, MODERATION_COUNTDOWN_MS);
+  state.composer.moderationCountdown = { timerId, snapshot };
+}
+
+// Edit-to-cancel: called from the composer's input listener the moment
+// the user changes anything while a countdown is showing. Leaves the
+// (now user-edited) text sitting in the composer as an ordinary draft —
+// does NOT send it, does NOT re-trigger review immediately. The next
+// Send/Enter re-enters submitComposer() fresh and is reviewed normally.
+function cancelModerationCountdown() {
+  const cd = state.composer.moderationCountdown;
+  if (!cd) return;
+  clearTimeout(cd.timerId);
+  state.composer.moderationCountdown = null;
+  clearComposerNotice();
+  const sendBtn = document.getElementById("composerSend");
+  if (sendBtn) sendBtn.textContent = "Send";
+}
+
+// Post-now: called when Send/Enter fires WHILE a countdown is active
+// (see handleComposerSendTrigger). Never re-runs review — the text was
+// just approved seconds ago; by the time this can fire the composer is
+// guaranteed to still hold the untouched approved text, because ANY edit
+// would already have canceled the countdown via the input listener
+// first. Clears everything SYNCHRONOUSLY before the performSend await so
+// a rapid second trigger sees no countdown and no-ops through the normal
+// empty-composer guard in submitComposer.
+function finalizeModerationCountdown() {
+  const cd = state.composer.moderationCountdown;
+  if (!cd) return;
+  clearTimeout(cd.timerId);
+  state.composer.moderationCountdown = null;
+  clearComposerNotice();
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+  sendBtn.textContent = "Send";
+  const snapshot = cd.snapshot;
+  clearComposerDraft(input);
+  void performSend(snapshot, input, sendBtn);
+}
+
+// Single choke point for both send triggers (Enter-key and the Send
+// button click) — see mountComposer. Keeping this as one shared function
+// rather than duplicating the countdown check in both listeners is
+// deliberate: this codebase has a documented recurring bug class where a
+// new pre-step gets added to one call site and not its sibling.
+function handleComposerSendTrigger() {
+  if (state.composer.moderationCountdown) {
+    finalizeModerationCountdown();
+    return;
+  }
+  submitComposer();
+}
+
+// Composer-local "AI is reviewing…" / countdown banner — sibling to
+// showComposerError/clearComposerError, same DOM-child-of-#composer
+// pattern, but neutral/informational styling (not the error red) and a
+// separate element so a notice and an error banner never fight over the
+// same node.
+function showComposerNotice(msg) {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  let el = document.getElementById("composerNotice");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "composerNotice";
+    el.className = "composer-notice";
+    composer.appendChild(el);
+  }
+  el.textContent = msg;
+}
+
+function clearComposerNotice() {
+  const el = document.getElementById("composerNotice");
+  if (el) el.remove();
 }
 
 // Splice a freshly-sent comment into the store AND forward it to Telegram.
