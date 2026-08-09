@@ -9,6 +9,9 @@ import {
   buildCommentBody,
   findActiveMentionToken,
   replaceMentionToken,
+  isComposerSendHoldEligible,
+  mergeIntoModerationHold,
+  joinModerationHoldTexts,
 } from "../lib/compose.js";
 
 describe("composer mount (DOM)", () => {
@@ -116,5 +119,85 @@ describe("replaceMentionToken — surface", () => {
     const r = replaceMentionToken("hi @bo", { start: 3, end: 6 }, "Boz");
     expect(r.text).toBe("hi @Boz ");
     expect(r.cursor).toBe(8);
+  });
+});
+
+describe("isComposerSendHoldEligible", () => {
+  it("plain text (no mention/reply/attachment) is eligible", () => {
+    expect(
+      isComposerSendHoldEligible({ hasMentions: false, hasReply: false, hasAttachment: false })
+    ).toBe(true);
+  });
+
+  it("a mention makes a send ineligible", () => {
+    expect(
+      isComposerSendHoldEligible({ hasMentions: true, hasReply: false, hasAttachment: false })
+    ).toBe(false);
+  });
+
+  it("a reply makes a send ineligible", () => {
+    expect(
+      isComposerSendHoldEligible({ hasMentions: false, hasReply: true, hasAttachment: false })
+    ).toBe(false);
+  });
+
+  it("an attachment makes a send ineligible", () => {
+    expect(
+      isComposerSendHoldEligible({ hasMentions: false, hasReply: false, hasAttachment: true })
+    ).toBe(false);
+  });
+
+  it("any single disqualifier is enough — not requiring all three", () => {
+    expect(
+      isComposerSendHoldEligible({ hasMentions: true, hasReply: true, hasAttachment: true })
+    ).toBe(false);
+  });
+});
+
+describe("mergeIntoModerationHold", () => {
+  it("starts a fresh hold with one text when there's no existing hold", () => {
+    expect(mergeIntoModerationHold(null, "hello")).toEqual({ texts: ["hello"] });
+  });
+
+  it("appends to an existing hold's texts, preserving order", () => {
+    const hold = { texts: ["first"], timerId: 123 };
+    expect(mergeIntoModerationHold(hold, "second")).toEqual({
+      texts: ["first", "second"],
+    });
+  });
+
+  it("does not mutate the input hold (returns a new object)", () => {
+    const hold = { texts: ["first"], timerId: 123 };
+    const merged = mergeIntoModerationHold(hold, "second");
+    expect(hold.texts).toEqual(["first"]);
+    expect(merged).not.toBe(hold);
+  });
+
+  it("collapses a 3-message burst into one held buffer, in arrival order", () => {
+    let hold = null;
+    hold = mergeIntoModerationHold(hold, "wait so");
+    hold = mergeIntoModerationHold(hold, "did anyone else see that");
+    hold = mergeIntoModerationHold(hold, "the announcement just now");
+    expect(hold.texts).toEqual([
+      "wait so",
+      "did anyone else see that",
+      "the announcement just now",
+    ]);
+  });
+});
+
+describe("joinModerationHoldTexts", () => {
+  it("joins a single-text hold as itself", () => {
+    expect(joinModerationHoldTexts(["only message"])).toBe("only message");
+  });
+
+  it("joins multiple texts with newlines, one burst message per line", () => {
+    expect(joinModerationHoldTexts(["first", "second", "third"])).toBe(
+      "first\nsecond\nthird"
+    );
+  });
+
+  it("empty array joins to an empty string (defensive — should never occur in practice)", () => {
+    expect(joinModerationHoldTexts([])).toBe("");
   });
 });

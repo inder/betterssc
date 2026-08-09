@@ -7610,6 +7610,9 @@ import {
   setReplyTarget,
   clearReplyTarget,
   buildReplyFields,
+  isComposerSendHoldEligible,
+  mergeIntoModerationHold,
+  joinModerationHoldTexts,
 } from "./lib/compose.js";
 import {
   postComment as apiPostComment,
@@ -7649,6 +7652,15 @@ state.composer = state.composer || {
   // when the upload itself fails — we keep the text in the composer
   // and surface a retry-friendly error toast).
   attachment: null,
+  // AI moderation debounce/burst-batching hold (slice 2 of the moderation
+  // arc). null while nothing is buffered. Deliberately SEPARATE from
+  // `pending` above — pending means "network call in flight" and gates
+  // the Send button; moderationHold means "buffering, waiting to see if
+  // another message arrives" and must NOT disable Send, or burst-catching
+  // couldn't work (the user needs to be able to hit Send again for
+  // message 2 while message 1 is being held). Shape while active:
+  // { texts: string[], timerId }.
+  moderationHold: null,
 };
 
 // MIME allow-list + size cap for staged attachments. HAR captures
@@ -8639,15 +8651,83 @@ async function submitComposer() {
     return;
   }
 
-  const rawText = input.value;
-  const sendingMentions = { ...state.composer.mentions };
+  // Snapshot what THIS send should carry, before anything clears the live
+  // composer state. Needed because a held (moderation-buffered) send is
+  // cleared from the composer immediately but not actually transmitted
+  // until its debounce window elapses — performSend must send what was
+  // snapshotted at click time, never whatever the composer holds later.
+  const snapshot = {
+    rawText: input.value,
+    mentions: { ...state.composer.mentions },
+    replyingTo: state.composer.replyingTo
+      ? { ...state.composer.replyingTo }
+      : null,
+    attachment: state.composer.attachment,
+  };
+
+  // AI moderation before posting (slice 2 of the moderation arc — see
+  // roadmap.md). OFF (default) or skip-review ON: unchanged behavior,
+  // falls straight through to the immediate send below.
+  if (state.aiModerationEnabled && !state.aiModerationSkipReview) {
+    await queueComposerForModeration(snapshot, input, sendBtn);
+    return;
+  }
+
+  // Flush any hold left over from BEFORE moderation was just turned off
+  // (or skip-review just turned on) mid-debounce — otherwise its armed
+  // timer fires later and races this send for the single
+  // state.composer.pending slot. No-ops if nothing is held. Mirrors the
+  // flush queueComposerForModeration already does for an ineligible send.
+  await flushComposerModerationHold(input, sendBtn);
+  clearComposerDraft(input);
+  await performSend(snapshot, input, sendBtn);
+}
+
+// Clears the LIVE composer draft — input text, mention buffer, staged
+// attachment, reply target — and refreshes their UI. Split out of
+// performSend (which used to do this itself) because a moderation-held
+// send must clear the draft immediately, at hold-time, so the user can
+// keep typing the next burst message; performSend only runs later, once
+// the hold resolves, by which point the composer has moved on to a new
+// draft that must NOT be touched.
+function clearComposerDraft(input) {
+  input.value = "";
+  state.composer.mentions = {};
+  // Detach the staged attachment from state WITHOUT revoking its Object
+  // URL — a pending row built from the snapshot still references it for
+  // the preview. The URL is reclaimed naturally when the pending DOM gets
+  // replaced by the server-reconciled row carrying the real CDN URL.
+  state.composer.attachment = null;
+  renderComposerAttachment();
+  clearReplyTarget(state.composer);
+  renderComposerReplyBar();
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+}
+
+// Actually sends a message: optimistic insert, then the network call.
+// Takes a SNAPSHOT ({rawText, mentions, replyingTo, attachment}) rather
+// than reading state.composer directly — it may run well after the click
+// that triggered it (a moderation hold resolves on a timer), by which
+// point the live composer holds an unrelated in-progress draft. Does NOT
+// clear the composer — see clearComposerDraft, called separately by each
+// caller at the moment that specific send's draft should be cleared.
+async function performSend(snapshot, input, sendBtn) {
+  const {
+    rawText,
+    mentions: sendingMentions,
+    replyingTo: replyingToSnapshot,
+    attachment: stagedAttachment,
+  } = snapshot;
   const { body, mentions } = buildCommentBody(rawText, sendingMentions);
   const clientId = composerUuid();
   // Commit 6: attach reply parent / quote if the user clicked Reply.
-  const replyFields = buildReplyFields(state.composer);
-  const replyingToSnapshot = state.composer.replyingTo
-    ? { ...state.composer.replyingTo }
-    : null;
+  // Snapshot-derived, NOT state.composer — performSend can run well after
+  // the click that triggered it (a moderation hold resolves on a timer),
+  // by which point the live composer may be replying to something else
+  // entirely. buildReplyFields is currently a no-op stub (always returns
+  // {}, see lib/compose.js) so this is inert today, but it must already
+  // be correct for whenever that stub is filled in.
+  const replyFields = buildReplyFields({ replyingTo: replyingToSnapshot });
 
   // OPTIMISTIC: insert into the store and render IMMEDIATELY so the user
   // sees their message land without the 12s poll delay.
@@ -8672,15 +8752,15 @@ async function submitComposer() {
   // (retryFailedMessage) can re-run register+PUT if the first attempt
   // failed BEFORE the upload landed. Without this, retry would silently
   // skip the upload and the message would send as text-only.
-  if (attachment) {
+  if (stagedAttachment) {
     pending.media_uploads = [
       {
         id: clientId,
         type: "image",
-        content_type: attachment.file.type,
-        url: attachment.previewUrl,
+        content_type: stagedAttachment.file.type,
+        url: stagedAttachment.previewUrl,
         _localPreview: true,
-        _stagedFile: attachment.file,
+        _stagedFile: stagedAttachment.file,
       },
     ];
   }
@@ -8688,24 +8768,6 @@ async function submitComposer() {
   insertInOrder(pending);
   renderAll();
   if (state.isAtBottom) scrollToBottom();
-
-  // Clear the composer right away. If the send fails, the message stays in
-  // the stream with a Retry button — we don't make the user re-type. The
-  // text is preserved on the failed comment itself (via pending.body).
-  input.value = "";
-  state.composer.mentions = {};
-  // Detach the staged attachment from state WITHOUT revoking its Object
-  // URL — the pending row still references it for the preview. The URL
-  // is reclaimed naturally when the pending DOM gets replaced by the
-  // server-reconciled row carrying the real CDN URL.
-  const stagedAttachment = state.composer.attachment;
-  state.composer.attachment = null;
-  renderComposerAttachment();
-  // Clear the reply target on optimistic insert; the failed-retry path
-  // re-attaches it from the pending comment's parent_id/quote.
-  clearReplyTarget(state.composer);
-  renderComposerReplyBar();
-  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
 
   // Loading state on the button.
   state.composer.pending = { id: clientId, text: rawText };
@@ -8808,6 +8870,83 @@ async function submitComposer() {
     if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
     if (state.composer._lastError) sendBtn.disabled = false;
   }
+}
+
+// AI moderation debounce/burst-batching intercept (slice 2 — no AI review
+// yet, that's slice 3, which will insert itself inside
+// resolveComposerModerationHold below, between "hold resolved" and
+// performSend). A plain-text send with no mention/reply/attachment gets
+// buffered for state.aiModerationDebounceMs, merging with any other
+// plain-text sends that arrive within the window (catches a rapid-fire
+// "stream of consciousness" burst as ONE message, per the product ask —
+// this waits to see if there's another message, it isn't a cooldown).
+// A mention/reply/attachment send is ineligible for merging (see
+// isComposerSendHoldEligible — positional mention placeholders can't be
+// renumbered across a merge without real complexity for a case that isn't
+// the ask) — it flushes any open hold first, in order, then sends itself
+// immediately. Moderation ON changes ONLY the timing for now (a debounce
+// delay before the optimistic insert appears), never the content.
+async function queueComposerForModeration(snapshot, input, sendBtn) {
+  const eligible = isComposerSendHoldEligible({
+    hasMentions: Object.keys(snapshot.mentions || {}).length > 0,
+    hasReply: !!snapshot.replyingTo,
+    hasAttachment: !!snapshot.attachment,
+  });
+
+  if (!eligible) {
+    // Flush BEFORE clearing/sending this message so nothing goes out of
+    // order — the held burst was typed first, it sends first, even
+    // though this cuts its debounce window short.
+    await flushComposerModerationHold(input, sendBtn);
+    clearComposerDraft(input);
+    await performSend(snapshot, input, sendBtn);
+    return;
+  }
+
+  clearComposerDraft(input);
+  const hold = mergeIntoModerationHold(
+    state.composer.moderationHold,
+    snapshot.rawText
+  );
+  if (state.composer.moderationHold && state.composer.moderationHold.timerId) {
+    clearTimeout(state.composer.moderationHold.timerId);
+  }
+  hold.timerId = setTimeout(() => {
+    resolveComposerModerationHold(input, sendBtn).catch(function (e) {
+      console.error("[BetterSSC] moderation hold resolve failed:", e);
+    });
+  }, state.aiModerationDebounceMs);
+  state.composer.moderationHold = hold;
+}
+
+// Pops the current hold (if any) and sends it now. Popping FIRST
+// (synchronously, before any await) makes this the single consumer of
+// moderationHold — a concurrent call (natural timer fire racing an
+// explicit flush) sees hold=null and no-ops, so a burst is never sent
+// twice. Slice 3 inserts the AI review call here, between the pop and
+// performSend, gating performSend on the review result instead of
+// calling it unconditionally as this stub does.
+async function resolveComposerModerationHold(input, sendBtn) {
+  const hold = state.composer.moderationHold;
+  if (!hold) return;
+  state.composer.moderationHold = null;
+  const joined = joinModerationHoldTexts(hold.texts);
+  await performSend(
+    { rawText: joined, mentions: {}, replyingTo: null, attachment: null },
+    input,
+    sendBtn
+  );
+}
+
+// Cancels a pending hold's timer and sends its buffered text right now —
+// used when an ineligible (mention/reply/attachment) send needs to flush
+// an in-progress hold first, so nothing sends out of order.
+async function flushComposerModerationHold(input, sendBtn) {
+  if (!state.composer.moderationHold) return;
+  if (state.composer.moderationHold.timerId) {
+    clearTimeout(state.composer.moderationHold.timerId);
+  }
+  await resolveComposerModerationHold(input, sendBtn);
 }
 
 // Splice a freshly-sent comment into the store AND forward it to Telegram.
