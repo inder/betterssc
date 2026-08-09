@@ -1,10 +1,10 @@
 {
-  "sha": "7528c4751e362469f439cc39a41c62666e998809",
+  "sha": "47c5cdda788b936b4982a756a268e24d3d3d9c4b",
   "branch": "main",
-  "ts": "2026-08-09T02:52:00Z",
+  "ts": "2026-08-09T03:20:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": ">200 LOC named-arc slice in a memory-rich domain with 2 should-fix findings, both fixed before push",
+  "retro_reasoning": "226-line diff, named slice of a multi-slice /loop arc in a domain with existing memory entries; 2 should-fix findings, both fixed before push (one caught mid-gather by review-gatherer, one by code-reviewer)",
   "critical_count": 0,
   "should_fix_count": 2,
   "nit_count": 3,
