@@ -8665,10 +8665,7 @@ async function submitComposer() {
     // away so we don't have to wait for the next poll cycle.
     const freshly = extractFreshComment(res, clientId, state.user);
     if (freshly) {
-      reconcilePending(
-        { comments: state.comments, order: state.order },
-        freshly
-      );
+      reconcileAndForward(freshly);
       renderAll();
     } else {
       // Fall back to a poll — ingestComment will overwrite the pending row
@@ -8719,6 +8716,29 @@ async function submitComposer() {
     if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
     if (state.composer._lastError) sendBtn.disabled = false;
   }
+}
+
+// Splice a freshly-sent comment into the store AND forward it to Telegram.
+// The synchronous-reconcile fast path (submitComposer / retryFailedMessage)
+// never goes through the poll loop's newlyAdded diffing, so without this
+// call your own sent messages never reach telegramBridge.forwardNewMessages
+// — the poll later sees the id already present and treats it as not-new.
+//
+// Forward whenever the comment landed in the store, regardless of whether
+// reconcilePending found a pending row to replace ("noop" included): a poll
+// can race the POST and ingest the comment first (overwriting the pending
+// row in place, so reconcilePending sees nothing to replace and returns
+// "noop") — in that race the poll's own ingest never forwards it either
+// (size diffing treats it as not-new), so skipping forward on "noop" would
+// silently drop the message again. sentIds (lib/telegram.js shouldForward)
+// is the actual de-dup guard, so forwarding here is always safe.
+function reconcileAndForward(freshly) {
+  reconcilePending(
+    { comments: state.comments, order: state.order },
+    freshly
+  );
+  const final = state.comments.get(freshly.id);
+  if (final) telegramBridge.forwardNewMessages([final]);
 }
 
 // Walk a postComment response trying to find the just-created comment with
@@ -8892,10 +8912,7 @@ async function retryFailedMessage(clientId) {
     });
     const freshly = extractFreshComment(res, clientId, state.user);
     if (freshly) {
-      reconcilePending(
-        { comments: state.comments, order: state.order },
-        freshly
-      );
+      reconcileAndForward(freshly);
     } else {
       // The reconciler will run again on the next poll if needed.
       c._pending = false;

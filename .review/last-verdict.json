@@ -1,12 +1,12 @@
 {
-  "sha": "e8149c2",
+  "sha": "d855bf8c73648dc5fbee172f967288265b246e7c",
   "branch": "main",
-  "ts": "2026-06-23T00:00:00Z",
+  "ts": "2026-06-30T21:02:59Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "2+ should-fix issues found; feature touches iframe lifecycle, search path, and a new exported function — real learning surface",
+  "retro_reasoning": "Recurrence of the same user-visible bug class as memory entry telegram-mirror-no-self-skip (own messages absent from Telegram), different mechanism — worth banking.",
   "critical_count": 0,
-  "should_fix_count": 3,
-  "nit_count": 3,
-  "files_reviewed": 5
+  "should_fix_count": 1,
+  "nit_count": 2,
+  "files_reviewed": 1
 }
