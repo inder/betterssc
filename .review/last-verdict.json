@@ -1,12 +1,12 @@
 {
-  "sha": "4f7172043e1bbe8d62c5b0d7ecded56c83daeef2",
+  "sha": "2e3bb1fe0c4f88c77a3893c3db19ee39a6a685a4",
   "branch": "main",
-  "ts": "2026-08-09T02:02:48Z",
-  "verdict": "fix-these",
-  "retro_required": "no",
-  "retro_reasoning": "Sub-100-line inert scaffolding slice, no criticals, no schema change — loop docs cover the arc.",
-  "critical_count": 0,
-  "should_fix_count": 2,
-  "nit_count": 3,
-  "files_reviewed": 1
+  "ts": "2026-08-09T02:28:24Z",
+  "verdict": "do-not-merge",
+  "retro_required": "yes",
+  "retro_reasoning": "Critical finding on a >200-line named-arc slice; snapshot-refactor missed-call-site is a bankable lesson class",
+  "critical_count": 1,
+  "should_fix_count": 1,
+  "nit_count": 1,
+  "files_reviewed": 3
 }
