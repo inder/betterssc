@@ -1672,6 +1672,11 @@ button {
   color: var(--danger);
   padding-left: 4px;
 }
+.composer-notice {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-left: 4px;
+}
 .composer-reply {
   display: flex;
   justify-content: space-between;

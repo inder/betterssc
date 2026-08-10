@@ -38,6 +38,8 @@ import {
   PREFETCH_PILL_VISIBLE_MS,
   PREFETCH_PILL_REMOVE_MS,
   computeRetryDelay,
+  AI_MODERATION_DEBOUNCE_OPTIONS_MS,
+  resolveAiModerationSettings,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -212,6 +214,17 @@ const state = {
   aiAskBusy: false,
   aiAskMaxTokens: null, // commit 5 wires the Tune dialog row
   aiAskWebSearch: null, // commit 5; null = default-on at call site
+  // AI moderation before posting — reviews your OWN outgoing message for
+  // public-forum-appropriate framing before it sends. BYOK, same
+  // aiProvider/aiKeys as AI Insights above. Independent booleans:
+  // aiModerationEnabled=false means the feature is fully off and
+  // aiModerationSkipReview is ignored. aiModerationEnabled=true +
+  // aiModerationSkipReview=true means review is bypassed (send posts
+  // immediately) but the feature's config stays intact — skip is a quick
+  // temporary bypass, never a proxy for turning the feature off.
+  aiModerationEnabled: false,
+  aiModerationDebounceMs: 2000, // 1000 | 2000 | 3000 | 5000, select-only
+  aiModerationSkipReview: false,
 };
 
 // ============================================================
@@ -3615,6 +3628,9 @@ function restoreWatchedUsers() {
         "bssc_ai_ask_web_search",
         "bssc_ai_lens_hint",
         "bssc_ai_format_template",
+        "bssc_ai_moderation_enabled",
+        "bssc_ai_moderation_debounce_ms",
+        "bssc_ai_moderation_skip",
         "bssc_giphy_api_key",
         "bssc_telegram_bot_token",
         "bssc_telegram_chat_id",
@@ -3665,6 +3681,14 @@ function restoreWatchedUsers() {
         if (typeof res.bssc_ai_format_template === "string") {
           state.aiFormatTemplate = res.bssc_ai_format_template;
         }
+        const resolvedModeration = resolveAiModerationSettings(res, {
+          enabled: state.aiModerationEnabled,
+          debounceMs: state.aiModerationDebounceMs,
+          skip: state.aiModerationSkipReview,
+        });
+        state.aiModerationEnabled = resolvedModeration.enabled;
+        state.aiModerationDebounceMs = resolvedModeration.debounceMs;
+        state.aiModerationSkipReview = resolvedModeration.skip;
         if (typeof res.bssc_giphy_api_key === "string" && res.bssc_giphy_api_key) {
           state.giphyApiKey = res.bssc_giphy_api_key;
         }
@@ -5671,6 +5695,61 @@ function openChatPrefsModal() {
   lpRow.appendChild(lpLabel);
   body.appendChild(lpRow);
 
+  // AI moderation toggle — reviews your own outgoing message for
+  // public-forum-appropriate framing before it posts. BYOK, same
+  // provider/key as AI Insights. Inert in this slice: nothing reads these
+  // fields yet, they just persist.
+  const modRow = document.createElement("div");
+  modRow.className = "tune-toggle-row";
+  const modCheckbox = document.createElement("input");
+  modCheckbox.type = "checkbox";
+  modCheckbox.id = "chatPrefsAiModeration";
+  modCheckbox.checked = !!state.aiModerationEnabled;
+  const modLabel = document.createElement("label");
+  modLabel.htmlFor = "chatPrefsAiModeration";
+  modLabel.className = "tune-toggle-label";
+  modLabel.textContent =
+    "Enable AI moderation before posting. Before a message sends, your configured AI provider reviews it for public-forum-appropriate framing and reworks it if needed. Uses the same key as AI Insights.";
+  modRow.appendChild(modCheckbox);
+  modRow.appendChild(modLabel);
+  body.appendChild(modRow);
+
+  const modDebounceRow = document.createElement("div");
+  modDebounceRow.className = "tune-toggle-row";
+  const modDebounceLabel = document.createElement("label");
+  modDebounceLabel.htmlFor = "chatPrefsAiModerationDebounce";
+  modDebounceLabel.className = "tune-toggle-label";
+  modDebounceLabel.textContent =
+    "Wait before reviewing (catches a quick follow-up message and merges it in first):";
+  const modDebounceSelect = document.createElement("select");
+  modDebounceSelect.id = "chatPrefsAiModerationDebounce";
+  modDebounceSelect.className = "tune-select";
+  for (const ms of AI_MODERATION_DEBOUNCE_OPTIONS_MS) {
+    const opt = document.createElement("option");
+    opt.value = String(ms);
+    opt.textContent = `${ms / 1000}s`;
+    if (state.aiModerationDebounceMs === ms) opt.selected = true;
+    modDebounceSelect.appendChild(opt);
+  }
+  modDebounceRow.appendChild(modDebounceLabel);
+  modDebounceRow.appendChild(modDebounceSelect);
+  body.appendChild(modDebounceRow);
+
+  const modSkipRow = document.createElement("div");
+  modSkipRow.className = "tune-toggle-row";
+  const modSkipCheckbox = document.createElement("input");
+  modSkipCheckbox.type = "checkbox";
+  modSkipCheckbox.id = "chatPrefsAiModerationSkip";
+  modSkipCheckbox.checked = !!state.aiModerationSkipReview;
+  const modSkipLabel = document.createElement("label");
+  modSkipLabel.htmlFor = "chatPrefsAiModerationSkip";
+  modSkipLabel.className = "tune-toggle-label";
+  modSkipLabel.textContent =
+    "Skip review and post directly. A quick bypass — your moderation settings above stay saved, review just doesn't run until you turn this back off.";
+  modSkipRow.appendChild(modSkipCheckbox);
+  modSkipRow.appendChild(modSkipLabel);
+  body.appendChild(modSkipRow);
+
   const footer = document.createElement("footer");
   footer.className = "ai-settings-footer";
   const cancel = document.createElement("button");
@@ -5708,6 +5787,19 @@ function openChatPrefsModal() {
     // synchronous within this click handler so chrome.permissions.request
     // keeps the user gesture (an awaited call would lose it).
     applyLinkPreviewToggle(!!lpCheckbox.checked);
+
+    state.aiModerationEnabled = !!modCheckbox.checked;
+    state.aiModerationDebounceMs = Number(modDebounceSelect.value) || 2000;
+    state.aiModerationSkipReview = !!modSkipCheckbox.checked;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_ai_moderation_enabled: state.aiModerationEnabled,
+          bssc_ai_moderation_debounce_ms: state.aiModerationDebounceMs,
+          bssc_ai_moderation_skip: state.aiModerationSkipReview,
+        });
+    } catch (_) {}
 
     closeChatPrefsModal();
   });
@@ -7518,7 +7610,22 @@ import {
   setReplyTarget,
   clearReplyTarget,
   buildReplyFields,
+  isComposerSendHoldEligible,
+  mergeIntoModerationHold,
+  joinModerationHoldTexts,
 } from "./lib/compose.js";
+import {
+  buildModerationSystemPrompt,
+  parseModerationResponse,
+  MODERATION_USER_MESSAGE,
+  MODERATION_MAX_TOKENS,
+  MODERATION_TIMEOUT_MS,
+  MODERATION_CONTEXT_MESSAGE_LIMIT,
+  MODERATION_CONTEXT_BUDGET_CHARS,
+  MODERATION_NO_PROVIDER_MESSAGE,
+  MODERATION_REVIEW_NOTICE,
+  MODERATION_SUGGESTION_NOTICE,
+} from "./lib/moderation.js";
 import {
   postComment as apiPostComment,
   fetchMentionSuggestions as apiFetchMentions,
@@ -7557,6 +7664,41 @@ state.composer = state.composer || {
   // when the upload itself fails — we keep the text in the composer
   // and surface a retry-friendly error toast).
   attachment: null,
+  // AI moderation debounce/burst-batching hold (slice 2 of the moderation
+  // arc). null while nothing is buffered. Deliberately SEPARATE from
+  // `pending` above — pending means "network call in flight" and gates
+  // the Send button; moderationHold means "buffering, waiting to see if
+  // another message arrives" and must NOT disable Send, or burst-catching
+  // couldn't work (the user needs to be able to hit Send again for
+  // message 2 while message 1 is being held). Shape while active:
+  // { texts: string[], timerId }.
+  moderationHold: null,
+  // AI moderation review in flight (slice 3). true for the duration of
+  // the AI round-trip + whatever it decides — set by reviewAndSend, NOT
+  // by performSend (which still owns `pending` for the network-send leg
+  // only). Unlike moderationHold, THIS one DOES gate re-entry (see
+  // refreshSendBtn and submitComposer's entry guard): by the time a
+  // review starts, the debounce/burst-catching window has already
+  // closed, so a second send arriving mid-review has nothing to merge
+  // into — without this flag two ineligible (mention/reply/attachment)
+  // sends reviewed back-to-back would race for the single `pending` slot
+  // exactly like the flush-ordering bug slice 2's design review caught.
+  moderationReviewing: false,
+  // A reword suggestion showing in the composer, waiting for the user to
+  // edit or send it (slice 4, revised after live dogfooding — no
+  // auto-post timer). null while nothing is showing. Unlike
+  // moderationReviewing, this does NOT gate Send being clickable —
+  // clicking Send while a suggestion is showing posts it as-is. Value is
+  // the snapshot to send when the user confirms.
+  moderationSuggestion: null,
+  // Hard-block-until-edited (slice 4). null when nothing is blocked; the
+  // exact flagged text otherwise — Send stays disabled (see
+  // refreshSendBtn) as long as the live composer value still equals
+  // this string. Set ONLY on an actual moderation verdict (offensive or
+  // political_reply), never on a transient review failure — a network
+  // hiccup shouldn't force the user to edit a perfectly fine message
+  // just to retry it.
+  moderationBlockedText: null,
 };
 
 // MIME allow-list + size cap for staged attachments. HAR captures
@@ -7592,7 +7734,17 @@ function mountComposer() {
     const txt = input.value || "";
     const empty = txt.trim().length === 0;
     const hasAttachment = !!state.composer.attachment;
-    sendBtn.disabled = (empty && !hasAttachment) || !!state.composer.pending;
+    // A moderationSuggestion does NOT disable Send — clicking it while a
+    // suggestion is showing posts it as-is (handleComposerSendTrigger),
+    // not something to block.
+    const hardBlocked =
+      state.composer.moderationBlockedText !== null &&
+      input.value === state.composer.moderationBlockedText;
+    sendBtn.disabled =
+      (empty && !hasAttachment) ||
+      !!state.composer.pending ||
+      !!state.composer.moderationReviewing ||
+      hardBlocked;
   };
 
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
@@ -7603,6 +7755,21 @@ function mountComposer() {
     if (state.composer._lastError) {
       clearComposerError();
       sendBtn.textContent = "Send";
+    }
+    // Editing while a suggestion is showing cancels it — treated as an
+    // ordinary draft from here, not re-sent automatically.
+    if (state.composer.moderationSuggestion) {
+      cancelModerationSuggestion();
+    }
+    // Compares the untrimmed live value against the untrimmed value
+    // moderationBlockedText was set from (snapshot.rawText), so a
+    // char-for-char identical retype stays blocked rather than
+    // momentarily unblocking on a trim mismatch.
+    if (
+      state.composer.moderationBlockedText !== null &&
+      input.value !== state.composer.moderationBlockedText
+    ) {
+      state.composer.moderationBlockedText = null;
     }
     refreshSendBtn();
     // Commit 4: mention autocomplete trigger.
@@ -7616,13 +7783,13 @@ function mountComposer() {
     if (handleMentionKeydown(e, input)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submitComposer();
+      handleComposerSendTrigger();
     }
   });
 
   sendBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    submitComposer();
+    handleComposerSendTrigger();
   });
 
   // Set initial height so the textarea starts at exactly one row.
@@ -7760,6 +7927,11 @@ function tryStageAttachment(file) {
     );
     return false;
   }
+  // Staging an attachment doesn't fire the composer's `input` event (the
+  // only place a moderation suggestion otherwise gets canceled) — cancel
+  // it explicitly so the user's new attachment doesn't end up silently
+  // attached to the old (already-approved) reworded text.
+  if (state.composer.moderationSuggestion) cancelModerationSuggestion();
   // Discard any prior staged attachment first (revokes its preview URL
   // so we don't leak Blob URLs across re-stages).
   clearStagedAttachment();
@@ -8343,6 +8515,11 @@ function renderComposerReplyBar() {
 // Called from the message hover toolbar's "Reply" button.
 function startReplyTo(comment) {
   if (!comment) return;
+  // Selecting a reply target doesn't fire the composer's `input` event
+  // (the only place a moderation suggestion otherwise gets canceled) —
+  // cancel it explicitly so the reply doesn't end up silently attached
+  // to the old (already-approved) reworded text.
+  if (state.composer.moderationSuggestion) cancelModerationSuggestion();
   setReplyTarget(state.composer, comment);
   renderComposerReplyBar();
 }
@@ -8541,21 +8718,120 @@ async function submitComposer() {
   // appears as the message content).
   const attachment = state.composer.attachment;
   if (!text && !attachment) return;
-  if (state.composer.pending) return; // already in flight
+  // already in flight — moderationReviewing covers the AI round-trip
+  // (slice 3), pending covers the network send. Both are single-consumer
+  // windows: by the time either is set, the debounce/burst-catching
+  // window (moderationHold, which deliberately does NOT gate re-entry)
+  // has already closed. moderationSuggestion is belt-and-suspenders —
+  // handleComposerSendTrigger already intercepts both send triggers
+  // before they ever reach here while a suggestion is showing, this just
+  // means a future third caller of submitComposer() can't slip past it.
+  // moderationBlockedText compares the UNTRIMMED input.value (matching
+  // how it was set from snapshot.rawText, itself untrimmed) — Enter
+  // doesn't respect the Send button's disabled attribute, so the
+  // hard-block needs its own stop here, not just in refreshSendBtn.
+  if (
+    state.composer.pending ||
+    state.composer.moderationReviewing ||
+    state.composer.moderationSuggestion ||
+    (state.composer.moderationBlockedText !== null &&
+      input.value === state.composer.moderationBlockedText)
+  ) {
+    return;
+  }
   if (!state.postUuid) {
     showComposerError("No chat post loaded — refresh and try again.");
     return;
   }
 
-  const rawText = input.value;
-  const sendingMentions = { ...state.composer.mentions };
+  // Snapshot what THIS send should carry, before anything clears the live
+  // composer state. Needed because a held (moderation-buffered) send is
+  // cleared from the composer immediately but not actually transmitted
+  // until its debounce window elapses — performSend must send what was
+  // snapshotted at click time, never whatever the composer holds later.
+  const snapshot = {
+    rawText: input.value,
+    mentions: { ...state.composer.mentions },
+    replyingTo: state.composer.replyingTo
+      ? { ...state.composer.replyingTo }
+      : null,
+    attachment: state.composer.attachment,
+  };
+
+  // AI moderation before posting (slice 2-3 of the moderation arc — see
+  // roadmap.md). OFF (default) or skip-review ON: unchanged behavior,
+  // falls straight through to the immediate send below.
+  if (state.aiModerationEnabled && !state.aiModerationSkipReview) {
+    // Fail fast, before ever holding/reviewing: moderation is a settings
+    // toggle SEPARATE from AI-provider configuration (BYOK, shared with
+    // AI Insights), so a user can flip it on without ever having set up
+    // a key. Fail-closed per the confirmed product requirement means
+    // blocking here rather than silently sending unreviewed — check this
+    // up front so it's one clear message, not a per-message failure loop
+    // after every debounce window.
+    if (!state.aiProvider || !state.aiKeys[state.aiProvider]) {
+      showComposerError(MODERATION_NO_PROVIDER_MESSAGE);
+      return;
+    }
+    await queueComposerForModeration(snapshot, input, sendBtn);
+    return;
+  }
+
+  // Flush any hold left over from BEFORE moderation was just turned off
+  // (or skip-review just turned on) mid-debounce — otherwise its armed
+  // timer fires later and races this send for the single
+  // state.composer.pending slot. No-ops if nothing is held. Mirrors the
+  // flush queueComposerForModeration already does for an ineligible send.
+  await flushComposerModerationHold(input, sendBtn);
+  clearComposerDraft(input);
+  await performSend(snapshot, input, sendBtn);
+}
+
+// Clears the LIVE composer draft — input text, mention buffer, staged
+// attachment, reply target — and refreshes their UI. Split out of
+// performSend (which used to do this itself) because a moderation-held
+// send must clear the draft immediately, at hold-time, so the user can
+// keep typing the next burst message; performSend only runs later, once
+// the hold resolves, by which point the composer has moved on to a new
+// draft that must NOT be touched.
+function clearComposerDraft(input) {
+  input.value = "";
+  state.composer.mentions = {};
+  // Detach the staged attachment from state WITHOUT revoking its Object
+  // URL — a pending row built from the snapshot still references it for
+  // the preview. The URL is reclaimed naturally when the pending DOM gets
+  // replaced by the server-reconciled row carrying the real CDN URL.
+  state.composer.attachment = null;
+  renderComposerAttachment();
+  clearReplyTarget(state.composer);
+  renderComposerReplyBar();
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+}
+
+// Actually sends a message: optimistic insert, then the network call.
+// Takes a SNAPSHOT ({rawText, mentions, replyingTo, attachment}) rather
+// than reading state.composer directly — it may run well after the click
+// that triggered it (a moderation hold resolves on a timer), by which
+// point the live composer holds an unrelated in-progress draft. Does NOT
+// clear the composer — see clearComposerDraft, called separately by each
+// caller at the moment that specific send's draft should be cleared.
+async function performSend(snapshot, input, sendBtn) {
+  const {
+    rawText,
+    mentions: sendingMentions,
+    replyingTo: replyingToSnapshot,
+    attachment: stagedAttachment,
+  } = snapshot;
   const { body, mentions } = buildCommentBody(rawText, sendingMentions);
   const clientId = composerUuid();
   // Commit 6: attach reply parent / quote if the user clicked Reply.
-  const replyFields = buildReplyFields(state.composer);
-  const replyingToSnapshot = state.composer.replyingTo
-    ? { ...state.composer.replyingTo }
-    : null;
+  // Snapshot-derived, NOT state.composer — performSend can run well after
+  // the click that triggered it (a moderation hold resolves on a timer),
+  // by which point the live composer may be replying to something else
+  // entirely. buildReplyFields is currently a no-op stub (always returns
+  // {}, see lib/compose.js) so this is inert today, but it must already
+  // be correct for whenever that stub is filled in.
+  const replyFields = buildReplyFields({ replyingTo: replyingToSnapshot });
 
   // OPTIMISTIC: insert into the store and render IMMEDIATELY so the user
   // sees their message land without the 12s poll delay.
@@ -8580,15 +8856,15 @@ async function submitComposer() {
   // (retryFailedMessage) can re-run register+PUT if the first attempt
   // failed BEFORE the upload landed. Without this, retry would silently
   // skip the upload and the message would send as text-only.
-  if (attachment) {
+  if (stagedAttachment) {
     pending.media_uploads = [
       {
         id: clientId,
         type: "image",
-        content_type: attachment.file.type,
-        url: attachment.previewUrl,
+        content_type: stagedAttachment.file.type,
+        url: stagedAttachment.previewUrl,
         _localPreview: true,
-        _stagedFile: attachment.file,
+        _stagedFile: stagedAttachment.file,
       },
     ];
   }
@@ -8596,24 +8872,6 @@ async function submitComposer() {
   insertInOrder(pending);
   renderAll();
   if (state.isAtBottom) scrollToBottom();
-
-  // Clear the composer right away. If the send fails, the message stays in
-  // the stream with a Retry button — we don't make the user re-type. The
-  // text is preserved on the failed comment itself (via pending.body).
-  input.value = "";
-  state.composer.mentions = {};
-  // Detach the staged attachment from state WITHOUT revoking its Object
-  // URL — the pending row still references it for the preview. The URL
-  // is reclaimed naturally when the pending DOM gets replaced by the
-  // server-reconciled row carrying the real CDN URL.
-  const stagedAttachment = state.composer.attachment;
-  state.composer.attachment = null;
-  renderComposerAttachment();
-  // Clear the reply target on optimistic insert; the failed-retry path
-  // re-attaches it from the pending comment's parent_id/quote.
-  clearReplyTarget(state.composer);
-  renderComposerReplyBar();
-  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
 
   // Loading state on the button.
   state.composer.pending = { id: clientId, text: rawText };
@@ -8665,10 +8923,7 @@ async function submitComposer() {
     // away so we don't have to wait for the next poll cycle.
     const freshly = extractFreshComment(res, clientId, state.user);
     if (freshly) {
-      reconcilePending(
-        { comments: state.comments, order: state.order },
-        freshly
-      );
+      reconcileAndForward(freshly);
       renderAll();
     } else {
       // Fall back to a poll — ingestComment will overwrite the pending row
@@ -8719,6 +8974,411 @@ async function submitComposer() {
     if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
     if (state.composer._lastError) sendBtn.disabled = false;
   }
+}
+
+// AI moderation debounce/burst-batching intercept (slice 2 — no AI review
+// yet, that's slice 3, which will insert itself inside
+// resolveComposerModerationHold below, between "hold resolved" and
+// performSend). A plain-text send with no mention/reply/attachment gets
+// buffered for state.aiModerationDebounceMs, merging with any other
+// plain-text sends that arrive within the window (catches a rapid-fire
+// "stream of consciousness" burst as ONE message, per the product ask —
+// this waits to see if there's another message, it isn't a cooldown).
+// A mention/reply/attachment send is ineligible for merging (see
+// isComposerSendHoldEligible — positional mention placeholders can't be
+// renumbered across a merge without real complexity for a case that isn't
+// the ask) — it flushes any open hold first, in order, then sends itself
+// immediately. Moderation ON changes ONLY the timing for now (a debounce
+// delay before the optimistic insert appears), never the content.
+async function queueComposerForModeration(snapshot, input, sendBtn) {
+  const eligible = isComposerSendHoldEligible({
+    hasMentions: Object.keys(snapshot.mentions || {}).length > 0,
+    hasReply: !!snapshot.replyingTo,
+    hasAttachment: !!snapshot.attachment,
+  });
+
+  if (!eligible) {
+    // Flush BEFORE clearing/sending this message so nothing goes out of
+    // order — the held burst was typed first, it sends first, even
+    // though this cuts its debounce window short.
+    await flushComposerModerationHold(input, sendBtn);
+    clearComposerDraft(input);
+    // "block-only" — a mention/reply/attachment send never gets its text
+    // rewritten (a reword can't safely preserve an @name token), it can
+    // only be blocked (offensive, or a reply to something political) or
+    // sent verbatim. This is also the ONLY path that can ever carry
+    // replyingTo, which is exactly what makes the political-reply check
+    // meaningful — it must not be skipped just because it can't merge.
+    await reviewAndSend(snapshot, input, sendBtn, "block-only");
+    return;
+  }
+
+  clearComposerDraft(input);
+  // Shown from the moment the message is held, not just once the AI call
+  // itself starts (reviewAndSend re-shows the same text, a no-op visual
+  // change) — closes the silent gap during the debounce wait, which used
+  // to leave the composer looking blank/dead for the whole
+  // aiModerationDebounceMs window with no explanation.
+  showComposerNotice(MODERATION_REVIEW_NOTICE);
+  const hold = mergeIntoModerationHold(
+    state.composer.moderationHold,
+    snapshot.rawText
+  );
+  if (state.composer.moderationHold && state.composer.moderationHold.timerId) {
+    clearTimeout(state.composer.moderationHold.timerId);
+  }
+  hold.timerId = setTimeout(() => {
+    resolveComposerModerationHold(input, sendBtn).catch(function (e) {
+      console.error("[BetterSSC] moderation hold resolve failed:", e);
+    });
+  }, state.aiModerationDebounceMs);
+  state.composer.moderationHold = hold;
+}
+
+// Pops the current hold (if any) and sends it now. Popping FIRST
+// (synchronously, before any await) makes this the single consumer of
+// moderationHold — a concurrent call (natural timer fire racing an
+// explicit flush) sees hold=null and no-ops, so a burst is never sent
+// twice. "full" mode — a held message is ALWAYS plain text with no
+// mention/reply/attachment (that's the definition of hold-eligible), so
+// a reword can safely replace what gets sent.
+async function resolveComposerModerationHold(input, sendBtn) {
+  const hold = state.composer.moderationHold;
+  if (!hold) return;
+  state.composer.moderationHold = null;
+  const joined = joinModerationHoldTexts(hold.texts);
+  await reviewAndSend(
+    { rawText: joined, mentions: {}, replyingTo: null, attachment: null },
+    input,
+    sendBtn,
+    "full"
+  );
+}
+
+// Cancels a pending hold's timer and sends its buffered text right now —
+// used when an ineligible (mention/reply/attachment) send needs to flush
+// an in-progress hold first, so nothing sends out of order.
+async function flushComposerModerationHold(input, sendBtn) {
+  if (!state.composer.moderationHold) return;
+  if (state.composer.moderationHold.timerId) {
+    clearTimeout(state.composer.moderationHold.timerId);
+  }
+  await resolveComposerModerationHold(input, sendBtn);
+}
+
+// Runs the AI moderation review call and returns a verdict — NEVER
+// throws, every failure path is a returned {ok:false}. mode is "full"
+// (reword may be applied) or "block-only" (reword is ignored even if the
+// model provides one — see parseModerationResponse in lib/moderation.js).
+//
+// Deliberately fail-closed on EVERY failure mode (missing provider/key
+// past the submitComposer precheck racing a mid-review toggle, network
+// error, non-2xx, malformed/unparseable response, timeout) — never
+// silently returns "clean" just because the review itself broke. This
+// was an explicit, confirmed product decision, not a default: "Fail
+// closed — block until AI responds or user cancels... Never silently
+// posts something that was never reviewed."
+async function reviewModerationText(text, { replyingTo, mode }) {
+  const providerName = state.aiProvider;
+  const apiKey = providerName && state.aiKeys[providerName];
+  if (!providerName || !apiKey) {
+    return { ok: false, error: MODERATION_NO_PROVIDER_MESSAGE };
+  }
+  const providerObj = PROVIDERS[providerName];
+  const modelInfo = MODEL_CATALOG[providerName] && MODEL_CATALOG[providerName][0];
+  if (!providerObj || !modelInfo) {
+    return { ok: false, error: "Unknown AI provider" };
+  }
+
+  const visible = state.order
+    .slice(-MODERATION_CONTEXT_MESSAGE_LIMIT)
+    .map((id) => state.comments.get(id))
+    .filter(Boolean);
+  const { context } = formatMessagesForLLM(visible, {
+    budget: MODERATION_CONTEXT_BUDGET_CHARS,
+  });
+  const systemPrompt = buildModerationSystemPrompt(context, {
+    draftText: text,
+    replyingTo,
+  });
+
+  let result;
+  try {
+    result = await callProvider(providerObj, {
+      systemPrompt,
+      conversation: [{ role: "user", content: MODERATION_USER_MESSAGE }],
+      apiKey,
+      model: modelInfo.id,
+      maxTokens: MODERATION_MAX_TOKENS,
+      // Moderation needs speed, not search — web search adds multi-second
+      // latency the arc's 1-2s post-review window can't afford (unlike AI
+      // Insights/Ask, where it's a deliberate feature).
+      webSearchEnabled: false,
+      signal: AbortSignal.timeout(MODERATION_TIMEOUT_MS),
+    });
+  } catch (e) {
+    // callProvider's own contract is "never throws" (network/HTTP/abort
+    // are all folded into {error}), but AbortSignal.timeout can reject
+    // the fetch before callProvider's try/catch sees it on some engines
+    // — belt and suspenders so a timeout can never become an unhandled
+    // rejection that skips the fail-closed path.
+    return { ok: false, error: (e && e.message) || "AI moderation request failed" };
+  }
+  if (result.error) {
+    return { ok: false, error: result.error };
+  }
+
+  const parsed = parseModerationResponse(result.text, mode);
+  if (!parsed.ok) {
+    return { ok: false, error: "AI moderation returned an unreadable response." };
+  }
+  const { offensive, needsReword, reworded, politicalReply, reasoning } =
+    parsed.result;
+  // Never trust the model alone on political_reply for a non-reply send
+  // — it's asked to always report false when there's no REPLY CONTEXT,
+  // but a hallucinated true must not be able to block a plain message.
+  const effectivePoliticalReply = replyingTo ? politicalReply : false;
+
+  if (offensive || effectivePoliticalReply) {
+    return { ok: true, blocked: true, reasoning };
+  }
+  // needsReword is exposed to the caller (not just consumed here) so it
+  // can distinguish "approved as-is" from "approved after rewording" —
+  // string-comparing textToSend against the original would be fragile
+  // (a reword could coincidentally be byte-identical to the input) and
+  // it's needsReword, not a text diff, that decides whether the caller
+  // shows a countdown/reappear UI at all.
+  if (mode === "full" && needsReword) {
+    return { ok: true, blocked: false, needsReword: true, textToSend: reworded, reasoning };
+  }
+  return { ok: true, blocked: false, needsReword: false, textToSend: text, reasoning };
+}
+
+// Shared send path for both moderation branches (a resolved hold, or an
+// ineligible message past its flush) — runs the review, then either
+// sends the approved text (straight through, or via a cancelable
+// countdown when it was reworded), or restores the composer on
+// block/failure. Sets moderationReviewing for the REVIEW call only —
+// NOT held through the countdown, because Send must be CLICKABLE during
+// the countdown (clicking it is the "post now" cancel action, not
+// something to keep disabled). See the state comment on moderationHold
+// for why re-entry must be blocked here but not there.
+async function reviewAndSend(snapshot, input, sendBtn, mode) {
+  state.composer.moderationReviewing = true;
+  // Same string as the hold-start call site (queueComposerForModeration)
+  // — re-showing it here is a visual no-op, not a flicker, since review
+  // starting is the continuation of the same "reviewing" state the user
+  // has already been looking at since they hit send.
+  showComposerNotice(MODERATION_REVIEW_NOTICE);
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+  // Tracks whether presentModerationSuggestion took over the notice
+  // banner below — it's called synchronously (never awaited, see its own
+  // comment), so without this flag the finally's clearComposerNotice()
+  // would run in the SAME synchronous tick as the suggestion's own
+  // showComposerNotice() call, wiping the "Reworded…" banner before it
+  // ever paints. Only the suggestion branch sets this.
+  let suggestionShown = false;
+  try {
+    const review = await reviewModerationText(snapshot.rawText, {
+      replyingTo: snapshot.replyingTo,
+      mode,
+    });
+    if (!review.ok) {
+      // Transient failure (network/HTTP/timeout/unparseable) — NOT a
+      // moderation verdict. Never sets moderationBlockedText: the text
+      // itself was never judged, so it must stay freely resendable —
+      // only an actual `blocked` verdict earns the hard-block treatment.
+      restoreComposerAfterModerationFailure(input, snapshot, review.error, {
+        blocked: false,
+      });
+      return;
+    }
+    if (review.blocked) {
+      restoreComposerAfterModerationFailure(
+        input,
+        snapshot,
+        "AI moderation flagged this message" +
+          (review.reasoning ? ": " + review.reasoning : "") +
+          ". Edit to resend, or turn off moderation in Chat preferences.",
+        { blocked: true }
+      );
+      return;
+    }
+    // Defensive: needsReword should only ever be true in "full" mode
+    // (reviewModerationText only sets it there), but a reword suggestion
+    // is meaningless without mode "full" — guard on both so a
+    // hypothetical future bug in that gate can't surface a reword UI on
+    // a block-only-mode message.
+    if (mode === "full" && review.needsReword) {
+      suggestionShown = true;
+      presentModerationSuggestion(
+        { ...snapshot, rawText: review.textToSend },
+        input,
+        sendBtn
+      );
+      return;
+    }
+    await performSend({ ...snapshot, rawText: review.textToSend }, input, sendBtn);
+  } finally {
+    if (!suggestionShown) clearComposerNotice();
+    state.composer.moderationReviewing = false;
+    if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+  }
+}
+
+// Restores the ENTIRE original draft to the composer on a block/failure —
+// text, mentions, reply target, and attachment, not just text (the
+// mention/reply/attachment path is exactly the one guaranteed to carry
+// those, since that's what makes it "block-only" in the first place —
+// restoring text alone would silently drop the user's staged attachment
+// or reply target on a transient failure). NEVER discards the user's
+// draft (arc invariant): only restores when the input is currently
+// empty, since the user may have started composing something new during
+// the review round-trip, and that must never be clobbered by the old
+// snapshot — known, accepted simplification: an in-progress NEW
+// attachment staged with no text yet would still get overwritten here;
+// same class of edge case the text-only version already accepted.
+// Also sets _lastError so the same input-listener behavior that clears a
+// send-failure banner on edit (see mountComposer) applies here too.
+//
+// opts.blocked: true ONLY for an actual moderation verdict (offensive or
+// political_reply) — sets moderationBlockedText so Send stays disabled
+// until the user actually edits away from the exact flagged text (see
+// refreshSendBtn and the input listener in mountComposer). false for a
+// transient review failure (network/timeout/unparseable) — that text was
+// never judged, so it must stay freely resendable, not hard-blocked.
+function restoreComposerAfterModerationFailure(input, snapshot, message, opts = {}) {
+  if (input && !input.value) {
+    input.value = snapshot.rawText;
+    state.composer.mentions = snapshot.mentions || {};
+    state.composer.attachment = snapshot.attachment || null;
+    state.composer.replyingTo = snapshot.replyingTo || null;
+    renderComposerAttachment();
+    renderComposerReplyBar();
+    autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+    if (opts.blocked) {
+      state.composer.moderationBlockedText = snapshot.rawText;
+    }
+  }
+  state.composer._lastError = true;
+  showComposerError(message);
+}
+
+// Shows the AI's reworded suggestion in the composer and STOPS — no
+// auto-post timer. Live dogfooding of an earlier auto-post-after-a-
+// countdown version found it gave no real chance to read the suggestion
+// before it posted; this replaces that with an explicit manual step:
+// edit the text (cancels — see cancelModerationSuggestion) or press
+// Send/Enter to post it as shown (see handleComposerSendTrigger).
+function presentModerationSuggestion(snapshot, input, sendBtn) {
+  // If the user has already started a new draft by the time this lands
+  // (burst-catching lets them keep typing while an earlier message is
+  // held/reviewed), don't clobber it — post the already-approved reword
+  // directly instead. Rare (a tight race between review completing and
+  // the next keystroke), but silently dropping the AI's approved work
+  // isn't acceptable, and neither is stomping text the user is actively
+  // composing. Clears the notice itself either way so the caller
+  // (reviewAndSend) doesn't need to know which branch ran.
+  if (input.value) {
+    clearComposerNotice();
+    void performSend(snapshot, input, sendBtn);
+    return;
+  }
+  input.value = snapshot.rawText;
+  autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
+  showComposerNotice(MODERATION_SUGGESTION_NOTICE);
+  state.composer.moderationSuggestion = snapshot;
+  if (state.composer._refreshSendBtn) state.composer._refreshSendBtn();
+}
+
+// Edit-to-cancel: called from the composer's input listener (and from
+// the attachment/reply-target staging paths, which don't fire `input`)
+// the moment the user changes anything while a suggestion is showing.
+// Leaves the (now user-edited) text sitting in the composer as an
+// ordinary draft — does NOT send it, does NOT re-trigger review
+// immediately. The next Send/Enter re-enters submitComposer() fresh and
+// is reviewed normally.
+function cancelModerationSuggestion() {
+  if (!state.composer.moderationSuggestion) return;
+  state.composer.moderationSuggestion = null;
+  clearComposerNotice();
+}
+
+// Post-as-shown: called when Send/Enter fires WHILE a suggestion is
+// showing (see handleComposerSendTrigger). Never re-runs review — the
+// text was just approved; by the time this can fire the composer is
+// guaranteed to still hold the untouched approved text, because ANY
+// edit would already have canceled the suggestion via the input
+// listener first.
+function finalizeModerationSuggestion() {
+  const snapshot = state.composer.moderationSuggestion;
+  if (!snapshot) return;
+  state.composer.moderationSuggestion = null;
+  clearComposerNotice();
+  const input = document.getElementById("composerInput");
+  const sendBtn = document.getElementById("composerSend");
+  if (!input || !sendBtn) return;
+  clearComposerDraft(input);
+  void performSend(snapshot, input, sendBtn);
+}
+
+// Single choke point for both send triggers (Enter-key and the Send
+// button click) — see mountComposer. Keeping this as one shared function
+// rather than duplicating the suggestion check in both listeners is
+// deliberate: this codebase has a documented recurring bug class where a
+// new pre-step gets added to one call site and not its sibling.
+function handleComposerSendTrigger() {
+  if (state.composer.moderationSuggestion) {
+    finalizeModerationSuggestion();
+    return;
+  }
+  submitComposer();
+}
+
+// Composer-local "AI is reviewing…" / countdown banner — sibling to
+// showComposerError/clearComposerError, same DOM-child-of-#composer
+// pattern, but neutral/informational styling (not the error red) and a
+// separate element so a notice and an error banner never fight over the
+// same node.
+function showComposerNotice(msg) {
+  const composer = document.getElementById("composer");
+  if (!composer) return;
+  let el = document.getElementById("composerNotice");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "composerNotice";
+    el.className = "composer-notice";
+    composer.appendChild(el);
+  }
+  el.textContent = msg;
+}
+
+function clearComposerNotice() {
+  const el = document.getElementById("composerNotice");
+  if (el) el.remove();
+}
+
+// Splice a freshly-sent comment into the store AND forward it to Telegram.
+// The synchronous-reconcile fast path (submitComposer / retryFailedMessage)
+// never goes through the poll loop's newlyAdded diffing, so without this
+// call your own sent messages never reach telegramBridge.forwardNewMessages
+// — the poll later sees the id already present and treats it as not-new.
+//
+// Forward whenever the comment landed in the store, regardless of whether
+// reconcilePending found a pending row to replace ("noop" included): a poll
+// can race the POST and ingest the comment first (overwriting the pending
+// row in place, so reconcilePending sees nothing to replace and returns
+// "noop") — in that race the poll's own ingest never forwards it either
+// (size diffing treats it as not-new), so skipping forward on "noop" would
+// silently drop the message again. sentIds (lib/telegram.js shouldForward)
+// is the actual de-dup guard, so forwarding here is always safe.
+function reconcileAndForward(freshly) {
+  reconcilePending(
+    { comments: state.comments, order: state.order },
+    freshly
+  );
+  const final = state.comments.get(freshly.id);
+  if (final) telegramBridge.forwardNewMessages([final]);
 }
 
 // Walk a postComment response trying to find the just-created comment with
@@ -8892,10 +9552,7 @@ async function retryFailedMessage(clientId) {
     });
     const freshly = extractFreshComment(res, clientId, state.user);
     if (freshly) {
-      reconcilePending(
-        { comments: state.comments, order: state.order },
-        freshly
-      );
+      reconcileAndForward(freshly);
     } else {
       // The reconciler will run again on the next poll if needed.
       c._pending = false;

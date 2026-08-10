@@ -1,12 +1,12 @@
 {
-  "sha": "d855bf8c73648dc5fbee172f967288265b246e7c",
+  "sha": "9825be08e6f3ec11fdc5d186704f11ce090bad00",
   "branch": "main",
-  "ts": "2026-07-15T21:43:46Z",
+  "ts": "2026-08-09T04:27:00Z",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "2+ should-fix findings, and the proxy-tab/retry domain already has multiple memory entries (accumulating-learnings signal)",
+  "retro_reasoning": "Memory-dense domain (composer/moderation) plus a real should-fix (burst-typing collision) found on a live dogfood path and fixed before push; also a content-fidelity fix (reword changing factual claims) surfaced by live dogfooding, not by review",
   "critical_count": 0,
-  "should_fix_count": 3,
+  "should_fix_count": 1,
   "nit_count": 2,
-  "files_reviewed": 3
+  "files_reviewed": 2
 }
