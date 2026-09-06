@@ -37,6 +37,8 @@ import {
   debounce,
   chatNameAcronym,
   pickLiveliestPost,
+  extractPostBody,
+  formatThreadRailRows,
   PREFETCH_BASE_DELAY_MS,
   PREFETCH_SLOT_POLL_MS,
   PREFETCH_PILL_VISIBLE_MS,
@@ -145,6 +147,13 @@ const state = {
   publicationId: null,
   postUuid: null,
   targetReplyId: null,
+  channelId: null,
+  // Page 1 of the channel's post feed (raw `threads` array from
+  // fetchChannelPosts), set once at boot when the URL carries a channel id.
+  // Feeds both pickLiveliestPost (choosing a default post) and the
+  // thread-switcher rail (formatThreadRailRows). Empty for a legacy
+  // pub+post URL, which carries no channel context at all.
+  channelThreads: [],
   user: null, // {id, name, handle} from _analyticsConfig (via background)
   // Telegram bridge (v0.9) — mirror of the persisted bridge config. The live
   // controller lives in telegramBridge (lib/telegram-bridge.js); this is what
@@ -297,9 +306,35 @@ async function resolveChannelTarget() {
   if (!state.publicationId) {
     throw new Error("channel record carried no publication id");
   }
-  if (state.postUuid) return;
+  // Fetching the channel's post feed serves two purposes with different
+  // failure tolerances:
+  //   1. Picking a default post, when the URL didn't name one — REQUIRED.
+  //      No feed means nothing to show, so this must hard-fail to the
+  //      landing screen, same as before the rail existed.
+  //   2. Populating the thread rail, when the URL already names a real
+  //      post — OPTIONAL. The chat the user actually asked for is already
+  //      fully resolved at this point; a transient proxy hiccup on this
+  //      call must not turn a working chat into "Couldn't open this
+  //      Substack chat channel". Soft-fail to an empty rail instead — the
+  //      rail hides itself (renderThreadRail bails at rows.length < 2),
+  //      the chat loads normally.
+  if (state.postUuid) {
+    try {
+      const res = await fetchChannelPosts(state.channelId);
+      state.channelThreads = (res && res.threads) || [];
+    } catch (e) {
+      console.warn(
+        "[BetterSSC] thread rail fetch failed (non-fatal, chat loads without it):",
+        e && e.message
+      );
+      state.channelThreads = [];
+    }
+    return;
+  }
+
   const res = await fetchChannelPosts(state.channelId);
-  const best = pickLiveliestPost(res && res.threads);
+  state.channelThreads = (res && res.threads) || [];
+  const best = pickLiveliestPost(state.channelThreads);
   if (!best) {
     throw new Error("this channel has no posts yet");
   }
@@ -315,6 +350,15 @@ async function init() {
   // "read it before it was filled in" bug. On failure we return BEFORE any
   // handler is bound, so the landing screen is inert rather than merely
   // hidden behind still-armed listeners.
+  //
+  // The thread rail (renderThreadRail) only ever has data because this
+  // branch runs — it's the sole populator of state.channelThreads. That
+  // reliably holds today only because background.js/content.js never
+  // supply BOTH `pub` and `post` alongside `chan` (a /chat/group/... URL
+  // carries no legacy publication id to pass through), so this guard
+  // always fires for a channel URL. If the launcher ever starts passing a
+  // resolved `pub` too, this branch — and the rail — would silently stop
+  // running.
   if (state.channelId && (!state.publicationId || !state.postUuid)) {
     try {
       await resolveChannelTarget();
@@ -383,6 +427,7 @@ async function init() {
   // user avatar + collapsible body panel; loadInitial calls it again
   // once state.post is populated).
   renderChatHeader();
+  renderThreadRail();
   document.getElementById("openNativeChat").href = buildSubstackChatUrl({
     channelId: state.channelId,
     publicationId: state.publicationId,
@@ -1986,6 +2031,29 @@ function stopTickerRefreshTimer() {
     clearInterval(_tickerRefreshTimer);
     _tickerRefreshTimer = null;
   }
+}
+
+// Switching threads navigates the page rather than swapping state in
+// place — see the rationale comment on renderThreadRail. Delegated on the
+// list (not per-row) since the list is fully rebuilt on every render.
+function bindThreadRail() {
+  const list = document.getElementById("threadRailList");
+  if (!list) return;
+  list.addEventListener("click", (e) => {
+    const item = e.target.closest(".thread-rail-item");
+    if (!item) return;
+    const postUuid = item.dataset.postUuid;
+    if (!postUuid || postUuid === state.postUuid) return;
+    const url = new URL(location.href);
+    url.searchParams.set("post", postUuid);
+    // `reply` names a comment id inside THIS thread (state.targetReplyId,
+    // consumed by loadInitial's deep-link scroll). Cloning the current URL
+    // preserves it by default, which is right for pub/chan but wrong here —
+    // an old thread's comment id has no meaning in the thread we're
+    // switching to and would feed a scroll target that doesn't exist there.
+    url.searchParams.delete("reply");
+    location.href = url.toString();
+  });
 }
 
 // Click a chip → drop its term into the search box and run the search.
@@ -4034,15 +4102,54 @@ function getResolvedSelf() {
   };
 }
 
-function extractPostBody(post) {
-  if (!post) return "";
-  return (
-    post.body ||
-    post.body_text ||
-    post.body_markdown ||
-    post.body_html ||
-    ""
-  );
+// Renders the thread-switcher rail from state.channelThreads. Called once
+// at boot (see init()) — there is no dynamic re-render mid-session, because
+// switching threads navigates the page (see the click handler wired in
+// bindEventHandlers) rather than swapping state in place. That trade avoids
+// hand-resetting the ~15 piece-of-state surface a live in-app switch would
+// touch (state.comments, state.order, earliestISO, searchQuery, threadFilter,
+// focusFilter + its memo, ws/wsStatus, bgPrefetch*, ...) — exactly the class
+// of bug this project's own memory (memo invalidation must cover ALL store
+// mutation sources) has been bitten by before. A full navigate reuses the
+// same boot path every other entry into the app already goes through and is
+// already tested, at the cost of a page reload instead of an in-app
+// transition.
+function renderThreadRail() {
+  const rail = document.getElementById("threadRail");
+  const list = document.getElementById("threadRailList");
+  const mainEl = document.querySelector("main.main");
+  if (!rail || !list) return;
+  const rows = formatThreadRailRows(state.channelThreads, state.postUuid);
+  // A rail with 0 or 1 row has nothing to switch between — hide it rather
+  // than show a list containing only the thread already open.
+  if (rows.length < 2) {
+    rail.classList.add("hidden");
+    if (mainEl) mainEl.classList.remove("rail-visible");
+    return;
+  }
+  rail.classList.remove("hidden");
+  if (mainEl) mainEl.classList.add("rail-visible");
+  list.innerHTML = "";
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = "thread-rail-item" + (row.isActive ? " active" : "");
+    li.dataset.postUuid = row.id;
+    const snippetEl = document.createElement("span");
+    snippetEl.className = "thread-rail-snippet";
+    // textContent, not innerHTML — row.snippet is raw user-authored text
+    // (formatThreadRailRows says so explicitly; enforcing it here, not just
+    // trusting the comment, per this project's own "a comment claiming an
+    // invariant still needs the enforcing line" lesson).
+    snippetEl.textContent = row.snippet;
+    li.appendChild(snippetEl);
+    if (row.commentCount > 0) {
+      const countEl = document.createElement("span");
+      countEl.className = "thread-rail-count";
+      countEl.textContent = String(row.commentCount);
+      li.appendChild(countEl);
+    }
+    list.appendChild(li);
+  }
 }
 
 function renderChatHeader() {
@@ -7338,6 +7445,7 @@ function toggleTheme() {
 
 function bindEventHandlers() {
   bindTickerBar();
+  bindThreadRail();
   const stream = document.getElementById("stream");
   stream.addEventListener(
     "scroll",

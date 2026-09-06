@@ -206,6 +206,16 @@
       </div>
 
       <main class="main">
+        <!-- Thread switcher — the channel's other posts, liveliest first.
+             Hidden by default and only shown once JS finds 2+ threads
+             (formatThreadRailRows); a legacy pub+post URL with no channel
+             context never populates state.channelThreads, so it stays
+             hidden for those chats too. -->
+        <aside class="thread-rail hidden" id="threadRail" aria-label="Threads in this channel">
+          <div class="thread-rail-header">Threads</div>
+          <ul id="threadRailList" class="thread-rail-list"></ul>
+        </aside>
+
         <section class="stream" id="stream">
           <div class="loading-banner hidden" id="historyLoading">
             Loading older messages…

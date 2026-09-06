@@ -1,15 +1,15 @@
 {
-  "sha": "3b55b1e15e3e0f1da49a1a461d042743ca7bcb89",
+  "sha": "cf6d2bb",
   "branch": "main",
-  "ts": "2026-09-06T14:22:00Z",
+  "ts": "2026-09-06T15:44:00Z",
   "reviewer_model": "fable",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "393-line diff migrating an external API contract with new endpoints and an inferred-field risk in a domain with prior memory entries",
+  "retro_reasoning": "332-line diff (>200), touches a domain with existing memory entries (state-reset transitions, comment-claimed invariants); finding (a) is a fresh instance of the comment-claimed-invariant pattern, finding (b) of the common-path-degradation pattern",
   "critical_count": 0,
-  "should_fix_count": 5,
-  "nit_count": 5,
-  "files_reviewed": 6,
-  "resolution": "all 5 should-fix and all 5 nits applied before commit; suite 668/668 green",
-  "scope": "Substack 2026-09-06 chat channel migration fix"
+  "should_fix_count": 3,
+  "nit_count": 7,
+  "files_reviewed": 5,
+  "resolution": "all 3 should-fix applied (2 self-spotted + empirically verified before the verdict landed: mobile grid-template-areas bug, boot-abort on rail-fetch failure; 1 new: stale reply param on thread switch). 4 of 7 nits applied (redundant list.contains check, contingent-boot-path comment, shared-consumer api.js comment, HTML-tag-strip on rail snippet + 2 new tests). 3 nits deliberately skipped as cosmetic/optional per the reviewer's own framing (recency-hint copy, no-highlight-when-off-page-1, extra fixture coverage). Suite 680/680 green.",
+  "scope": "Thread-switcher rail for Substack chat channels"
 }

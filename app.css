@@ -69,6 +69,7 @@
   --header-h: 56px;
   --footer-h: 32px;
   --members-w: 240px;
+  --thread-rail-w: 220px;
   --message-radius: 8px;
 }
 
@@ -573,10 +574,18 @@ button {
   50% { opacity: 0.4; }
 }
 
-/* MAIN — Discord-style layout. Two columns; the stream + composer
-   stack in column 1, the members rail occupies column 2 across both
-   rows. Composer is now constrained to the chat-feed width instead
-   of spanning the whole page. */
+/* MAIN — Discord-style layout. Two columns by default; the stream +
+   composer stack in column 1, the members rail occupies column 2 across
+   both rows. Composer is constrained to the chat-feed width instead of
+   spanning the whole page.
+
+   The thread rail (a channel with 2+ threads) adds a THIRD column via the
+   .rail-visible modifier, toggled by JS in renderThreadRail — never via
+   grid-template-columns on the base rule. A grid column's TRACK reserves
+   its width regardless of whether the element placed in it is
+   `display: none`, so baking a reserved rail width into .main directly
+   would leave a permanent empty gap for every chat that has no rail
+   (a legacy pub+post URL, or a channel with only one live thread). */
 .main {
   display: grid;
   grid-template-columns: 1fr var(--members-w);
@@ -587,6 +596,13 @@ button {
   overflow: hidden;
   min-height: 0;
 }
+.main.rail-visible {
+  grid-template-columns: var(--thread-rail-w) 1fr var(--members-w);
+  grid-template-areas:
+    "rail stream  members"
+    "rail compose members";
+}
+.thread-rail { grid-area: rail; }
 .stream { grid-area: stream; }
 .composer { grid-area: compose; }
 .members { grid-area: members; }
@@ -1121,6 +1137,73 @@ button {
 .new-message-jump-aside.hidden { display: none; }
 .new-message-jump button:hover { background: var(--accent-hover); }
 .new-message-jump-aside:hover { color: white !important; }
+
+/* THREAD RAIL — the channel's other threads, click to switch. Mirrors
+   MEMBERS RAIL's visual language (same background/border/scrollbar
+   treatment) on the opposite edge, since it's the same kind of control:
+   a persistent list, not a transient popover. */
+.thread-rail {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.thread-rail.hidden { display: none; }
+.thread-rail::-webkit-scrollbar { width: 6px; }
+.thread-rail::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 3px; }
+.thread-rail-header {
+  padding: 12px 12px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.thread-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 8px;
+}
+.thread-rail-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 8px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.thread-rail-item:hover { background: var(--bg-hover); }
+.thread-rail-item.active {
+  background: var(--accent-bg-soft);
+  color: var(--text-primary);
+}
+.thread-rail-snippet {
+  font-size: 13px;
+  line-height: 1.35;
+  /* Clamp to 2 lines rather than a single truncated line — a snippet is
+     already capped at 80 chars server-side (formatThreadRailRows), but at
+     the rail's width that can still wrap past one line on longer words. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.thread-rail-count {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-top: 1px;
+}
+.thread-rail-item.active .thread-rail-count {
+  color: var(--accent);
+  background: var(--accent-bg-strong);
+}
 
 /* MEMBERS RAIL */
 .members {
@@ -1933,7 +2016,28 @@ button {
 
 @media (max-width: 800px) {
   .members { display: none; }
-  .main { grid-template-columns: 1fr; }
+  .thread-rail { display: none; }
+  /* .main.rail-visible needs its OWN override here, of both properties —
+     confirmed empirically (not assumed), because getting only one of these
+     wrong is a real, severe bug, not a spec technicality:
+     - grid-template-columns alone (a prior version of this rule) still
+       left grid-template-areas declaring 3 named columns ("rail stream
+       members"). grid-template-areas can imply column tracks beyond what
+       grid-template-columns explicitly sizes — verified live: the single
+       explicit `1fr` track absorbed ~all the width under the (invisible)
+       rail column, while .stream/.composer were squeezed into an ~86px
+       sliver in an auto-sized second track. On mobile, any channel with
+       2+ threads would render its main chat view unusably narrow.
+     - grid-template-areas alone, without also collapsing
+       grid-template-columns, would still reserve --thread-rail-w's width
+       for the (hidden) rail column. */
+  .main,
+  .main.rail-visible {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "stream"
+      "compose";
+  }
   .search-wrap input { width: 180px; }
   .post-title { display: none; }
 }

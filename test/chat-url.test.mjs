@@ -4,7 +4,7 @@ import {
   buildSubstackChatUrl,
   isChannelId,
 } from "../lib/chat-url.js";
-import { pickLiveliestPost } from "../lib/util.js";
+import { pickLiveliestPost, formatThreadRailRows } from "../lib/util.js";
 
 // Vite resolves JSON imports, so the committed capture loads as a module —
 // no fs/import.meta.url dance that behaves differently under the test runner.
@@ -225,5 +225,100 @@ describe("isChannelId", () => {
     ["a non-string", 12345],
   ])("rejects %s", (_label, v) => {
     expect(isChannelId(v)).toBe(false);
+  });
+});
+
+describe("formatThreadRailRows", () => {
+  const thread = (id, fields) => ({ communityPost: { id, ...fields } });
+
+  it("orders rows liveliest-first, same as pickLiveliestPost", () => {
+    const rows = formatThreadRailRows(CAPTURE.threads, null);
+    expect(rows[0].id).toBe(CAPTURE._expected_pick);
+    const times = rows.map((r) => r.activityAt);
+    expect([...times].sort((a, b) => b - a)).toEqual(times);
+  });
+
+  it("flags exactly the active row, and only it", () => {
+    const rows = formatThreadRailRows(CAPTURE.threads, CAPTURE._expected_pick);
+    const active = rows.filter((r) => r.isActive);
+    expect(active).toHaveLength(1);
+    expect(active[0].id).toBe(CAPTURE._expected_pick);
+  });
+
+  it("flags no row active when activePostUuid matches none", () => {
+    const rows = formatThreadRailRows(CAPTURE.threads, "not-a-real-id");
+    expect(rows.some((r) => r.isActive)).toBe(false);
+  });
+
+  it("flags no row active when activePostUuid is null/undefined", () => {
+    expect(formatThreadRailRows(CAPTURE.threads, null).some((r) => r.isActive)).toBe(false);
+    expect(formatThreadRailRows(CAPTURE.threads).some((r) => r.isActive)).toBe(false);
+  });
+
+  it("truncates the snippet and collapses whitespace", () => {
+    const long = "a".repeat(200);
+    const rows = formatThreadRailRows([thread("x", { body: long, created_at: "2026-01-01T00:00:00.000Z" })], null);
+    expect(rows[0].snippet.length).toBeLessThanOrEqual(80);
+  });
+
+  it("collapses internal whitespace/newlines in the snippet", () => {
+    const rows = formatThreadRailRows(
+      [thread("x", { body: "line one\n\n  line   two", created_at: "2026-01-01T00:00:00.000Z" })],
+      null
+    );
+    expect(rows[0].snippet).toBe("line one line two");
+  });
+
+  it("falls back to a placeholder for a post with no body text", () => {
+    const rows = formatThreadRailRows([thread("x", { created_at: "2026-01-01T00:00:00.000Z" })], null);
+    expect(rows[0].snippet).toBe("(no text)");
+  });
+
+  it("strips raw HTML tags when body_html is the only text field present", () => {
+    const rows = formatThreadRailRows(
+      [thread("x", { body_html: "<p>Hello <b>world</b></p>", created_at: "2026-01-01T00:00:00.000Z" })],
+      null
+    );
+    expect(rows[0].snippet).toBe("Hello world");
+  });
+
+  it("does NOT touch angle brackets in plain-text bodies (only body_html is stripped)", () => {
+    const rows = formatThreadRailRows(
+      [thread("x", { body: "I <3 this ticker <TSLA>", created_at: "2026-01-01T00:00:00.000Z" })],
+      null
+    );
+    expect(rows[0].snippet).toBe("I <3 this ticker <TSLA>");
+  });
+
+  it("reads comment_count, defaulting to 0", () => {
+    const rows = formatThreadRailRows(
+      [
+        thread("a", { created_at: "2026-01-01T00:00:00.000Z", comment_count: 42 }),
+        thread("b", { created_at: "2026-01-02T00:00:00.000Z" }),
+      ],
+      null
+    );
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r.commentCount]));
+    expect(byId.a).toBe(42);
+    expect(byId.b).toBe(0);
+  });
+
+  it("returns [] for an empty or absent feed — matches pickLiveliestPost's null", () => {
+    expect(formatThreadRailRows([], null)).toEqual([]);
+    expect(formatThreadRailRows(null, null)).toEqual([]);
+    expect(formatThreadRailRows(undefined, null)).toEqual([]);
+  });
+
+  it("skips malformed entries, same shape as pickLiveliestPost", () => {
+    const threads = [
+      null,
+      {},
+      { communityPost: null },
+      { communityPost: { created_at: "2026-09-09T00:00:00.000Z" } }, // no id
+      thread("real", { created_at: "2026-09-01T00:00:00.000Z" }),
+    ];
+    const rows = formatThreadRailRows(threads, null);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("real");
   });
 });
