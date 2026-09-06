@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-626%2F626-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-668%2F668-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.10.0** (Aug 8, 2026) — 🛡️ **AI moderation before posting** (opt-in, bring-your-own-key review of your own outgoing messages — reworks blunt-but-not-offensive framing with your explicit confirmation, hard-blocks offensive content and replies to political messages, never touches anyone else's messages). Previous: **v0.9.0** — ✈ **Telegram bridge** (stream the Substack Chat feed to your own Telegram bot, and post + react back from Telegram; replies carry their quoted message with correct author attribution). 626/626 tests passing.
+Latest release: **v0.10.1** (Sep 6, 2026) — 🔌 **fix: follow Substack's chat-channel migration** (Substack re-architected chat around 2026-09-06 — new `/chat/group/<channelUuid>` URLs, 301s from the old form — which broke the extension entirely; restored, with a committed real-API fixture pinning the endpoint shapes against future drift). Previous: **v0.10.0** — 🛡️ **AI moderation before posting** (opt-in, bring-your-own-key review of your own outgoing messages — reworks blunt-but-not-offensive framing with your explicit confirmation, hard-blocks offensive content and replies to political messages, never touches anyone else's messages). 668/668 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 

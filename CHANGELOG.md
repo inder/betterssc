@@ -4,6 +4,8 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-09-06
+
 ### Fixed — 🔌 Substack's chat re-architecture broke the extension entirely
 
 - **BetterSSC stopped opening any chat.** Around 2026-09-06 Substack moved publication chat off the "publication with a flat list of posts" model onto a persistent **channel** model, and changed the URLs to match: `substack.com/chat/<pubId>[/post/<uuid>]` became `substack.com/chat/group/<channelUuid>[/post/<uuid>]`. Substack 301-redirects the old forms, so every chat tab silently moved to a URL the extension's parser — which only matched `/chat/<digits>` — could not read. The toolbar button then opened the app with no publication and no post, and it fell straight through to the landing screen.
