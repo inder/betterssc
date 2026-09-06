@@ -621,9 +621,20 @@
   const probe = async () => {
     const url = location.href;
     const path = location.pathname;
-    const m = path.match(/\/chat\/(\d+)(?:\/post\/([a-f0-9-]+))?/);
+    // Substack's 2026-09-06 channel migration added `/chat/group/<channelUuid>`
+    // alongside the legacy `/chat/<pubId>`. A content script can't ES-import
+    // lib/chat-url.js without a bundler, so the shape is widened inline here
+    // rather than shared. Kept in sync with GROUP_RE / LEGACY_RE there.
+    // Group URLs carry no publication id — only a channel uuid — so
+    // publicationId stays null for them by design; postUuid is what the
+    // pageType flags below actually depend on.
+    const mGroup = path.match(
+      /\/chat\/group\/([0-9a-fA-F-]{36})(?:\/post\/([a-f0-9-]+))?/
+    );
+    const m = mGroup ? null : path.match(/\/chat\/(\d+)(?:\/post\/([a-f0-9-]+))?/);
+    const channelId = mGroup ? mGroup[1] : null;
     const publicationId = m ? m[1] : null;
-    const postUuid = m && m[2] ? m[2] : null;
+    const postUuid = mGroup ? mGroup[2] || null : m && m[2] ? m[2] : null;
 
     const isLikelyChatPage =
       /\/chat(\/|$)/.test(path) || /\/inbox(\/|$)/.test(path);
@@ -642,6 +653,7 @@
         isChatPostView,
         publicationId,
         postUuid,
+        channelId,
       },
       title: document.title,
       bodyClasses: classListArr(document.body),

@@ -6,6 +6,7 @@
 //   3. Maintain unread-mention badge on the toolbar icon.
 
 import { CRYPTO_TICKERS } from "./lib/tickers.js";
+import { parseSubstackChatUrl } from "./lib/chat-url.js";
 
 const APP_PAGE = "app.html";
 
@@ -80,30 +81,17 @@ async function fetchPrices(symbols) {
   return out;
 }
 
-const parseSubstackChatUrl = (url) => {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (!/(^|\.)substack\.com$/.test(u.hostname)) return null;
-    // /chat/<pubId>/post/<postUuid>?... or /chat/<pubId>?...
-    const m = u.pathname.match(/^\/chat\/(\d+)(?:\/post\/([a-f0-9-]+))?/);
-    if (!m) return null;
-    return {
-      publicationId: m[1],
-      postUuid: m[2] || null,
-      targetReplyId: u.searchParams.get("targetReplyId"),
-    };
-  } catch (_) {
-    return null;
-  }
-};
-
 const buildAppUrl = (params) => {
   const base = chrome.runtime.getURL(APP_PAGE);
   if (!params) return base;
   const qs = new URLSearchParams();
   if (params.publicationId) qs.set("pub", params.publicationId);
   if (params.postUuid) qs.set("post", params.postUuid);
+  // Post-migration URLs carry a channel uuid and no publication id; the app
+  // resolves both the publication and a default post from it. Always pass it
+  // through when present — the app also needs it to build a working
+  // "open in Substack" deep link.
+  if (params.channelId) qs.set("chan", params.channelId);
   if (params.targetReplyId) qs.set("reply", params.targetReplyId);
   const qsStr = qs.toString();
   return qsStr ? `${base}?${qsStr}` : base;
@@ -118,19 +106,40 @@ const findExistingAppTab = async () => {
 chrome.action.onClicked.addListener(async (clickedTab) => {
   let chatParams = parseSubstackChatUrl(clickedTab && clickedTab.url);
 
+  // A parse that names NEITHER a post nor a channel (a bare legacy
+  // `/chat/<pubId>` tab) is truthy but useless — the app can't resolve a post
+  // from a publication id alone, so it would land on "I have the publication,
+  // but not a specific chat post" even when another window has a real chat
+  // open. Treat it as no match so the cross-tab search below still runs. Same
+  // post-or-channel rule the loop uses; applying it in one place and not the
+  // other is what made this worth fixing here rather than later.
+  if (chatParams && !chatParams.postUuid && !chatParams.channelId) {
+    chatParams = null;
+  }
+
   // If the clicked tab isn't a chat tab, look across all windows for a
   // substack chat tab and use that one.
   if (!chatParams) {
     const allTabs = await chrome.tabs.query({
       url: ["https://substack.com/chat/*", "https://*.substack.com/chat/*"],
     });
+    // Prefer a tab that names a specific post; fall back to any parseable
+    // chat tab. Before the channel migration a bare /chat/<pubId> tab was
+    // useless to us (no post, no way to find one), so this loop demanded a
+    // postUuid. A bare /chat/group/<channelId> tab is NOT useless — the app
+    // resolves a default post from the channel — so rejecting every
+    // post-less tab would now discard a perfectly usable one.
+    let fallback = null;
     for (const t of allTabs) {
       const parsed = parseSubstackChatUrl(t.url);
-      if (parsed && parsed.postUuid) {
+      if (!parsed) continue;
+      if (parsed.postUuid) {
         chatParams = parsed;
         break;
       }
+      if (!fallback && parsed.channelId) fallback = parsed;
     }
+    if (!chatParams) chatParams = fallback;
   }
 
   const targetUrl = buildAppUrl(chatParams);

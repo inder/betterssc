@@ -15,7 +15,10 @@ import {
   detectChatChannels,
   postChatViewed,
   fetchUserProfile,
+  fetchChatChannel,
+  fetchChannelPosts,
 } from "./lib/api.js";
+import { buildSubstackChatUrl, isChannelId } from "./lib/chat-url.js";
 import { SubstackRealtime } from "./lib/ws.js";
 import {
   firstUnfurlableUrl,
@@ -33,6 +36,7 @@ import {
   throttle,
   debounce,
   chatNameAcronym,
+  pickLiveliestPost,
   PREFETCH_BASE_DELAY_MS,
   PREFETCH_SLOT_POLL_MS,
   PREFETCH_PILL_VISIBLE_MS,
@@ -234,28 +238,96 @@ const state = {
 const params = new URLSearchParams(location.search);
 state.publicationId = params.get("pub");
 state.postUuid = params.get("post");
+// Substack's 2026-09-06 chat migration: /chat/group/<channelId> URLs carry a
+// channel uuid instead of a publication id, and often no post at all. When we
+// have one, init() resolves the publication and a default post from it before
+// any chat load runs. See lib/chat-url.js for the URL shapes.
+// Validated, not just read: app.html is a web_accessible_resource matched to
+// substack.com, so any page on that origin can open it with a `chan` of its
+// choosing, and this value is interpolated into an API path.
+const rawChan = params.get("chan");
+state.channelId = isChannelId(rawChan) ? rawChan : null;
 state.targetReplyId = params.get("reply");
 
 const landingEl = document.getElementById("landing");
 const appEl = document.getElementById("app");
 
-if (!state.publicationId || !state.postUuid) {
+// A channel id alone is enough to boot — everything else is resolvable from
+// it. Without one we still need the legacy publication+post pair.
+if (!state.channelId && (!state.publicationId || !state.postUuid)) {
   showLanding();
 } else {
+  // FOOTGUN: this unhide must stay SYNCHRONOUS. The module-level
+  // `mountComposer()` gate at the bottom of this file reads
+  // `appEl.classList.contains("hidden")` exactly once, synchronously, at
+  // module-evaluation time — deferring the unhide until after init()'s async
+  // channel resolution would leave the composer permanently unmounted. That
+  // is why the resolution window is closed with guards inside the composer's
+  // handlers instead of by delaying this line.
   appEl.classList.remove("hidden");
   init();
 }
 
-function showLanding() {
+function showLanding(msg) {
   landingEl.classList.remove("hidden");
   appEl.classList.add("hidden");
-  if (state.publicationId && !state.postUuid) {
-    document.getElementById("landing-msg").textContent =
-      "I have the publication, but not a specific chat post — open one in Substack and click BetterSSC again.";
+  const text =
+    msg ||
+    (state.publicationId && !state.postUuid
+      ? "I have the publication, but not a specific chat post — open one in Substack and click BetterSSC again."
+      : null);
+  if (text) document.getElementById("landing-msg").textContent = text;
+}
+
+// Fills in whatever the URL didn't give us: publication id from the channel
+// record, and a post from the channel's feed. Throws if the channel yields no
+// usable post — the caller turns that into the landing screen rather than
+// letting loadInitial fetch comments for `undefined`.
+async function resolveChannelTarget() {
+  const meta = await fetchChatChannel(state.channelId);
+  const channel = (meta && meta.channel) || null;
+  if (!state.publicationId && channel && channel.publication_id != null) {
+    state.publicationId = String(channel.publication_id);
   }
+  // Enforce the boot comment's claim instead of merely asserting it. Without
+  // this, a channel record missing publication_id returns NORMALLY with
+  // state.publicationId null, and the failure surfaces much later as
+  // "Publication null" in the header, a `chat:null:...` WS subscribe, and an
+  // opaque 404 on image upload — none of which name the real cause.
+  if (!state.publicationId) {
+    throw new Error("channel record carried no publication id");
+  }
+  if (state.postUuid) return;
+  const res = await fetchChannelPosts(state.channelId);
+  const best = pickLiveliestPost(res && res.threads);
+  if (!best) {
+    throw new Error("this channel has no posts yet");
+  }
+  state.postUuid = best.id;
 }
 
 async function init() {
+  // FIRST, before any listener is attached. Everything below consumes
+  // state.publicationId / state.postUuid, and bindEventHandlers() wires
+  // document-level handlers (vi nav, slash commands) that would otherwise be
+  // live during the resolution window. Nothing above this point needs either
+  // id, so resolving here costs no parallelism and removes a whole class of
+  // "read it before it was filled in" bug. On failure we return BEFORE any
+  // handler is bound, so the landing screen is inert rather than merely
+  // hidden behind still-armed listeners.
+  if (state.channelId && (!state.publicationId || !state.postUuid)) {
+    try {
+      await resolveChannelTarget();
+    } catch (e) {
+      console.error("[BetterSSC] channel resolve failed:", e);
+      showLanding(
+        `Couldn't open this Substack chat channel — ${(e && e.message) || e}. ` +
+          `Open a chat in Substack and click BetterSSC again.`
+      );
+      return;
+    }
+  }
+
   bindEventHandlers();
   restoreWatchedUsers();
   restoreLinkPreviews();
@@ -311,9 +383,11 @@ async function init() {
   // user avatar + collapsible body panel; loadInitial calls it again
   // once state.post is populated).
   renderChatHeader();
-  document.getElementById(
-    "openNativeChat"
-  ).href = `https://substack.com/chat/${state.publicationId}/post/${state.postUuid}`;
+  document.getElementById("openNativeChat").href = buildSubstackChatUrl({
+    channelId: state.channelId,
+    publicationId: state.publicationId,
+    postUuid: state.postUuid,
+  });
   updateBaseTitle();
 
   // Initial comments.
@@ -1434,6 +1508,14 @@ async function connectRealtime() {
   try {
     probe = await fetchRealtimeToken([
       `user:${state.user ? state.user.id : "0"}`,
+      // NOTE (2026-09-06 channel migration): Substack's own client now
+      // subscribes to `chat-channel:<channelUuid>:<tier>`, not this
+      // publication-scoped name. The old name was re-probed during the
+      // migration fix and STILL mints a token with matching subscribe
+      // permissions, so this is not dead — but it is legacy, and if realtime
+      // is ever un-gated it should be re-decoded against a live capture
+      // before being trusted (this file's WS path is off by default for
+      // exactly the reason that guessing its protocol cost five commits once).
       `chat:${state.publicationId}:all_subscribers`,
     ]);
   } catch (e) {
@@ -8547,6 +8629,12 @@ const _fetchMentionsDebounced = composerDebounce(async (query, input) => {
   // Stale-query guard — only render the response if the user is still on
   // the same query they were when we fired.
   m.lastQuery = query;
+  // The composer is mounted at module scope (see the FOOTGUN note in BOOT), so
+  // it is typeable during init()'s channel-resolution window while both ids are
+  // still null. Substack 400s on `publication_id=null`, which the catch below
+  // would swallow into an empty dropdown — correct, but it spends a request and
+  // hides the real reason. Bail explicitly instead.
+  if (!state.publicationId || !state.postUuid) return;
   try {
     const res = await apiFetchMentions(
       state.publicationId,

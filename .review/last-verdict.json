@@ -1,12 +1,15 @@
 {
-  "sha": "9825be08e6f3ec11fdc5d186704f11ce090bad00",
+  "sha": "3b55b1e15e3e0f1da49a1a461d042743ca7bcb89",
   "branch": "main",
-  "ts": "2026-08-09T04:27:00Z",
+  "ts": "2026-09-06T14:22:00Z",
+  "reviewer_model": "fable",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "Memory-dense domain (composer/moderation) plus a real should-fix (burst-typing collision) found on a live dogfood path and fixed before push; also a content-fidelity fix (reword changing factual claims) surfaced by live dogfooding, not by review",
+  "retro_reasoning": "393-line diff migrating an external API contract with new endpoints and an inferred-field risk in a domain with prior memory entries",
   "critical_count": 0,
-  "should_fix_count": 1,
-  "nit_count": 2,
-  "files_reviewed": 2
+  "should_fix_count": 5,
+  "nit_count": 5,
+  "files_reviewed": 6,
+  "resolution": "all 5 should-fix and all 5 nits applied before commit; suite 668/668 green",
+  "scope": "Substack 2026-09-06 chat channel migration fix"
 }
