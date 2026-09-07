@@ -4,6 +4,18 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-09-06
+
+### Added — 🧵 Thread switcher rail
+
+- **A channel's chat is many threads, not one.** BetterSSC previously rendered only the single liveliest thread in a Substack chat channel. A new left-hand rail lists the channel's other threads (a body snippet + reply count each), liveliest first — click one to switch. Switching **navigates the page** (a full reload with a new `?post=<uuid>`) rather than swapping state in place: the app's per-thread state is ~15 fields wide (message store, scroll position, search, focus filter and its memo, WebSocket status, background-prefetch flags, …), and this project has been bitten before by an incomplete reset across exactly that kind of transition — a full navigate reuses the same boot path every other entry into the app already goes through, at the cost of a page reload instead of an instant in-app transition.
+- **Hide empty threads, on by default.** Most of a channel's posts are broadcast links with zero replies; the toggle in the rail header declutters them, but never hides the thread you're currently viewing regardless of its own reply count.
+- **Collapsible rail.** A header icon (clickable in both states — it's what lets a collapsed rail reopen) shrinks it to a 32px strip; double-clicking the rail's edge divider does the same as a shortcut. Both the hide-empty and collapsed preferences persist across sessions.
+- Pagination and ranking were **captured live against a real busy channel, not inferred**: the feed is descending by `created_at`, `order`/`after` are accepted and silently ignored, only `before=<ISO>` actually pages. The "liveliest thread" ranking (newest *reply*, not newest post — the newest post is usually an empty broadcast) is shared between the boot-time picker and the rail's own ordering through one extracted scoring function, so a future Substack field rename can't be fixed in one place and drift in the other. A redacted real captured response is committed as a test fixture and asserted against directly.
+- 18 new tests (row formatting, ordering, the hide-empty filter's active-thread carve-out, the empty-filter fallback). 686/686 passing.
+- **Two independent code reviews** (0 Critical across both; 5 should-fix + 4 should-fix, all folded in) caught, among others: an unguarded fetch for the rail's data that could hard-fail the ENTIRE chat load over a decorative feature (now soft-fails); a mobile CSS bug where the rail's grid column wasn't fully collapsed on narrow windows, verified live in a browser tab (an un-fixed render would have squeezed the whole chat stream into an 86px sliver); a stale comment intersecting position:relative with a still-scrolling container that would have let the collapse divider scroll away with a long thread list and leaked 3px of spurious horizontal scroll (restructured before ship, re-verified live); and keyboard focus being destroyed on every toggle click (now preserved across the rail's re-render).
+- **Still open:** posting a **new top-level** message to a channel (starting a thread, vs. replying inside one) is not wired — that write path hasn't been captured, and per this project's rule a protocol gets decoded before it gets implemented. Replying inside a thread, which is what this client actually does, is unaffected.
+
 ## [0.10.1] — 2026-09-06
 
 ### Fixed — 🔌 Substack's chat re-architecture broke the extension entirely

@@ -2,9 +2,9 @@
 
 A Chrome extension that gives Substack Chat a Discord-style makeover.
 
-![tests](https://img.shields.io/badge/tests-668%2F668-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
+![tests](https://img.shields.io/badge/tests-686%2F686-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.10.1** (Sep 6, 2026) — 🔌 **fix: follow Substack's chat-channel migration** (Substack re-architected chat around 2026-09-06 — new `/chat/group/<channelUuid>` URLs, 301s from the old form — which broke the extension entirely; restored, with a committed real-API fixture pinning the endpoint shapes against future drift). Previous: **v0.10.0** — 🛡️ **AI moderation before posting** (opt-in, bring-your-own-key review of your own outgoing messages — reworks blunt-but-not-offensive framing with your explicit confirmation, hard-blocks offensive content and replies to political messages, never touches anyone else's messages). 668/668 tests passing.
+Latest release: **v0.11.0** (Sep 6, 2026) — 🧵 **Thread switcher rail** (a Substack chat channel is many threads, not one — a new left-hand rail lists the channel's other threads liveliest-first, click to switch; hide-empty-threads toggle and a collapsible rail, both persisted). Previous: **v0.10.1** — 🔌 **fix: follow Substack's chat-channel migration** (Substack re-architected chat around 2026-09-06 — new `/chat/group/<channelUuid>` URLs, 301s from the old form — which broke the extension entirely; restored, with a committed real-API fixture pinning the endpoint shapes against future drift). 686/686 tests passing.
 
 ![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
 
@@ -25,7 +25,7 @@ Substack Chat is where a lot of really good traders and writers share their thin
 
 BetterSSC keeps your existing Substack account and reads from Substack's own API. It just paints a nicer layout on top so you can actually follow conversations.
 
-## What it does (v0.10.0)
+## What it does (v0.11.0)
 
 BetterSSC is primarily a **reader** but the send side has caught up — you can now ship images, GIFs (uploaded OR picked from GIPHY), reactions, and replies without leaving the BetterSSC tab.
 
@@ -39,6 +39,15 @@ Read side at a glance: a **rolling trending ticker bar** with live prices, vi-ke
 - Inline images, click for a full-screen lightbox. If an image fails to load it falls back to a "📎 image (click to open)" link.
 - **Click any ticker symbol to open a free TradingView chart.** Both `$TICKER` syntax (`$NASA`, `$DXYZ`, `$BRK.B`) AND bare ALL-CAPS tickers from a curated allowlist (`AAPL`, `TSLA`, `BTC`, `SPY`, `QQQ`, etc.) render as accent-pill links. The modal embeds the daily chart with drawing tools (horizontal line, trend line, fib, etc.). `$5` / `$100` dollar amounts are skipped; `Meta` / `meta` lowercase stays text.
 - Light theme by default, dark theme one click away. Choice is remembered across reloads.
+
+### 🧵 Switching between threads
+
+A Substack chat channel isn't one conversation — it's many top-level threads (the author's daily posts, each with its own reply chain). BetterSSC opens the liveliest one, and a rail on the left lists the rest so you're not stuck in just one.
+
+- **Liveliest-first, snippet + reply count per row.** The open thread is highlighted; click any other row to switch — this reloads the page (not instant, deliberately: it reuses the same tested load path rather than trying to hot-swap a chat's worth of in-memory state).
+- **"Empty hidden" toggle, on by default.** Most threads in a busy channel are same-day link posts with zero replies; the toggle declutters them. The thread you're currently reading is never hidden by this, even if it has no replies yet.
+- **Collapsible.** Click the ‹ / › icon in the rail's header to shrink it to a slim strip, or double-click the thin divider on its edge as a shortcut. Both the hide-empty and collapsed state remember your choice across reloads.
+- Only appears for a channel with 2+ switchable threads — a quiet single-thread chat looks exactly like it always has.
 
 ### 📈 The trending ticker bar
 
@@ -455,6 +464,7 @@ Things I know are broken or unfinished as of v0.5.0. PRs welcome. Bug reports he
 - **macOS Tahoe 26.3 notification banners can silently drop.** `chrome.notifications.create` returns `permission: granted` and the call reports success, but the OS sometimes doesn't render the banner. This is outside the extension. Notification permission alone doesn't fix it. Affects native Chrome notifications generally on this OS.
 - **You'll see notifications for your own cross-device posts.** Self is auto-watched by default. If you send a message from your phone while this tab is hidden, the desktop will notify you. Some people find this useful, some find it noisy. Click the 🔔 on your own row in the Active rail to silence; the auto-watch will re-add itself on next session.
 - **Thread filter intersected with search occasionally hides too aggressively.** If you have an active thread filter AND start typing in the search box, the intersection logic can hide the parent. Clear one to recover. Will be tightened when we ship the next search pass.
+- **Starting a new top-level thread isn't wired.** The v0.11.0 thread rail lets you switch between a channel's existing threads and reply inside any of them, but posting a brand-new top-level post (the way an author starts a fresh daily thread) isn't implemented — that write endpoint hasn't been captured yet. Use native Substack to start a new thread.
 
 Tracker: [GitHub issues](https://github.com/inder/betterssc/issues).
 
