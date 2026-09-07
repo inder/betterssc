@@ -1,15 +1,15 @@
 {
-  "sha": "cf6d2bb",
+  "sha": "c6485a0",
   "branch": "main",
-  "ts": "2026-09-06T15:44:00Z",
+  "ts": "2026-09-06T20:20:00Z",
   "reviewer_model": "fable",
   "verdict": "fix-these",
   "retro_required": "yes",
-  "retro_reasoning": "332-line diff (>200), touches a domain with existing memory entries (state-reset transitions, comment-claimed invariants); finding (a) is a fresh instance of the comment-claimed-invariant pattern, finding (b) of the common-path-degradation pattern",
+  "retro_reasoning": "313-line diff with 4 should-fix findings; the divider-in-scroll-container miss is a reusable lesson (adding position:relative to an overflow:auto element changes its containing-block semantics for every absolute child)",
   "critical_count": 0,
-  "should_fix_count": 3,
+  "should_fix_count": 4,
   "nit_count": 7,
   "files_reviewed": 5,
-  "resolution": "all 3 should-fix applied (2 self-spotted + empirically verified before the verdict landed: mobile grid-template-areas bug, boot-abort on rail-fetch failure; 1 new: stale reply param on thread switch). 4 of 7 nits applied (redundant list.contains check, contingent-boot-path comment, shared-consumer api.js comment, HTML-tag-strip on rail snippet + 2 new tests). 3 nits deliberately skipped as cosmetic/optional per the reviewer's own framing (recency-hint copy, no-highlight-when-off-page-1, extra fixture coverage). Suite 680/680 green.",
-  "scope": "Thread-switcher rail for Substack chat channels"
+  "resolution": "all 4 should-fix applied: (1) .thread-rail restructured to a non-scrolling flex column with .thread-rail-list owning overflow-y, divider anchored right:0 -- empirically re-verified live (no horizontal overflow, divider stays pinned across list scroll, list scrolls independently); (2) keyboard focus preserved across renderThreadRailHeader's rebuild; (3) divider cursor changed from misleading col-resize to pointer; (4) renderThreadRail falls back to the unfiltered row set when hideEmpty filtering would leave zero rows, with a new pure-function test locking in the exact scenario. 2 of 7 nits applied (aria-pressed/aria-expanded/aria-controls, guard comment on the collapsed-hide rule); 5 nits deliberately skipped as optional/precedented/would-require-touching-unrelated-existing-code per the reviewer's own framing. Suite 686/686 green.",
+  "scope": "Thread-rail hide-empty toggle + collapsible rail"
 }

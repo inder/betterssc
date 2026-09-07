@@ -154,6 +154,14 @@ const state = {
   // thread-switcher rail (formatThreadRailRows). Empty for a legacy
   // pub+post URL, which carries no channel context at all.
   channelThreads: [],
+  // Thread-rail UI prefs, persisted via persistThreadRailUiPrefs /
+  // restored in restoreWatchedUsers (same chrome.storage.local round trip
+  // as the member-rail prefs — one boot-time read, not two). Defaults:
+  // hide 0-reply threads (declutters the common case — most of a channel's
+  // posts are broadcast links with no replies, per pickLiveliestPost's own
+  // reasoning); rail starts expanded.
+  threadRailHideEmpty: true,
+  threadRailCollapsed: false,
   user: null, // {id, name, handle} from _analyticsConfig (via background)
   // Telegram bridge (v0.9) — mirror of the persisted bridge config. The live
   // controller lives in telegramBridge (lib/telegram-bridge.js); this is what
@@ -2038,22 +2046,38 @@ function stopTickerRefreshTimer() {
 // list (not per-row) since the list is fully rebuilt on every render.
 function bindThreadRail() {
   const list = document.getElementById("threadRailList");
-  if (!list) return;
-  list.addEventListener("click", (e) => {
-    const item = e.target.closest(".thread-rail-item");
-    if (!item) return;
-    const postUuid = item.dataset.postUuid;
-    if (!postUuid || postUuid === state.postUuid) return;
-    const url = new URL(location.href);
-    url.searchParams.set("post", postUuid);
-    // `reply` names a comment id inside THIS thread (state.targetReplyId,
-    // consumed by loadInitial's deep-link scroll). Cloning the current URL
-    // preserves it by default, which is right for pub/chan but wrong here —
-    // an old thread's comment id has no meaning in the thread we're
-    // switching to and would feed a scroll target that doesn't exist there.
-    url.searchParams.delete("reply");
-    location.href = url.toString();
-  });
+  if (list) {
+    list.addEventListener("click", (e) => {
+      const item = e.target.closest(".thread-rail-item");
+      if (!item) return;
+      const postUuid = item.dataset.postUuid;
+      if (!postUuid || postUuid === state.postUuid) return;
+      const url = new URL(location.href);
+      url.searchParams.set("post", postUuid);
+      // `reply` names a comment id inside THIS thread (state.targetReplyId,
+      // consumed by loadInitial's deep-link scroll). Cloning the current URL
+      // preserves it by default, which is right for pub/chan but wrong here —
+      // an old thread's comment id has no meaning in the thread we're
+      // switching to and would feed a scroll target that doesn't exist there.
+      url.searchParams.delete("reply");
+      location.href = url.toString();
+    });
+  }
+  // Double-click the divider to toggle collapse — a power-user shortcut
+  // ALONGSIDE the header's collapse button (renderThreadRailHeader), never
+  // instead of it. The divider sits over the rail's right edge in both
+  // states (a plain 6px strip via CSS, no visible affordance beyond a hover
+  // highlight and its title tooltip), so this one listener covers collapse
+  // and expand both directions without needing separate collapsed-state
+  // markup.
+  const divider = document.getElementById("threadRailDivider");
+  if (divider) {
+    divider.addEventListener("dblclick", () => {
+      state.threadRailCollapsed = !state.threadRailCollapsed;
+      persistThreadRailUiPrefs();
+      renderThreadRail();
+    });
+  }
 }
 
 // Click a chip → drop its term into the search box and run the search.
@@ -3747,6 +3771,8 @@ function restoreWatchedUsers() {
           "bssc_member_sort",
           "bssc_notify_all",
           "bssc_auto_load_all",
+          "bssc_thread_rail_hide_empty",
+          "bssc_thread_rail_collapsed",
         ],
         (res) => {
           if (res) {
@@ -3758,12 +3784,27 @@ function restoreWatchedUsers() {
             state.notifyAllMessages = !!res.bssc_notify_all;
             // Explicit `=== false` so an unset key keeps the default ON.
             // Treating an absent storage value as "user disabled" would
-            // break the on-by-default contract.
+            // break the on-by-default contract. Same reasoning as
+            // bssc_auto_load_all just above — threadRailHideEmpty also
+            // defaults true.
             if (res.bssc_auto_load_all === false) state.autoLoadAll = false;
+            if (res.bssc_thread_rail_hide_empty === false) {
+              state.threadRailHideEmpty = false;
+            }
+            // threadRailCollapsed defaults false, so plain coercion is fine
+            // here — no on-by-default contract to protect.
+            state.threadRailCollapsed = !!res.bssc_thread_rail_collapsed;
           }
           ensureSelfDefaults();
           renderMembers();
           renderNotifyAllButton();
+          // Re-render with restored prefs — the FIRST renderThreadRail call
+          // in init() already ran (synchronously, before this async
+          // storage read resolves) using the state initializer's defaults.
+          // Same defaults-then-correct sequencing renderMembers already
+          // relies on above for bssc_member_sort; not a new race this
+          // introduces.
+          renderThreadRail();
         }
       );
     // AI Insights config loads independently — don't gate the rail on it.
@@ -4102,33 +4143,57 @@ function getResolvedSelf() {
   };
 }
 
-// Renders the thread-switcher rail from state.channelThreads. Called once
-// at boot (see init()) — there is no dynamic re-render mid-session, because
-// switching threads navigates the page (see the click handler wired in
-// bindEventHandlers) rather than swapping state in place. That trade avoids
-// hand-resetting the ~15 piece-of-state surface a live in-app switch would
-// touch (state.comments, state.order, earliestISO, searchQuery, threadFilter,
-// focusFilter + its memo, ws/wsStatus, bgPrefetch*, ...) — exactly the class
-// of bug this project's own memory (memo invalidation must cover ALL store
-// mutation sources) has been bitten by before. A full navigate reuses the
-// same boot path every other entry into the app already goes through and is
-// already tested, at the cost of a page reload instead of an in-app
-// transition.
+// Renders the thread-switcher rail from state.channelThreads. Called at
+// boot (see init()) AND re-called whenever the hide-empty or collapse
+// prefs change (renderThreadRailHeader's button handlers, restoreWatchedUsers's
+// storage-restore callback) — those are presentational toggles over
+// already-loaded data, nothing like SWITCHING threads. Switching a thread
+// navigates the page (see bindThreadRail) rather than swapping state in
+// place, specifically to avoid hand-resetting the ~15 piece-of-state
+// surface a live in-app switch would touch (state.comments, state.order,
+// earliestISO, searchQuery, threadFilter, focusFilter + its memo,
+// ws/wsStatus, bgPrefetch*, ...) — exactly the class of bug this project's
+// own memory (memo invalidation must cover ALL store mutation sources) has
+// been bitten by before. Re-rendering the RAIL in place carries none of
+// that risk: it touches no thread-scoped state, only how many of
+// state.channelThreads's already-fetched rows are shown.
 function renderThreadRail() {
   const rail = document.getElementById("threadRail");
   const list = document.getElementById("threadRailList");
   const mainEl = document.querySelector("main.main");
   if (!rail || !list) return;
-  const rows = formatThreadRailRows(state.channelThreads, state.postUuid);
-  // A rail with 0 or 1 row has nothing to switch between — hide it rather
-  // than show a list containing only the thread already open.
-  if (rows.length < 2) {
+  // Gate visibility on the UNFILTERED count, not what hideEmpty leaves
+  // visible. Otherwise "hide empty threads" can hide the whole rail —
+  // including the header that holds the toggle to turn itself back off —
+  // the moment filtering leaves only the active thread. A control the
+  // user can't find is the bug, not a render detail.
+  const allRows = formatThreadRailRows(state.channelThreads, state.postUuid);
+  if (allRows.length < 2) {
     rail.classList.add("hidden");
-    if (mainEl) mainEl.classList.remove("rail-visible");
+    if (mainEl) mainEl.classList.remove("rail-visible", "rail-collapsed");
     return;
   }
   rail.classList.remove("hidden");
-  if (mainEl) mainEl.classList.add("rail-visible");
+  rail.classList.toggle("collapsed", state.threadRailCollapsed);
+  if (mainEl) {
+    mainEl.classList.add("rail-visible");
+    mainEl.classList.toggle("rail-collapsed", state.threadRailCollapsed);
+  }
+  let rows = state.threadRailHideEmpty
+    ? formatThreadRailRows(state.channelThreads, state.postUuid, {
+        hideEmpty: true,
+      })
+    : allRows;
+  // The active-thread carve-out in formatThreadRailRows only protects a row
+  // that's actually IN state.channelThreads (page 1 of the channel feed —
+  // see the page-1-only ceiling documented on fetchChannelPosts). If the
+  // open thread isn't on that page and every page-1 thread happens to be a
+  // zero-reply broadcast — exactly the channel shape this filter exists
+  // for — filtering can legitimately leave nothing to render. A visible
+  // rail with an "Empty hidden" header over a blank list reads as broken,
+  // not filtered. Fall back to the unfiltered set rather than show nothing.
+  if (rows.length === 0) rows = allRows;
+  renderThreadRailHeader(allRows.length, allRows.length - rows.length);
   list.innerHTML = "";
   for (const row of rows) {
     const li = document.createElement("li");
@@ -4150,6 +4215,90 @@ function renderThreadRail() {
     }
     list.appendChild(li);
   }
+}
+
+// Builds the rail header's label + hide-empty toggle + collapse button.
+// Rebuilt (not diffed) on every renderThreadRail call, same pattern as
+// renderMembersHeader — listeners are attached fresh each time rather than
+// bound once, since the header's content is small and this keeps the
+// button's title/label always in sync with current state with no separate
+// "update the button text" path to forget.
+function renderThreadRailHeader(totalThreadCount, hiddenCount) {
+  const header = document.getElementById("threadRailHeader");
+  if (!header) return;
+  // Preserve keyboard focus across the rebuild below. header.innerHTML=""
+  // detaches whatever button the user just activated via Enter/Space,
+  // dropping focus to <body> — a keyboard user would otherwise have to Tab
+  // back into the rail after every single toggle. Record WHICH button (by
+  // role, not by reference — the element itself is about to be discarded)
+  // before clearing, then hand focus to its replacement below.
+  const active = document.activeElement;
+  const focusTarget = !active
+    ? null
+    : active.classList.contains("thread-rail-hide-empty-toggle")
+      ? "hide-empty"
+      : active.classList.contains("thread-rail-collapse-btn")
+        ? "collapse"
+        : null;
+  header.innerHTML = "";
+
+  const label = document.createElement("span");
+  label.className = "thread-rail-header-label";
+  label.textContent = "Threads";
+  header.appendChild(label);
+
+  const controls = document.createElement("span");
+  controls.className = "thread-rail-controls";
+
+  const hideEmptyBtn = document.createElement("button");
+  hideEmptyBtn.type = "button";
+  hideEmptyBtn.className = "thread-rail-hide-empty-toggle";
+  hideEmptyBtn.setAttribute("aria-pressed", String(state.threadRailHideEmpty));
+  hideEmptyBtn.title =
+    hiddenCount > 0
+      ? state.threadRailHideEmpty
+        ? `Hiding ${hiddenCount} thread${hiddenCount === 1 ? "" : "s"} with no replies — click to show all ${totalThreadCount}`
+        : `Showing all ${totalThreadCount} threads — click to hide ${hiddenCount} with no replies`
+      : `All ${totalThreadCount} threads have replies — nothing to hide`;
+  hideEmptyBtn.textContent = state.threadRailHideEmpty ? "Empty hidden" : "Show all";
+  hideEmptyBtn.addEventListener("click", () => {
+    state.threadRailHideEmpty = !state.threadRailHideEmpty;
+    persistThreadRailUiPrefs();
+    renderThreadRail();
+  });
+  controls.appendChild(hideEmptyBtn);
+
+  const collapseBtn = document.createElement("button");
+  collapseBtn.type = "button";
+  collapseBtn.className = "thread-rail-collapse-btn";
+  const collapseLabel = state.threadRailCollapsed ? "Expand threads" : "Collapse threads";
+  collapseBtn.title = collapseLabel;
+  collapseBtn.setAttribute("aria-label", collapseLabel);
+  collapseBtn.setAttribute("aria-expanded", String(!state.threadRailCollapsed));
+  collapseBtn.setAttribute("aria-controls", "threadRailList");
+  collapseBtn.textContent = state.threadRailCollapsed ? "›" : "‹";
+  collapseBtn.addEventListener("click", () => {
+    state.threadRailCollapsed = !state.threadRailCollapsed;
+    persistThreadRailUiPrefs();
+    renderThreadRail();
+  });
+  controls.appendChild(collapseBtn);
+
+  header.appendChild(controls);
+
+  if (focusTarget === "hide-empty") hideEmptyBtn.focus();
+  else if (focusTarget === "collapse") collapseBtn.focus();
+}
+
+function persistThreadRailUiPrefs() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_thread_rail_hide_empty: state.threadRailHideEmpty,
+        bssc_thread_rail_collapsed: state.threadRailCollapsed,
+      });
+  } catch (_) {}
 }
 
 function renderChatHeader() {

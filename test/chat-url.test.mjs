@@ -321,4 +321,70 @@ describe("formatThreadRailRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe("real");
   });
+
+  describe("hideEmpty option", () => {
+    const threads = [
+      thread("live", { created_at: "2026-09-03T00:00:00.000Z", comment_count: 5 }),
+      thread("empty-1", { created_at: "2026-09-02T00:00:00.000Z", comment_count: 0 }),
+      thread("empty-2", { created_at: "2026-09-01T00:00:00.000Z" }), // comment_count absent -> 0
+    ];
+
+    it("defaults to false — unfiltered, same as calling with no options at all", () => {
+      const withOptions = formatThreadRailRows(threads, null, {});
+      const withoutOptions = formatThreadRailRows(threads, null);
+      expect(withOptions).toEqual(withoutOptions);
+      expect(withOptions).toHaveLength(3);
+    });
+
+    it("filters out 0-reply threads when true", () => {
+      const rows = formatThreadRailRows(threads, null, { hideEmpty: true });
+      expect(rows.map((r) => r.id)).toEqual(["live"]);
+    });
+
+    it("keeps the active thread even at 0 replies — never hides the thread you're looking at", () => {
+      const rows = formatThreadRailRows(threads, "empty-1", { hideEmpty: true });
+      expect(rows.map((r) => r.id).sort()).toEqual(["empty-1", "live"]);
+    });
+
+    it("keeps ordering (liveliest-first) after filtering", () => {
+      const withReplies = [
+        thread("newer-empty", { created_at: "2026-09-05T00:00:00.000Z", comment_count: 0 }),
+        thread("older-live", {
+          created_at: "2026-09-01T00:00:00.000Z",
+          most_recent_comment_created_at: "2026-09-04T00:00:00.000Z",
+          comment_count: 3,
+        }),
+        thread("newest-live", {
+          created_at: "2026-09-06T00:00:00.000Z",
+          most_recent_comment_created_at: "2026-09-06T00:00:00.000Z",
+          comment_count: 1,
+        }),
+      ];
+      const rows = formatThreadRailRows(withReplies, null, { hideEmpty: true });
+      expect(rows.map((r) => r.id)).toEqual(["newest-live", "older-live"]);
+    });
+
+    it("against the real capture: hides the 6 zero-reply broadcasts, keeps the 5 live ones", () => {
+      const rows = formatThreadRailRows(CAPTURE.threads, null, { hideEmpty: true });
+      expect(rows.every((r) => r.commentCount > 0)).toBe(true);
+      expect(rows).toHaveLength(
+        CAPTURE.threads.filter((t) => t.communityPost.comment_count > 0).length
+      );
+    });
+
+    it("legitimately returns [] when every thread is empty and none is active — the exact case renderThreadRail must fall back on", () => {
+      // All-empty-page + an active id that isn't among them is exactly
+      // "the open thread is paged out and page 1 is all broadcast links" —
+      // the scenario that made renderThreadRail's hideEmpty branch capable
+      // of rendering a visible rail with zero rows before that fallback was
+      // added. This test locks in that the PURE function still returns []
+      // here (it's the correct, unopinionated answer) — the empty-list
+      // recovery is app.js's job, not this function's.
+      const allEmpty = [
+        thread("a", { created_at: "2026-01-01T00:00:00.000Z", comment_count: 0 }),
+        thread("b", { created_at: "2026-01-02T00:00:00.000Z" }),
+      ];
+      expect(formatThreadRailRows(allEmpty, "not-on-this-page", { hideEmpty: true })).toEqual([]);
+    });
+  });
 });

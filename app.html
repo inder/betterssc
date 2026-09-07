@@ -210,10 +210,21 @@
              Hidden by default and only shown once JS finds 2+ threads
              (formatThreadRailRows); a legacy pub+post URL with no channel
              context never populates state.channelThreads, so it stays
-             hidden for those chats too. -->
+             hidden for those chats too. Header contents (label, hide-empty
+             toggle, collapse button) are built by renderThreadRailHeader —
+             this div is just the mount point. -->
         <aside class="thread-rail hidden" id="threadRail" aria-label="Threads in this channel">
-          <div class="thread-rail-header">Threads</div>
+          <div class="thread-rail-header" id="threadRailHeader"></div>
           <ul id="threadRailList" class="thread-rail-list"></ul>
+          <!-- Double-click to toggle collapse — a secondary shortcut to the
+               header button, not the only way in (memory: a control the
+               user can't find IS the bug — the header icon is the
+               discoverable affordance, this is a power-user bonus). -->
+          <div
+            class="thread-rail-divider"
+            id="threadRailDivider"
+            title="Double-click to collapse/expand"
+          ></div>
         </aside>
 
         <section class="stream" id="stream">
