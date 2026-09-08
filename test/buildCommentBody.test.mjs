@@ -125,4 +125,47 @@ describe("buildCommentBody — edge cases", () => {
     expect(out.body).toBe("hi ${0} and @bocz");
     expect(out.mentions["0"]).toEqual({ user_id: 1, text: "@bo.z+" });
   });
+
+  it("does not rewrite a selected short name inside an unselected longer name", () => {
+    const out = buildCommentBody("hi @Anna", {
+      "@Ann": { user_id: 1, text: "@ann" },
+    });
+    expect(out).toEqual({ body: "hi @Anna", mentions: {} });
+  });
+
+  it("matches the longest selected display name before a prefix name", () => {
+    const out = buildCommentBody("@Ann Marie and @Ann", {
+      "@Ann": { user_id: 2, text: "@ann" },
+      "@Ann Marie": { user_id: 1, text: "@annm" },
+    });
+    expect(out).toEqual({
+      body: "${0} and ${1}",
+      mentions: {
+        0: { user_id: 1, text: "@annm" },
+        1: { user_id: 2, text: "@ann" },
+      },
+    });
+  });
+
+  it("preserves a short mention before uppercase prose or a newline", () => {
+    expect(
+      buildCommentBody("@Ann Thanks\n@Ann\nThanks", {
+        "@Ann": { user_id: 2, text: "@ann" },
+      })
+    ).toEqual({
+      body: "${0} Thanks\n${0}\nThanks",
+      mentions: { 0: { user_id: 2, text: "@ann" } },
+    });
+  });
+
+  it("never emits an orphan slot for an unmatched lowercase prefix name", () => {
+    const out = buildCommentBody("@Ann marie", {
+      "@Ann": { user_id: 2, text: "@ann" },
+      "@Ann Marie": { user_id: 1, text: "@annm" },
+    });
+    expect(out).toEqual({
+      body: "${0} marie",
+      mentions: { 0: { user_id: 2, text: "@ann" } },
+    });
+  });
 });

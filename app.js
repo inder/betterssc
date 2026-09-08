@@ -46,6 +46,7 @@ import {
   computeRetryDelay,
   AI_MODERATION_DEBOUNCE_OPTIONS_MS,
   resolveAiModerationSettings,
+  isUsefulUserDisplayName,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -1371,18 +1372,26 @@ function registerUserObjects(arr) {
   // refreshAvatarsForUsers to repaint already-rendered .msg-group
   // avatars whose original render baked in a letter placeholder.
   const photoUpgradedIds = [];
+  const nameUpgradedIds = [];
   for (const u of arr) {
     if (!u) continue;
     const id = u.id ?? u.user_id;
     if (id == null) continue;
     const existing = _userTable.get(id);
     if (!existing) {
-      _userTable.set(id, {
+      const name = u.name || u.handle || `User ${id}`;
+      const inserted = {
         id,
-        name: u.name || u.handle || `User ${id}`,
+        name,
         handle: u.handle || null,
         photo_url: u.photo_url || null,
-      });
+        _nameFallback: !isUsefulUserDisplayName(
+          { name, handle: u.handle || null },
+          id
+        ),
+      };
+      _userTable.set(id, inserted);
+      if (!inserted._nameFallback) nameUpgradedIds.push(id);
       n++;
     } else {
       // Upgrade null fields when a later payload provides them. Avatars
@@ -1398,12 +1407,18 @@ function registerUserObjects(arr) {
         existing.handle = u.handle;
         upgraded = true;
       }
+      const existingNameIsFallback =
+        existing._nameFallback === true ||
+        !isUsefulUserDisplayName(existing, id);
       if (
         u.name &&
-        (existing.name === `User ${id}` || !existing.name)
+        existingNameIsFallback &&
+        isUsefulUserDisplayName({ name: u.name, handle: u.handle }, id)
       ) {
         existing.name = u.name;
+        existing._nameFallback = false;
         upgraded = true;
+        nameUpgradedIds.push(id);
       }
       if (upgraded) n++;
     }
@@ -1411,6 +1426,9 @@ function registerUserObjects(arr) {
   if (photoUpgradedIds.length) {
     // Defer so the caller's render pass (if any) finishes first.
     setTimeout(() => refreshAvatarsForUsers(photoUpgradedIds), 0);
+  }
+  if (nameUpgradedIds.length) {
+    setTimeout(() => refreshMentionNamesForUsers(nameUpgradedIds), 0);
   }
   return n;
 }
@@ -2434,7 +2452,7 @@ function renderMessageItem(c, opts = {}) {
   }
 
   // Body with mention + URL expansion.
-  const segments = segmentBody(c.body, c.mentions);
+  const segments = segmentBody(c.body, c.mentions, _userTable);
   for (const seg of segments) {
     if (seg.type === "mention") {
       const span = document.createElement("span");
@@ -3332,6 +3350,22 @@ function refreshAvatarsForUsers(userIds) {
   // Header avatar too (post author + self) — cheaper to re-render than
   // walk for it explicitly.
   renderChatHeader();
+}
+
+function refreshMentionNamesForUsers(userIds) {
+  if (!Array.isArray(userIds) || !userIds.length) return;
+  const wanted = new Set(userIds.map(String));
+  const cachedById = new Map();
+  for (const [id, user] of _userTable) {
+    if (wanted.has(String(id)) && isUsefulUserDisplayName(user, id)) {
+      cachedById.set(String(id), user);
+    }
+  }
+  if (!cachedById.size) return;
+  for (const mention of document.querySelectorAll(".msg-mention[data-user-id]")) {
+    const user = cachedById.get(String(mention.dataset.userId));
+    if (user) mention.textContent = "@" + String(user.name).replace(/^@/, "");
+  }
 }
 
 function makeAvatar(author, cssClass) {
@@ -7944,6 +7978,10 @@ import {
   markPendingFailed,
   findActiveMentionToken,
   replaceMentionToken,
+  updateMentionSelections,
+  filterMentionSuggestions,
+  mergeMentionSuggestions,
+  buildMentionSelection,
   updateReactionCount,
   topReactionsInChat,
   setReplyTarget,
@@ -7990,7 +8028,11 @@ import {
 // the landing screen) is a no-op.
 state.composer = state.composer || {
   pending: null,         // outgoing send in flight (commit 2)
-  mentions: {},          // @name → { user_id, text } map for the buffer
+  // Occurrence-aware selections for the live textarea. Ranges keep exact
+  // duplicate names and prefix names tied to the identity actually picked.
+  mentions: [],          // [{start, end, token, user_id, text}]
+  mentionText: "",       // textarea value those ranges refer to
+  mentionPendingEdit: null,
   replyingTo: null,      // {id, authorName, body} when replying (commit 6)
   // Giphy BYOK API key for the GIF picker. Persisted as
   // bssc_giphy_api_key. The picker hides itself behind the onboarding
@@ -8086,9 +8128,39 @@ function mountComposer() {
       hardBlocked;
   };
 
+  // Capture the browser's actual edit interval before the value changes.
+  // Text-only prefix/suffix inference is ambiguous when identical mention text
+  // is pasted before an existing selection; this keeps identity on the
+  // original occurrence. Complex word/history edits fall back to inference.
+  input.addEventListener("beforeinput", (e) => {
+    let start = input.selectionStart ?? 0;
+    let end = input.selectionEnd ?? start;
+    if (start === end && e.inputType === "deleteContentBackward") {
+      start = Math.max(0, start - 1);
+    } else if (start === end && e.inputType === "deleteContentForward") {
+      end = Math.min((input.value || "").length, end + 1);
+    } else if (
+      e.inputType &&
+      (e.inputType.startsWith("deleteWord") ||
+        e.inputType.startsWith("history"))
+    ) {
+      state.composer.mentionPendingEdit = null;
+      return;
+    }
+    state.composer.mentionPendingEdit = { start, end };
+  });
+
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
   // which matches lineHeight 22 * 4 = 88 + a bit of padding).
   input.addEventListener("input", () => {
+    state.composer.mentions = updateMentionSelections(
+      state.composer.mentionText,
+      input.value || "",
+      state.composer.mentions,
+      state.composer.mentionPendingEdit
+    );
+    state.composer.mentionPendingEdit = null;
+    state.composer.mentionText = input.value || "";
     autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
     // Typing dismisses the error state, restoring the "Send" affordance.
     if (state.composer._lastError) {
@@ -8878,34 +8950,82 @@ state.composer._mention = state.composer._mention || {
   results: [],
   activeIdx: 0,
   lastQuery: null,
+  loading: false,
+  generation: 0,
+  anchorStart: null,
 };
 
-const _fetchMentionsDebounced = composerDebounce(async (query, input) => {
+function localMentionCandidates() {
+  const byId = new Map();
+  for (const author of state.authors.values()) {
+    const user = author && author.profile;
+    if (user && user.id != null) byId.set(String(user.id), user);
+  }
+  // The response-wide table is enrichment-aware, so let it replace the
+  // possibly older profile snapshot held by state.authors.
+  for (const user of _userTable.values()) {
+    if (user && user.id != null) byId.set(String(user.id), user);
+  }
+  if (state.user && state.user.id != null) {
+    const resolved = getResolvedSelf() || state.user;
+    byId.set(String(state.user.id), resolved);
+  }
+  return Array.from(byId.values());
+}
+
+const _fetchMentionsDebounced = composerDebounce(async (query, input, generation) => {
   const m = state.composer._mention;
-  if (!m.open) return;
+  if (!m.open || m.lastQuery !== query || m.generation !== generation) return;
   // Stale-query guard — only render the response if the user is still on
   // the same query they were when we fired.
-  m.lastQuery = query;
   // The composer is mounted at module scope (see the FOOTGUN note in BOOT), so
   // it is typeable during init()'s channel-resolution window while both ids are
   // still null. Substack 400s on `publication_id=null`, which the catch below
   // would swallow into an empty dropdown — correct, but it spends a request and
   // hides the real reason. Bail explicitly instead.
-  if (!state.publicationId || !state.postUuid) return;
+  if (!state.publicationId || !state.postUuid) {
+    m.loading = false;
+    renderMentionDropdown(input);
+    return;
+  }
   try {
     const res = await apiFetchMentions(
       state.publicationId,
       state.postUuid,
       query
     );
-    if (m.lastQuery !== query || !m.open) return;
+    if (
+      m.lastQuery !== query ||
+      !m.open ||
+      m.generation !== generation
+    ) return;
     const results = (res && res.results) || [];
-    m.results = results;
+    m.results = mergeMentionSuggestions(
+      localMentionCandidates(),
+      results,
+      query
+    );
     m.activeIdx = 0;
+    m.loading = false;
+    if (!m.results.length && query.includes(" ")) {
+      hideMentionDropdownForNoMatches();
+      return;
+    }
     renderMentionDropdown(input);
   } catch (e) {
-    if (m.lastQuery !== query || !m.open) return;
-    m.results = [];
+    if (
+      m.lastQuery !== query ||
+      !m.open ||
+      m.generation !== generation
+    ) return;
+    // The endpoint is additive: local participant display-name matching
+    // remains useful even if the network search fails.
+    m.results = filterMentionSuggestions(localMentionCandidates(), query);
+    m.loading = false;
+    if (!m.results.length && query.includes(" ")) {
+      hideMentionDropdownForNoMatches();
+      return;
+    }
     renderMentionDropdown(input);
   }
 }, 300);
@@ -8914,17 +9034,43 @@ function onMentionInput(input) {
   const m = state.composer._mention;
   const value = input.value || "";
   const cursor = input.selectionStart;
-  const token = findActiveMentionToken(value, cursor);
+  const continuing =
+    m.anchorStart != null &&
+    cursor >= m.anchorStart + 1 &&
+    value[m.anchorStart] === "@" &&
+    !/[\r\n,;:!?]/.test(value.slice(m.anchorStart + 1, cursor));
+  const knownNames = new Set();
+  for (const user of [...localMentionCandidates(), ...(m.results || [])]) {
+    if (user && user.name) knownNames.add(user.name);
+  }
+  const token = findActiveMentionToken(value, cursor, {
+    // Only an already-open session can cross spaces. This lets a user type
+    // "@Jordan Conner", but a completed mention does not re-open when they
+    // continue the sentence after selecting it.
+    allowSpaces: continuing,
+    fullNames: continuing ? Array.from(knownNames) : [],
+  });
   if (!token) {
     closeMentionDropdown();
     return;
   }
+  if (continuing && token.start !== m.anchorStart) {
+    closeMentionDropdown();
+    return;
+  }
   m.open = true;
+  m.anchorStart = token.start;
   m.token = token;
-  // Show the dropdown immediately (with a "typing…" hint while we debounce)
-  // so the user has visual feedback they're in a mention context.
-  if (!m.results.length) renderMentionDropdown(input);
-  _fetchMentionsDebounced(token.query, input);
+  const query = token.query.trim().replace(/\s+/g, " ");
+  m.lastQuery = query;
+  m.loading = true;
+  const generation = ++m.generation;
+  m.results = filterMentionSuggestions(localMentionCandidates(), query);
+  m.activeIdx = 0;
+  // Local display-name matches render immediately; the endpoint can add
+  // people who have not appeared in the currently loaded chat.
+  renderMentionDropdown(input);
+  _fetchMentionsDebounced(query, input, generation);
 }
 
 function renderMentionDropdown(input) {
@@ -8941,7 +9087,7 @@ function renderMentionDropdown(input) {
   if (!m.results.length) {
     const empty = document.createElement("div");
     empty.className = "composer-mention-empty";
-    empty.textContent = m.lastQuery == null ? "Loading…" : "No matches.";
+    empty.textContent = m.loading ? "Loading…" : "No matches.";
     dropdown.appendChild(empty);
     return;
   }
@@ -9016,19 +9162,38 @@ function selectMentionFromDropdown(input, idx) {
     closeMentionDropdown();
     return;
   }
-  const displayName = user.name || user.handle || `User ${user.user_id}`;
+  const selection = buildMentionSelection(user);
+  if (!selection) {
+    closeMentionDropdown();
+    return;
+  }
+  const previousText = input.value || "";
+  const replacedEnd = m.token.replaceEnd ?? m.token.end;
   const { text, cursor } = replaceMentionToken(
-    input.value || "",
+    previousText,
     m.token,
-    displayName
+    selection.displayName
   );
   input.value = text;
-  // Track the mention so buildCommentBody can convert it into a ${N} slot
-  // at send time. Key is the literal token we inserted (`@<name>`).
-  state.composer.mentions["@" + displayName] = {
-    user_id: user.user_id,
-    text: "@" + displayName,
-  };
+  const nonOverlappingMentions = Array.isArray(state.composer.mentions)
+    ? state.composer.mentions.filter(
+        (mention) =>
+          mention.end <= m.token.start || mention.start >= replacedEnd
+      )
+    : [];
+  state.composer.mentions = updateMentionSelections(
+    state.composer.mentionText,
+    text,
+    nonOverlappingMentions,
+    { start: m.token.start, end: replacedEnd }
+  );
+  state.composer.mentions.push({
+    ...selection.mention,
+    token: selection.token,
+    start: m.token.start,
+    end: m.token.start + selection.token.length,
+  });
+  state.composer.mentionText = text;
   closeMentionDropdown();
   // Restore the caret position to just after the inserted token + space.
   try {
@@ -9046,6 +9211,22 @@ function closeMentionDropdown() {
   m.results = [];
   m.activeIdx = 0;
   m.lastQuery = null;
+  m.loading = false;
+  m.generation++;
+  m.anchorStart = null;
+  const dropdown = document.getElementById("composerMention");
+  if (dropdown) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+  }
+}
+
+function hideMentionDropdownForNoMatches() {
+  const m = state.composer._mention;
+  m.open = false;
+  m.results = [];
+  m.activeIdx = 0;
+  m.loading = false;
   const dropdown = document.getElementById("composerMention");
   if (dropdown) {
     dropdown.classList.add("hidden");
@@ -9096,7 +9277,9 @@ async function submitComposer() {
   // snapshotted at click time, never whatever the composer holds later.
   const snapshot = {
     rawText: input.value,
-    mentions: { ...state.composer.mentions },
+    mentions: Array.isArray(state.composer.mentions)
+      ? state.composer.mentions.map((mention) => ({ ...mention }))
+      : { ...state.composer.mentions },
     replyingTo: state.composer.replyingTo
       ? { ...state.composer.replyingTo }
       : null,
@@ -9141,7 +9324,10 @@ async function submitComposer() {
 // draft that must NOT be touched.
 function clearComposerDraft(input) {
   input.value = "";
-  state.composer.mentions = {};
+  state.composer.mentions = [];
+  state.composer.mentionText = "";
+  state.composer.mentionPendingEdit = null;
+  closeMentionDropdown();
   // Detach the staged attachment from state WITHOUT revoking its Object
   // URL — a pending row built from the snapshot still references it for
   // the preview. The URL is reclaimed naturally when the pending DOM gets
@@ -9595,7 +9781,9 @@ async function reviewAndSend(snapshot, input, sendBtn, mode) {
 function restoreComposerAfterModerationFailure(input, snapshot, message, opts = {}) {
   if (input && !input.value) {
     input.value = snapshot.rawText;
-    state.composer.mentions = snapshot.mentions || {};
+    state.composer.mentions = snapshot.mentions || [];
+    state.composer.mentionText = snapshot.rawText || "";
+    state.composer.mentionPendingEdit = null;
     state.composer.attachment = snapshot.attachment || null;
     state.composer.replyingTo = snapshot.replyingTo || null;
     renderComposerAttachment();
@@ -9630,6 +9818,7 @@ function presentModerationSuggestion(snapshot, input, sendBtn) {
     return;
   }
   input.value = snapshot.rawText;
+  state.composer.mentionText = snapshot.rawText || "";
   autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
   showComposerNotice(MODERATION_SUGGESTION_NOTICE);
   state.composer.moderationSuggestion = snapshot;
