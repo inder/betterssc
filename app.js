@@ -15,7 +15,10 @@ import {
   detectChatChannels,
   postChatViewed,
   fetchUserProfile,
+  fetchChatChannel,
+  fetchChannelPosts,
 } from "./lib/api.js";
+import { buildSubstackChatUrl, isChannelId } from "./lib/chat-url.js";
 import { SubstackRealtime } from "./lib/ws.js";
 import {
   firstUnfurlableUrl,
@@ -33,6 +36,9 @@ import {
   throttle,
   debounce,
   chatNameAcronym,
+  pickLiveliestPost,
+  extractPostBody,
+  formatThreadRailRows,
   PREFETCH_BASE_DELAY_MS,
   PREFETCH_SLOT_POLL_MS,
   PREFETCH_PILL_VISIBLE_MS,
@@ -40,6 +46,7 @@ import {
   computeRetryDelay,
   AI_MODERATION_DEBOUNCE_OPTIONS_MS,
   resolveAiModerationSettings,
+  isUsefulUserDisplayName,
 } from "./lib/util.js";
 import {
   maybeNotifyMention,
@@ -141,6 +148,21 @@ const state = {
   publicationId: null,
   postUuid: null,
   targetReplyId: null,
+  channelId: null,
+  // Page 1 of the channel's post feed (raw `threads` array from
+  // fetchChannelPosts), set once at boot when the URL carries a channel id.
+  // Feeds both pickLiveliestPost (choosing a default post) and the
+  // thread-switcher rail (formatThreadRailRows). Empty for a legacy
+  // pub+post URL, which carries no channel context at all.
+  channelThreads: [],
+  // Thread-rail UI prefs, persisted via persistThreadRailUiPrefs /
+  // restored in restoreWatchedUsers (same chrome.storage.local round trip
+  // as the member-rail prefs — one boot-time read, not two). Defaults:
+  // hide 0-reply threads (declutters the common case — most of a channel's
+  // posts are broadcast links with no replies, per pickLiveliestPost's own
+  // reasoning); rail starts expanded.
+  threadRailHideEmpty: true,
+  threadRailCollapsed: false,
   user: null, // {id, name, handle} from _analyticsConfig (via background)
   // Telegram bridge (v0.9) — mirror of the persisted bridge config. The live
   // controller lives in telegramBridge (lib/telegram-bridge.js); this is what
@@ -234,28 +256,131 @@ const state = {
 const params = new URLSearchParams(location.search);
 state.publicationId = params.get("pub");
 state.postUuid = params.get("post");
+// Substack's 2026-09-06 chat migration: /chat/group/<channelId> URLs carry a
+// channel uuid instead of a publication id, and often no post at all. When we
+// have one, init() resolves the publication and a default post from it before
+// any chat load runs. See lib/chat-url.js for the URL shapes.
+// Validated, not just read: app.html is a web_accessible_resource matched to
+// substack.com, so any page on that origin can open it with a `chan` of its
+// choosing, and this value is interpolated into an API path.
+const rawChan = params.get("chan");
+state.channelId = isChannelId(rawChan) ? rawChan : null;
 state.targetReplyId = params.get("reply");
 
 const landingEl = document.getElementById("landing");
 const appEl = document.getElementById("app");
 
-if (!state.publicationId || !state.postUuid) {
+// A channel id alone is enough to boot — everything else is resolvable from
+// it. Without one we still need the legacy publication+post pair.
+if (!state.channelId && (!state.publicationId || !state.postUuid)) {
   showLanding();
 } else {
+  // FOOTGUN: this unhide must stay SYNCHRONOUS. The module-level
+  // `mountComposer()` gate at the bottom of this file reads
+  // `appEl.classList.contains("hidden")` exactly once, synchronously, at
+  // module-evaluation time — deferring the unhide until after init()'s async
+  // channel resolution would leave the composer permanently unmounted. That
+  // is why the resolution window is closed with guards inside the composer's
+  // handlers instead of by delaying this line.
   appEl.classList.remove("hidden");
   init();
 }
 
-function showLanding() {
+function showLanding(msg) {
   landingEl.classList.remove("hidden");
   appEl.classList.add("hidden");
-  if (state.publicationId && !state.postUuid) {
-    document.getElementById("landing-msg").textContent =
-      "I have the publication, but not a specific chat post — open one in Substack and click BetterSSC again.";
+  const text =
+    msg ||
+    (state.publicationId && !state.postUuid
+      ? "I have the publication, but not a specific chat post — open one in Substack and click BetterSSC again."
+      : null);
+  if (text) document.getElementById("landing-msg").textContent = text;
+}
+
+// Fills in whatever the URL didn't give us: publication id from the channel
+// record, and a post from the channel's feed. Throws if the channel yields no
+// usable post — the caller turns that into the landing screen rather than
+// letting loadInitial fetch comments for `undefined`.
+async function resolveChannelTarget() {
+  const meta = await fetchChatChannel(state.channelId);
+  const channel = (meta && meta.channel) || null;
+  if (!state.publicationId && channel && channel.publication_id != null) {
+    state.publicationId = String(channel.publication_id);
   }
+  // Enforce the boot comment's claim instead of merely asserting it. Without
+  // this, a channel record missing publication_id returns NORMALLY with
+  // state.publicationId null, and the failure surfaces much later as
+  // "Publication null" in the header, a `chat:null:...` WS subscribe, and an
+  // opaque 404 on image upload — none of which name the real cause.
+  if (!state.publicationId) {
+    throw new Error("channel record carried no publication id");
+  }
+  // Fetching the channel's post feed serves two purposes with different
+  // failure tolerances:
+  //   1. Picking a default post, when the URL didn't name one — REQUIRED.
+  //      No feed means nothing to show, so this must hard-fail to the
+  //      landing screen, same as before the rail existed.
+  //   2. Populating the thread rail, when the URL already names a real
+  //      post — OPTIONAL. The chat the user actually asked for is already
+  //      fully resolved at this point; a transient proxy hiccup on this
+  //      call must not turn a working chat into "Couldn't open this
+  //      Substack chat channel". Soft-fail to an empty rail instead — the
+  //      rail hides itself (renderThreadRail bails at rows.length < 2),
+  //      the chat loads normally.
+  if (state.postUuid) {
+    try {
+      const res = await fetchChannelPosts(state.channelId);
+      state.channelThreads = (res && res.threads) || [];
+    } catch (e) {
+      console.warn(
+        "[BetterSSC] thread rail fetch failed (non-fatal, chat loads without it):",
+        e && e.message
+      );
+      state.channelThreads = [];
+    }
+    return;
+  }
+
+  const res = await fetchChannelPosts(state.channelId);
+  state.channelThreads = (res && res.threads) || [];
+  const best = pickLiveliestPost(state.channelThreads);
+  if (!best) {
+    throw new Error("this channel has no posts yet");
+  }
+  state.postUuid = best.id;
 }
 
 async function init() {
+  // FIRST, before any listener is attached. Everything below consumes
+  // state.publicationId / state.postUuid, and bindEventHandlers() wires
+  // document-level handlers (vi nav, slash commands) that would otherwise be
+  // live during the resolution window. Nothing above this point needs either
+  // id, so resolving here costs no parallelism and removes a whole class of
+  // "read it before it was filled in" bug. On failure we return BEFORE any
+  // handler is bound, so the landing screen is inert rather than merely
+  // hidden behind still-armed listeners.
+  //
+  // The thread rail (renderThreadRail) only ever has data because this
+  // branch runs — it's the sole populator of state.channelThreads. That
+  // reliably holds today only because background.js/content.js never
+  // supply BOTH `pub` and `post` alongside `chan` (a /chat/group/... URL
+  // carries no legacy publication id to pass through), so this guard
+  // always fires for a channel URL. If the launcher ever starts passing a
+  // resolved `pub` too, this branch — and the rail — would silently stop
+  // running.
+  if (state.channelId && (!state.publicationId || !state.postUuid)) {
+    try {
+      await resolveChannelTarget();
+    } catch (e) {
+      console.error("[BetterSSC] channel resolve failed:", e);
+      showLanding(
+        `Couldn't open this Substack chat channel — ${(e && e.message) || e}. ` +
+          `Open a chat in Substack and click BetterSSC again.`
+      );
+      return;
+    }
+  }
+
   bindEventHandlers();
   restoreWatchedUsers();
   restoreLinkPreviews();
@@ -311,9 +436,12 @@ async function init() {
   // user avatar + collapsible body panel; loadInitial calls it again
   // once state.post is populated).
   renderChatHeader();
-  document.getElementById(
-    "openNativeChat"
-  ).href = `https://substack.com/chat/${state.publicationId}/post/${state.postUuid}`;
+  renderThreadRail();
+  document.getElementById("openNativeChat").href = buildSubstackChatUrl({
+    channelId: state.channelId,
+    publicationId: state.publicationId,
+    postUuid: state.postUuid,
+  });
   updateBaseTitle();
 
   // Initial comments.
@@ -1244,18 +1372,26 @@ function registerUserObjects(arr) {
   // refreshAvatarsForUsers to repaint already-rendered .msg-group
   // avatars whose original render baked in a letter placeholder.
   const photoUpgradedIds = [];
+  const nameUpgradedIds = [];
   for (const u of arr) {
     if (!u) continue;
     const id = u.id ?? u.user_id;
     if (id == null) continue;
     const existing = _userTable.get(id);
     if (!existing) {
-      _userTable.set(id, {
+      const name = u.name || u.handle || `User ${id}`;
+      const inserted = {
         id,
-        name: u.name || u.handle || `User ${id}`,
+        name,
         handle: u.handle || null,
         photo_url: u.photo_url || null,
-      });
+        _nameFallback: !isUsefulUserDisplayName(
+          { name, handle: u.handle || null },
+          id
+        ),
+      };
+      _userTable.set(id, inserted);
+      if (!inserted._nameFallback) nameUpgradedIds.push(id);
       n++;
     } else {
       // Upgrade null fields when a later payload provides them. Avatars
@@ -1271,12 +1407,18 @@ function registerUserObjects(arr) {
         existing.handle = u.handle;
         upgraded = true;
       }
+      const existingNameIsFallback =
+        existing._nameFallback === true ||
+        !isUsefulUserDisplayName(existing, id);
       if (
         u.name &&
-        (existing.name === `User ${id}` || !existing.name)
+        existingNameIsFallback &&
+        isUsefulUserDisplayName({ name: u.name, handle: u.handle }, id)
       ) {
         existing.name = u.name;
+        existing._nameFallback = false;
         upgraded = true;
+        nameUpgradedIds.push(id);
       }
       if (upgraded) n++;
     }
@@ -1284,6 +1426,9 @@ function registerUserObjects(arr) {
   if (photoUpgradedIds.length) {
     // Defer so the caller's render pass (if any) finishes first.
     setTimeout(() => refreshAvatarsForUsers(photoUpgradedIds), 0);
+  }
+  if (nameUpgradedIds.length) {
+    setTimeout(() => refreshMentionNamesForUsers(nameUpgradedIds), 0);
   }
   return n;
 }
@@ -1434,6 +1579,14 @@ async function connectRealtime() {
   try {
     probe = await fetchRealtimeToken([
       `user:${state.user ? state.user.id : "0"}`,
+      // NOTE (2026-09-06 channel migration): Substack's own client now
+      // subscribes to `chat-channel:<channelUuid>:<tier>`, not this
+      // publication-scoped name. The old name was re-probed during the
+      // migration fix and STILL mints a token with matching subscribe
+      // permissions, so this is not dead — but it is legacy, and if realtime
+      // is ever un-gated it should be re-decoded against a live capture
+      // before being trusted (this file's WS path is off by default for
+      // exactly the reason that guessing its protocol cost five commits once).
       `chat:${state.publicationId}:all_subscribers`,
     ]);
   } catch (e) {
@@ -1906,6 +2059,45 @@ function stopTickerRefreshTimer() {
   }
 }
 
+// Switching threads navigates the page rather than swapping state in
+// place — see the rationale comment on renderThreadRail. Delegated on the
+// list (not per-row) since the list is fully rebuilt on every render.
+function bindThreadRail() {
+  const list = document.getElementById("threadRailList");
+  if (list) {
+    list.addEventListener("click", (e) => {
+      const item = e.target.closest(".thread-rail-item");
+      if (!item) return;
+      const postUuid = item.dataset.postUuid;
+      if (!postUuid || postUuid === state.postUuid) return;
+      const url = new URL(location.href);
+      url.searchParams.set("post", postUuid);
+      // `reply` names a comment id inside THIS thread (state.targetReplyId,
+      // consumed by loadInitial's deep-link scroll). Cloning the current URL
+      // preserves it by default, which is right for pub/chan but wrong here —
+      // an old thread's comment id has no meaning in the thread we're
+      // switching to and would feed a scroll target that doesn't exist there.
+      url.searchParams.delete("reply");
+      location.href = url.toString();
+    });
+  }
+  // Double-click the divider to toggle collapse — a power-user shortcut
+  // ALONGSIDE the header's collapse button (renderThreadRailHeader), never
+  // instead of it. The divider sits over the rail's right edge in both
+  // states (a plain 6px strip via CSS, no visible affordance beyond a hover
+  // highlight and its title tooltip), so this one listener covers collapse
+  // and expand both directions without needing separate collapsed-state
+  // markup.
+  const divider = document.getElementById("threadRailDivider");
+  if (divider) {
+    divider.addEventListener("dblclick", () => {
+      state.threadRailCollapsed = !state.threadRailCollapsed;
+      persistThreadRailUiPrefs();
+      renderThreadRail();
+    });
+  }
+}
+
 // Click a chip → drop its term into the search box and run the search.
 function bindTickerBar() {
   const bar = document.getElementById("tickerBar");
@@ -2260,7 +2452,7 @@ function renderMessageItem(c, opts = {}) {
   }
 
   // Body with mention + URL expansion.
-  const segments = segmentBody(c.body, c.mentions);
+  const segments = segmentBody(c.body, c.mentions, _userTable);
   for (const seg of segments) {
     if (seg.type === "mention") {
       const span = document.createElement("span");
@@ -3160,6 +3352,22 @@ function refreshAvatarsForUsers(userIds) {
   renderChatHeader();
 }
 
+function refreshMentionNamesForUsers(userIds) {
+  if (!Array.isArray(userIds) || !userIds.length) return;
+  const wanted = new Set(userIds.map(String));
+  const cachedById = new Map();
+  for (const [id, user] of _userTable) {
+    if (wanted.has(String(id)) && isUsefulUserDisplayName(user, id)) {
+      cachedById.set(String(id), user);
+    }
+  }
+  if (!cachedById.size) return;
+  for (const mention of document.querySelectorAll(".msg-mention[data-user-id]")) {
+    const user = cachedById.get(String(mention.dataset.userId));
+    if (user) mention.textContent = "@" + String(user.name).replace(/^@/, "");
+  }
+}
+
 function makeAvatar(author, cssClass) {
   const initial = ((author && author.name) || "?").charAt(0).toUpperCase();
   // Fallback: if the comment's author lacks photo_url but _userTable has
@@ -3597,6 +3805,8 @@ function restoreWatchedUsers() {
           "bssc_member_sort",
           "bssc_notify_all",
           "bssc_auto_load_all",
+          "bssc_thread_rail_hide_empty",
+          "bssc_thread_rail_collapsed",
         ],
         (res) => {
           if (res) {
@@ -3608,12 +3818,27 @@ function restoreWatchedUsers() {
             state.notifyAllMessages = !!res.bssc_notify_all;
             // Explicit `=== false` so an unset key keeps the default ON.
             // Treating an absent storage value as "user disabled" would
-            // break the on-by-default contract.
+            // break the on-by-default contract. Same reasoning as
+            // bssc_auto_load_all just above — threadRailHideEmpty also
+            // defaults true.
             if (res.bssc_auto_load_all === false) state.autoLoadAll = false;
+            if (res.bssc_thread_rail_hide_empty === false) {
+              state.threadRailHideEmpty = false;
+            }
+            // threadRailCollapsed defaults false, so plain coercion is fine
+            // here — no on-by-default contract to protect.
+            state.threadRailCollapsed = !!res.bssc_thread_rail_collapsed;
           }
           ensureSelfDefaults();
           renderMembers();
           renderNotifyAllButton();
+          // Re-render with restored prefs — the FIRST renderThreadRail call
+          // in init() already ran (synchronously, before this async
+          // storage read resolves) using the state initializer's defaults.
+          // Same defaults-then-correct sequencing renderMembers already
+          // relies on above for bssc_member_sort; not a new race this
+          // introduces.
+          renderThreadRail();
         }
       );
     // AI Insights config loads independently — don't gate the rail on it.
@@ -3952,15 +4177,162 @@ function getResolvedSelf() {
   };
 }
 
-function extractPostBody(post) {
-  if (!post) return "";
-  return (
-    post.body ||
-    post.body_text ||
-    post.body_markdown ||
-    post.body_html ||
-    ""
-  );
+// Renders the thread-switcher rail from state.channelThreads. Called at
+// boot (see init()) AND re-called whenever the hide-empty or collapse
+// prefs change (renderThreadRailHeader's button handlers, restoreWatchedUsers's
+// storage-restore callback) — those are presentational toggles over
+// already-loaded data, nothing like SWITCHING threads. Switching a thread
+// navigates the page (see bindThreadRail) rather than swapping state in
+// place, specifically to avoid hand-resetting the ~15 piece-of-state
+// surface a live in-app switch would touch (state.comments, state.order,
+// earliestISO, searchQuery, threadFilter, focusFilter + its memo,
+// ws/wsStatus, bgPrefetch*, ...) — exactly the class of bug this project's
+// own memory (memo invalidation must cover ALL store mutation sources) has
+// been bitten by before. Re-rendering the RAIL in place carries none of
+// that risk: it touches no thread-scoped state, only how many of
+// state.channelThreads's already-fetched rows are shown.
+function renderThreadRail() {
+  const rail = document.getElementById("threadRail");
+  const list = document.getElementById("threadRailList");
+  const mainEl = document.querySelector("main.main");
+  if (!rail || !list) return;
+  // Gate visibility on the UNFILTERED count, not what hideEmpty leaves
+  // visible. Otherwise "hide empty threads" can hide the whole rail —
+  // including the header that holds the toggle to turn itself back off —
+  // the moment filtering leaves only the active thread. A control the
+  // user can't find is the bug, not a render detail.
+  const allRows = formatThreadRailRows(state.channelThreads, state.postUuid);
+  if (allRows.length < 2) {
+    rail.classList.add("hidden");
+    if (mainEl) mainEl.classList.remove("rail-visible", "rail-collapsed");
+    return;
+  }
+  rail.classList.remove("hidden");
+  rail.classList.toggle("collapsed", state.threadRailCollapsed);
+  if (mainEl) {
+    mainEl.classList.add("rail-visible");
+    mainEl.classList.toggle("rail-collapsed", state.threadRailCollapsed);
+  }
+  let rows = state.threadRailHideEmpty
+    ? formatThreadRailRows(state.channelThreads, state.postUuid, {
+        hideEmpty: true,
+      })
+    : allRows;
+  // The active-thread carve-out in formatThreadRailRows only protects a row
+  // that's actually IN state.channelThreads (page 1 of the channel feed —
+  // see the page-1-only ceiling documented on fetchChannelPosts). If the
+  // open thread isn't on that page and every page-1 thread happens to be a
+  // zero-reply broadcast — exactly the channel shape this filter exists
+  // for — filtering can legitimately leave nothing to render. A visible
+  // rail with an "Empty hidden" header over a blank list reads as broken,
+  // not filtered. Fall back to the unfiltered set rather than show nothing.
+  if (rows.length === 0) rows = allRows;
+  renderThreadRailHeader(allRows.length, allRows.length - rows.length);
+  list.innerHTML = "";
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = "thread-rail-item" + (row.isActive ? " active" : "");
+    li.dataset.postUuid = row.id;
+    const snippetEl = document.createElement("span");
+    snippetEl.className = "thread-rail-snippet";
+    // textContent, not innerHTML — row.snippet is raw user-authored text
+    // (formatThreadRailRows says so explicitly; enforcing it here, not just
+    // trusting the comment, per this project's own "a comment claiming an
+    // invariant still needs the enforcing line" lesson).
+    snippetEl.textContent = row.snippet;
+    li.appendChild(snippetEl);
+    if (row.commentCount > 0) {
+      const countEl = document.createElement("span");
+      countEl.className = "thread-rail-count";
+      countEl.textContent = String(row.commentCount);
+      li.appendChild(countEl);
+    }
+    list.appendChild(li);
+  }
+}
+
+// Builds the rail header's label + hide-empty toggle + collapse button.
+// Rebuilt (not diffed) on every renderThreadRail call, same pattern as
+// renderMembersHeader — listeners are attached fresh each time rather than
+// bound once, since the header's content is small and this keeps the
+// button's title/label always in sync with current state with no separate
+// "update the button text" path to forget.
+function renderThreadRailHeader(totalThreadCount, hiddenCount) {
+  const header = document.getElementById("threadRailHeader");
+  if (!header) return;
+  // Preserve keyboard focus across the rebuild below. header.innerHTML=""
+  // detaches whatever button the user just activated via Enter/Space,
+  // dropping focus to <body> — a keyboard user would otherwise have to Tab
+  // back into the rail after every single toggle. Record WHICH button (by
+  // role, not by reference — the element itself is about to be discarded)
+  // before clearing, then hand focus to its replacement below.
+  const active = document.activeElement;
+  const focusTarget = !active
+    ? null
+    : active.classList.contains("thread-rail-hide-empty-toggle")
+      ? "hide-empty"
+      : active.classList.contains("thread-rail-collapse-btn")
+        ? "collapse"
+        : null;
+  header.innerHTML = "";
+
+  const label = document.createElement("span");
+  label.className = "thread-rail-header-label";
+  label.textContent = "Threads";
+  header.appendChild(label);
+
+  const controls = document.createElement("span");
+  controls.className = "thread-rail-controls";
+
+  const hideEmptyBtn = document.createElement("button");
+  hideEmptyBtn.type = "button";
+  hideEmptyBtn.className = "thread-rail-hide-empty-toggle";
+  hideEmptyBtn.setAttribute("aria-pressed", String(state.threadRailHideEmpty));
+  hideEmptyBtn.title =
+    hiddenCount > 0
+      ? state.threadRailHideEmpty
+        ? `Hiding ${hiddenCount} thread${hiddenCount === 1 ? "" : "s"} with no replies — click to show all ${totalThreadCount}`
+        : `Showing all ${totalThreadCount} threads — click to hide ${hiddenCount} with no replies`
+      : `All ${totalThreadCount} threads have replies — nothing to hide`;
+  hideEmptyBtn.textContent = state.threadRailHideEmpty ? "Empty hidden" : "Show all";
+  hideEmptyBtn.addEventListener("click", () => {
+    state.threadRailHideEmpty = !state.threadRailHideEmpty;
+    persistThreadRailUiPrefs();
+    renderThreadRail();
+  });
+  controls.appendChild(hideEmptyBtn);
+
+  const collapseBtn = document.createElement("button");
+  collapseBtn.type = "button";
+  collapseBtn.className = "thread-rail-collapse-btn";
+  const collapseLabel = state.threadRailCollapsed ? "Expand threads" : "Collapse threads";
+  collapseBtn.title = collapseLabel;
+  collapseBtn.setAttribute("aria-label", collapseLabel);
+  collapseBtn.setAttribute("aria-expanded", String(!state.threadRailCollapsed));
+  collapseBtn.setAttribute("aria-controls", "threadRailList");
+  collapseBtn.textContent = state.threadRailCollapsed ? "›" : "‹";
+  collapseBtn.addEventListener("click", () => {
+    state.threadRailCollapsed = !state.threadRailCollapsed;
+    persistThreadRailUiPrefs();
+    renderThreadRail();
+  });
+  controls.appendChild(collapseBtn);
+
+  header.appendChild(controls);
+
+  if (focusTarget === "hide-empty") hideEmptyBtn.focus();
+  else if (focusTarget === "collapse") collapseBtn.focus();
+}
+
+function persistThreadRailUiPrefs() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_thread_rail_hide_empty: state.threadRailHideEmpty,
+        bssc_thread_rail_collapsed: state.threadRailCollapsed,
+      });
+  } catch (_) {}
 }
 
 function renderChatHeader() {
@@ -7256,6 +7628,7 @@ function toggleTheme() {
 
 function bindEventHandlers() {
   bindTickerBar();
+  bindThreadRail();
   const stream = document.getElementById("stream");
   stream.addEventListener(
     "scroll",
@@ -7605,6 +7978,10 @@ import {
   markPendingFailed,
   findActiveMentionToken,
   replaceMentionToken,
+  updateMentionSelections,
+  filterMentionSuggestions,
+  mergeMentionSuggestions,
+  buildMentionSelection,
   updateReactionCount,
   topReactionsInChat,
   setReplyTarget,
@@ -7651,7 +8028,11 @@ import {
 // the landing screen) is a no-op.
 state.composer = state.composer || {
   pending: null,         // outgoing send in flight (commit 2)
-  mentions: {},          // @name → { user_id, text } map for the buffer
+  // Occurrence-aware selections for the live textarea. Ranges keep exact
+  // duplicate names and prefix names tied to the identity actually picked.
+  mentions: [],          // [{start, end, token, user_id, text}]
+  mentionText: "",       // textarea value those ranges refer to
+  mentionPendingEdit: null,
   replyingTo: null,      // {id, authorName, body} when replying (commit 6)
   // Giphy BYOK API key for the GIF picker. Persisted as
   // bssc_giphy_api_key. The picker hides itself behind the onboarding
@@ -7747,9 +8128,39 @@ function mountComposer() {
       hardBlocked;
   };
 
+  // Capture the browser's actual edit interval before the value changes.
+  // Text-only prefix/suffix inference is ambiguous when identical mention text
+  // is pasted before an existing selection; this keeps identity on the
+  // original occurrence. Complex word/history edits fall back to inference.
+  input.addEventListener("beforeinput", (e) => {
+    let start = input.selectionStart ?? 0;
+    let end = input.selectionEnd ?? start;
+    if (start === end && e.inputType === "deleteContentBackward") {
+      start = Math.max(0, start - 1);
+    } else if (start === end && e.inputType === "deleteContentForward") {
+      end = Math.min((input.value || "").length, end + 1);
+    } else if (
+      e.inputType &&
+      (e.inputType.startsWith("deleteWord") ||
+        e.inputType.startsWith("history"))
+    ) {
+      state.composer.mentionPendingEdit = null;
+      return;
+    }
+    state.composer.mentionPendingEdit = { start, end };
+  });
+
   // Auto-grow on input, with the 4-line cap declared in CSS (max-height: 96px,
   // which matches lineHeight 22 * 4 = 88 + a bit of padding).
   input.addEventListener("input", () => {
+    state.composer.mentions = updateMentionSelections(
+      state.composer.mentionText,
+      input.value || "",
+      state.composer.mentions,
+      state.composer.mentionPendingEdit
+    );
+    state.composer.mentionPendingEdit = null;
+    state.composer.mentionText = input.value || "";
     autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
     // Typing dismisses the error state, restoring the "Send" affordance.
     if (state.composer._lastError) {
@@ -8539,28 +8950,82 @@ state.composer._mention = state.composer._mention || {
   results: [],
   activeIdx: 0,
   lastQuery: null,
+  loading: false,
+  generation: 0,
+  anchorStart: null,
 };
 
-const _fetchMentionsDebounced = composerDebounce(async (query, input) => {
+function localMentionCandidates() {
+  const byId = new Map();
+  for (const author of state.authors.values()) {
+    const user = author && author.profile;
+    if (user && user.id != null) byId.set(String(user.id), user);
+  }
+  // The response-wide table is enrichment-aware, so let it replace the
+  // possibly older profile snapshot held by state.authors.
+  for (const user of _userTable.values()) {
+    if (user && user.id != null) byId.set(String(user.id), user);
+  }
+  if (state.user && state.user.id != null) {
+    const resolved = getResolvedSelf() || state.user;
+    byId.set(String(state.user.id), resolved);
+  }
+  return Array.from(byId.values());
+}
+
+const _fetchMentionsDebounced = composerDebounce(async (query, input, generation) => {
   const m = state.composer._mention;
-  if (!m.open) return;
+  if (!m.open || m.lastQuery !== query || m.generation !== generation) return;
   // Stale-query guard — only render the response if the user is still on
   // the same query they were when we fired.
-  m.lastQuery = query;
+  // The composer is mounted at module scope (see the FOOTGUN note in BOOT), so
+  // it is typeable during init()'s channel-resolution window while both ids are
+  // still null. Substack 400s on `publication_id=null`, which the catch below
+  // would swallow into an empty dropdown — correct, but it spends a request and
+  // hides the real reason. Bail explicitly instead.
+  if (!state.publicationId || !state.postUuid) {
+    m.loading = false;
+    renderMentionDropdown(input);
+    return;
+  }
   try {
     const res = await apiFetchMentions(
       state.publicationId,
       state.postUuid,
       query
     );
-    if (m.lastQuery !== query || !m.open) return;
+    if (
+      m.lastQuery !== query ||
+      !m.open ||
+      m.generation !== generation
+    ) return;
     const results = (res && res.results) || [];
-    m.results = results;
+    m.results = mergeMentionSuggestions(
+      localMentionCandidates(),
+      results,
+      query
+    );
     m.activeIdx = 0;
+    m.loading = false;
+    if (!m.results.length && query.includes(" ")) {
+      hideMentionDropdownForNoMatches();
+      return;
+    }
     renderMentionDropdown(input);
   } catch (e) {
-    if (m.lastQuery !== query || !m.open) return;
-    m.results = [];
+    if (
+      m.lastQuery !== query ||
+      !m.open ||
+      m.generation !== generation
+    ) return;
+    // The endpoint is additive: local participant display-name matching
+    // remains useful even if the network search fails.
+    m.results = filterMentionSuggestions(localMentionCandidates(), query);
+    m.loading = false;
+    if (!m.results.length && query.includes(" ")) {
+      hideMentionDropdownForNoMatches();
+      return;
+    }
     renderMentionDropdown(input);
   }
 }, 300);
@@ -8569,17 +9034,43 @@ function onMentionInput(input) {
   const m = state.composer._mention;
   const value = input.value || "";
   const cursor = input.selectionStart;
-  const token = findActiveMentionToken(value, cursor);
+  const continuing =
+    m.anchorStart != null &&
+    cursor >= m.anchorStart + 1 &&
+    value[m.anchorStart] === "@" &&
+    !/[\r\n,;:!?]/.test(value.slice(m.anchorStart + 1, cursor));
+  const knownNames = new Set();
+  for (const user of [...localMentionCandidates(), ...(m.results || [])]) {
+    if (user && user.name) knownNames.add(user.name);
+  }
+  const token = findActiveMentionToken(value, cursor, {
+    // Only an already-open session can cross spaces. This lets a user type
+    // "@Jordan Conner", but a completed mention does not re-open when they
+    // continue the sentence after selecting it.
+    allowSpaces: continuing,
+    fullNames: continuing ? Array.from(knownNames) : [],
+  });
   if (!token) {
     closeMentionDropdown();
     return;
   }
+  if (continuing && token.start !== m.anchorStart) {
+    closeMentionDropdown();
+    return;
+  }
   m.open = true;
+  m.anchorStart = token.start;
   m.token = token;
-  // Show the dropdown immediately (with a "typing…" hint while we debounce)
-  // so the user has visual feedback they're in a mention context.
-  if (!m.results.length) renderMentionDropdown(input);
-  _fetchMentionsDebounced(token.query, input);
+  const query = token.query.trim().replace(/\s+/g, " ");
+  m.lastQuery = query;
+  m.loading = true;
+  const generation = ++m.generation;
+  m.results = filterMentionSuggestions(localMentionCandidates(), query);
+  m.activeIdx = 0;
+  // Local display-name matches render immediately; the endpoint can add
+  // people who have not appeared in the currently loaded chat.
+  renderMentionDropdown(input);
+  _fetchMentionsDebounced(query, input, generation);
 }
 
 function renderMentionDropdown(input) {
@@ -8596,7 +9087,7 @@ function renderMentionDropdown(input) {
   if (!m.results.length) {
     const empty = document.createElement("div");
     empty.className = "composer-mention-empty";
-    empty.textContent = m.lastQuery == null ? "Loading…" : "No matches.";
+    empty.textContent = m.loading ? "Loading…" : "No matches.";
     dropdown.appendChild(empty);
     return;
   }
@@ -8671,19 +9162,38 @@ function selectMentionFromDropdown(input, idx) {
     closeMentionDropdown();
     return;
   }
-  const displayName = user.name || user.handle || `User ${user.user_id}`;
+  const selection = buildMentionSelection(user);
+  if (!selection) {
+    closeMentionDropdown();
+    return;
+  }
+  const previousText = input.value || "";
+  const replacedEnd = m.token.replaceEnd ?? m.token.end;
   const { text, cursor } = replaceMentionToken(
-    input.value || "",
+    previousText,
     m.token,
-    displayName
+    selection.displayName
   );
   input.value = text;
-  // Track the mention so buildCommentBody can convert it into a ${N} slot
-  // at send time. Key is the literal token we inserted (`@<name>`).
-  state.composer.mentions["@" + displayName] = {
-    user_id: user.user_id,
-    text: "@" + displayName,
-  };
+  const nonOverlappingMentions = Array.isArray(state.composer.mentions)
+    ? state.composer.mentions.filter(
+        (mention) =>
+          mention.end <= m.token.start || mention.start >= replacedEnd
+      )
+    : [];
+  state.composer.mentions = updateMentionSelections(
+    state.composer.mentionText,
+    text,
+    nonOverlappingMentions,
+    { start: m.token.start, end: replacedEnd }
+  );
+  state.composer.mentions.push({
+    ...selection.mention,
+    token: selection.token,
+    start: m.token.start,
+    end: m.token.start + selection.token.length,
+  });
+  state.composer.mentionText = text;
   closeMentionDropdown();
   // Restore the caret position to just after the inserted token + space.
   try {
@@ -8701,6 +9211,22 @@ function closeMentionDropdown() {
   m.results = [];
   m.activeIdx = 0;
   m.lastQuery = null;
+  m.loading = false;
+  m.generation++;
+  m.anchorStart = null;
+  const dropdown = document.getElementById("composerMention");
+  if (dropdown) {
+    dropdown.classList.add("hidden");
+    dropdown.replaceChildren();
+  }
+}
+
+function hideMentionDropdownForNoMatches() {
+  const m = state.composer._mention;
+  m.open = false;
+  m.results = [];
+  m.activeIdx = 0;
+  m.loading = false;
   const dropdown = document.getElementById("composerMention");
   if (dropdown) {
     dropdown.classList.add("hidden");
@@ -8751,7 +9277,9 @@ async function submitComposer() {
   // snapshotted at click time, never whatever the composer holds later.
   const snapshot = {
     rawText: input.value,
-    mentions: { ...state.composer.mentions },
+    mentions: Array.isArray(state.composer.mentions)
+      ? state.composer.mentions.map((mention) => ({ ...mention }))
+      : { ...state.composer.mentions },
     replyingTo: state.composer.replyingTo
       ? { ...state.composer.replyingTo }
       : null,
@@ -8796,7 +9324,10 @@ async function submitComposer() {
 // draft that must NOT be touched.
 function clearComposerDraft(input) {
   input.value = "";
-  state.composer.mentions = {};
+  state.composer.mentions = [];
+  state.composer.mentionText = "";
+  state.composer.mentionPendingEdit = null;
+  closeMentionDropdown();
   // Detach the staged attachment from state WITHOUT revoking its Object
   // URL — a pending row built from the snapshot still references it for
   // the preview. The URL is reclaimed naturally when the pending DOM gets
@@ -9250,7 +9781,9 @@ async function reviewAndSend(snapshot, input, sendBtn, mode) {
 function restoreComposerAfterModerationFailure(input, snapshot, message, opts = {}) {
   if (input && !input.value) {
     input.value = snapshot.rawText;
-    state.composer.mentions = snapshot.mentions || {};
+    state.composer.mentions = snapshot.mentions || [];
+    state.composer.mentionText = snapshot.rawText || "";
+    state.composer.mentionPendingEdit = null;
     state.composer.attachment = snapshot.attachment || null;
     state.composer.replyingTo = snapshot.replyingTo || null;
     renderComposerAttachment();
@@ -9285,6 +9818,7 @@ function presentModerationSuggestion(snapshot, input, sendBtn) {
     return;
   }
   input.value = snapshot.rawText;
+  state.composer.mentionText = snapshot.rawText || "";
   autoGrowTextarea(input, { lineHeight: 22, maxRows: 4 });
   showComposerNotice(MODERATION_SUGGESTION_NOTICE);
   state.composer.moderationSuggestion = snapshot;

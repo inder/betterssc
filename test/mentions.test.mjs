@@ -9,7 +9,11 @@ import { describe, it, expect } from "vitest";
 import {
   findActiveMentionToken,
   replaceMentionToken,
+  updateMentionSelections,
   buildCommentBody,
+  filterMentionSuggestions,
+  mergeMentionSuggestions,
+  buildMentionSelection,
 } from "../lib/compose.js";
 
 describe("findActiveMentionToken — happy path", () => {
@@ -43,7 +47,80 @@ describe("findActiveMentionToken — happy path", () => {
       query: "b",
       start: 3,
       end: 5,
+      replaceEnd: 6,
     });
+  });
+
+  it("continues a live mention query across spaces in a display name", () => {
+    expect(
+      findActiveMentionToken("hello @Jordan Con", 17, { allowSpaces: true })
+    ).toEqual({
+      query: "Jordan Con",
+      start: 6,
+      end: 17,
+    });
+  });
+
+  it("allows a trailing space while the user starts a surname", () => {
+    expect(
+      findActiveMentionToken("@Jordan ", 8, { allowSpaces: true })
+    ).toEqual({ query: "Jordan ", start: 0, end: 8 });
+  });
+});
+
+describe("display-name suggestion matching", () => {
+  const people = [
+    { id: 1, name: "Jordan Conner", handle: "marketjordan" },
+    { user_id: 2, name: "Jordan Lee", handle: "jl_trades" },
+    { userId: 3, name: "Alex Smith", username: "jordanmacro" },
+  ];
+
+  it("narrows common first names using the multi-word display name", () => {
+    expect(filterMentionSuggestions(people, "jordan con")).toEqual([
+      expect.objectContaining({
+        user_id: 1,
+        name: "Jordan Conner",
+        handle: "marketjordan",
+      }),
+    ]);
+  });
+
+  it("keeps all exact duplicate names so the visible handles disambiguate", () => {
+    const results = filterMentionSuggestions(
+      [
+        { user_id: 10, name: "Jordan Conner", handle: "jconner1" },
+        { user_id: 11, name: "Jordan Conner", handle: "jconner2" },
+      ],
+      "Jordan Conner"
+    );
+    expect(results.map((u) => [u.user_id, u.handle])).toEqual([
+      [10, "jconner1"],
+      [11, "jconner2"],
+    ]);
+  });
+
+  it("retains handle matching while prioritizing a display-name match", () => {
+    const results = filterMentionSuggestions(people, "jordan");
+    expect(results.map((u) => u.user_id)).toEqual([1, 2, 3]);
+  });
+
+  it("merges locally known real names with handle-only endpoint rows", () => {
+    const results = mergeMentionSuggestions(
+      [{ id: 1, name: "Jordan Conner", handle: "marketjordan" }],
+      [
+        { user_id: 1, handle: "marketjordan", photo_url: "avatar.jpg" },
+        { user_id: 4, name: "Remote Person", handle: "remote" },
+      ],
+      "Jordan Conner"
+    );
+    expect(results).toEqual([
+      expect.objectContaining({
+        user_id: 1,
+        name: "Jordan Conner",
+        handle: "marketjordan",
+        photo_url: "avatar.jpg",
+      }),
+    ]);
   });
 });
 
@@ -98,6 +175,75 @@ describe("replaceMentionToken", () => {
     expect(out.text).toBe("hey @Bob  how are you");
     expect(out.cursor).toBe(9); // "hey @Bob " ends at index 9
   });
+
+  it("replaces the whole token when the caret is in its middle", () => {
+    const token = findActiveMentionToken("hi @bo", 5);
+    expect(replaceMentionToken("hi @bo", token, "Bob")).toEqual({
+      text: "hi @Bob ",
+      cursor: 8,
+    });
+  });
+
+  it("replaces a whole known multi-word name from a middle caret", () => {
+    const token = findActiveMentionToken("hi @Jordan Conner", 12, {
+      allowSpaces: true,
+      fullNames: ["Jordan Conner"],
+    });
+    expect(token.replaceEnd).toBe(17);
+    expect(replaceMentionToken("hi @Jordan Conner", token, "Jordan Connor"))
+      .toEqual({ text: "hi @Jordan Connor ", cursor: 18 });
+  });
+});
+
+describe("updateMentionSelections", () => {
+  const selected = [
+    { start: 3, end: 17, token: "@Jordan Conner", user_id: 1, text: "@jc" },
+  ];
+
+  it("shifts a selected mention when text is inserted before it", () => {
+    expect(updateMentionSelections("hi @Jordan Conner", "well hi @Jordan Conner", selected))
+      .toEqual([
+        expect.objectContaining({ start: 8, end: 22, user_id: 1 }),
+      ]);
+  });
+
+  it("invalidates identity metadata when the visible mention is edited", () => {
+    expect(updateMentionSelections("hi @Jordan Conner", "hi @Jordan Connor", selected))
+      .toEqual([]);
+  });
+
+  it("uses an explicit edit range when identical mention text is prepended", () => {
+    const before = "@Jordan Conner";
+    const after = "@Jordan Conner @Jordan Conner";
+    expect(
+      updateMentionSelections(before, after, [
+        {
+          start: 0,
+          end: 14,
+          token: "@Jordan Conner",
+          user_id: 1,
+          text: "@original",
+        },
+      ], { start: 0, end: 0 })
+    ).toEqual([
+      expect.objectContaining({ start: 15, end: 29, user_id: 1 }),
+    ]);
+  });
+
+  it("invalidates identity when identical text is pasted over a mention", () => {
+    const text = "@Jordan Conner";
+    expect(
+      updateMentionSelections(text, text, [
+        {
+          start: 0,
+          end: 14,
+          token: "@Jordan Conner",
+          user_id: 1,
+          text: "@old_identity",
+        },
+      ], { start: 0, end: 14 })
+    ).toEqual([]);
+  });
 });
 
 describe("dropdown selection → buildCommentBody integration", () => {
@@ -141,5 +287,116 @@ describe("dropdown selection → buildCommentBody integration", () => {
     expect(payload.body).toBe("${0} and ${1} ");
     expect(payload.mentions["0"]).toEqual({ user_id: 100, text: "@Alice" });
     expect(payload.mentions["1"]).toEqual({ user_id: 200, text: "@Bob" });
+  });
+
+  it("shows a multi-word real name but sends the selected handle and id", () => {
+    const selected = buildMentionSelection({
+      user_id: 8472,
+      name: "Jordan Conner",
+      handle: "jconner_trades",
+    });
+    const token = findActiveMentionToken("ping @Jordan Con", 16, {
+      allowSpaces: true,
+    });
+    const inserted = replaceMentionToken(
+      "ping @Jordan Con",
+      token,
+      selected.displayName
+    );
+    expect(inserted.text).toBe("ping @Jordan Conner ");
+
+    const payload = buildCommentBody(inserted.text, {
+      [selected.token]: selected.mention,
+    });
+    expect(payload).toEqual({
+      body: "ping ${0} ",
+      mentions: {
+        0: { user_id: 8472, text: "@jconner_trades" },
+      },
+    });
+  });
+
+  it("preserves the identity of the selected person among duplicate names", () => {
+    const selected = buildMentionSelection({
+      id: 11,
+      name: "Jordan Conner",
+      handle: "jconner2",
+    });
+    expect(selected).toEqual({
+      displayName: "Jordan Conner",
+      token: "@Jordan Conner",
+      mention: { user_id: 11, text: "@jconner2" },
+    });
+  });
+
+  it("serializes two exact-name duplicates as distinct selected identities", () => {
+    const text = "@Jordan Conner and @Jordan Conner";
+    const selections = [
+      {
+        start: 0,
+        end: 14,
+        token: "@Jordan Conner",
+        user_id: 10,
+        text: "@jconner1",
+      },
+      {
+        start: 19,
+        end: 33,
+        token: "@Jordan Conner",
+        user_id: 11,
+        text: "@jconner2",
+      },
+    ];
+    expect(buildCommentBody(text, selections)).toEqual({
+      body: "${0} and ${1}",
+      mentions: {
+        0: { user_id: 10, text: "@jconner1" },
+        1: { user_id: 11, text: "@jconner2" },
+      },
+    });
+  });
+
+  it("makes a re-selection over the same visible occurrence authoritative", () => {
+    const text = "@Jordan Conner ";
+    const oldSelection = {
+      start: 0,
+      end: 14,
+      token: "@Jordan Conner",
+      user_id: 10,
+      text: "@jconner1",
+    };
+    const replacementStart = 0;
+    const replacementEnd = 14;
+    const retained = [oldSelection].filter(
+      (mention) =>
+        mention.end <= replacementStart || mention.start >= replacementEnd
+    );
+    retained.push({
+      start: 0,
+      end: 14,
+      token: "@Jordan Conner",
+      user_id: 11,
+      text: "@jconner2",
+    });
+    expect(buildCommentBody(text, retained)).toEqual({
+      body: "${0} ",
+      mentions: { 0: { user_id: 11, text: "@jconner2" } },
+    });
+  });
+
+  it("keeps prefix names tied to their selected occurrence ranges", () => {
+    const text = "@Ann Marie and @Ann";
+    expect(
+      buildCommentBody(text, [
+        { start: 0, end: 10, token: "@Ann Marie", user_id: 1, text: "@annm" },
+        { start: 15, end: 19, token: "@Ann", user_id: 2, text: "@ann" },
+      ])
+    ).toEqual({
+      body: "${0} and ${1}",
+      mentions: {
+        0: { user_id: 1, text: "@annm" },
+        1: { user_id: 2, text: "@ann" },
+      },
+    });
   });
 });

@@ -69,6 +69,8 @@
   --header-h: 56px;
   --footer-h: 32px;
   --members-w: 240px;
+  --thread-rail-w: 220px;
+  --thread-rail-collapsed-w: 32px;
   --message-radius: 8px;
 }
 
@@ -573,10 +575,18 @@ button {
   50% { opacity: 0.4; }
 }
 
-/* MAIN — Discord-style layout. Two columns; the stream + composer
-   stack in column 1, the members rail occupies column 2 across both
-   rows. Composer is now constrained to the chat-feed width instead
-   of spanning the whole page. */
+/* MAIN — Discord-style layout. Two columns by default; the stream +
+   composer stack in column 1, the members rail occupies column 2 across
+   both rows. Composer is constrained to the chat-feed width instead of
+   spanning the whole page.
+
+   The thread rail (a channel with 2+ threads) adds a THIRD column via the
+   .rail-visible modifier, toggled by JS in renderThreadRail — never via
+   grid-template-columns on the base rule. A grid column's TRACK reserves
+   its width regardless of whether the element placed in it is
+   `display: none`, so baking a reserved rail width into .main directly
+   would leave a permanent empty gap for every chat that has no rail
+   (a legacy pub+post URL, or a channel with only one live thread). */
 .main {
   display: grid;
   grid-template-columns: 1fr var(--members-w);
@@ -587,6 +597,21 @@ button {
   overflow: hidden;
   min-height: 0;
 }
+.main.rail-visible {
+  grid-template-columns: var(--thread-rail-w) 1fr var(--members-w);
+  grid-template-areas:
+    "rail stream  members"
+    "rail compose members";
+}
+/* Collapsed just swaps the rail column's WIDTH — areas stay identical to
+   .rail-visible above, so this only needs to override grid-template-columns.
+   (The mobile media query below explicitly lists this selector too, at the
+   same specificity, so the two never race — see the comment there for why
+   that discipline matters here specifically.) */
+.main.rail-visible.rail-collapsed {
+  grid-template-columns: var(--thread-rail-collapsed-w) 1fr var(--members-w);
+}
+.thread-rail { grid-area: rail; position: relative; }
 .stream { grid-area: stream; }
 .composer { grid-area: compose; }
 .members { grid-area: members; }
@@ -1121,6 +1146,168 @@ button {
 .new-message-jump-aside.hidden { display: none; }
 .new-message-jump button:hover { background: var(--accent-hover); }
 .new-message-jump-aside:hover { color: white !important; }
+
+/* THREAD RAIL — the channel's other threads, click to switch. Mirrors
+   MEMBERS RAIL's visual language (same background/border/scrollbar
+   treatment) on the opposite edge, since it's the same kind of control:
+   a persistent list, not a transient popover. */
+/* A non-scrolling flex column, NOT the scroll container — .thread-rail-list
+   owns overflow-y (below). Two reasons that split matters, both found by
+   review rather than a live render (this app has no DOM test harness):
+   (1) the divider is position:absolute inside .thread-rail (position:relative
+   below is its containing block) — if .thread-rail itself scrolled, the
+   divider would scroll WITH the list and its dblclick target could end up
+   off-screen on a long thread list; pinning it to the non-scrolling column
+   keeps it fixed at the rail's edge regardless of scroll position.
+   (2) the divider's negative-offset overhang (right: -3px, 6px wide) would
+   have added 3px of horizontal scrollable overflow to a scrolling
+   .thread-rail, which computes overflow-x to auto whenever overflow-y is
+   set — a visible sliver of horizontal scroll on a rail that should never
+   have one. */
+.thread-rail {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+}
+.thread-rail.hidden { display: none; }
+.thread-rail-header {
+  padding: 12px 12px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.thread-rail-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Mirrors .members-sort-toggle exactly (background/border/font/radius) —
+   both are small in-header preference toggles for their respective rail. */
+.thread-rail-hide-empty-toggle {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.thread-rail-hide-empty-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+/* The collapse/expand button — the DISCOVERABLE affordance (the divider's
+   double-click below is a bonus shortcut, not a substitute for this: a
+   control the user can't find is the bug, not a render detail). Present
+   and clickable in BOTH collapsed and expanded states — it's what lets a
+   collapsed rail be reopened at all. */
+.thread-rail-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.thread-rail-collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+/* Thin strip on the rail's right edge, double-click toggles collapse —
+   there is no drag-resize, so this deliberately does NOT use
+   cursor:col-resize (that cursor promises a drag interaction that doesn't
+   exist here; a plain pointer cursor doesn't lie about what's wired).
+   right: 0 keeps it flush inside .thread-rail's border box — an earlier
+   version overhung to right: -3px, which did nothing useful and would have
+   added spurious horizontal scroll if .thread-rail were ever the scroll
+   container again. position:relative on .thread-rail (set above) is what
+   this absolute positioning resolves against. */
+.thread-rail-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 6px;
+  cursor: pointer;
+  z-index: 1;
+}
+.thread-rail-divider:hover { background: var(--accent-bg-soft); }
+/* .thread-rail-collapse-btn is deliberately NOT in this list — it's the
+   button that reopens a collapsed rail, so it has to stay visible (and
+   clickable) precisely when everything else here is hidden. Adding it here
+   would make collapsing the rail a dead end with no way back except the
+   divider double-click. */
+.thread-rail.collapsed .thread-rail-header-label,
+.thread-rail.collapsed .thread-rail-hide-empty-toggle,
+.thread-rail.collapsed .thread-rail-list {
+  display: none;
+}
+.thread-rail.collapsed .thread-rail-header {
+  justify-content: center;
+  padding: 10px 0;
+}
+.thread-rail-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 8px;
+}
+.thread-rail-list::-webkit-scrollbar { width: 6px; }
+.thread-rail-list::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 3px; }
+.thread-rail-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 8px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.thread-rail-item:hover { background: var(--bg-hover); }
+.thread-rail-item.active {
+  background: var(--accent-bg-soft);
+  color: var(--text-primary);
+}
+.thread-rail-snippet {
+  font-size: 13px;
+  line-height: 1.35;
+  /* Clamp to 2 lines rather than a single truncated line — a snippet is
+     already capped at 80 chars server-side (formatThreadRailRows), but at
+     the rail's width that can still wrap past one line on longer words. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.thread-rail-count {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-top: 1px;
+}
+.thread-rail-item.active .thread-rail-count {
+  color: var(--accent);
+  background: var(--accent-bg-strong);
+}
 
 /* MEMBERS RAIL */
 .members {
@@ -1933,7 +2120,35 @@ button {
 
 @media (max-width: 800px) {
   .members { display: none; }
-  .main { grid-template-columns: 1fr; }
+  .thread-rail { display: none; }
+  /* .main.rail-visible needs its OWN override here, of both properties —
+     confirmed empirically (not assumed), because getting only one of these
+     wrong is a real, severe bug, not a spec technicality:
+     - grid-template-columns alone (a prior version of this rule) still
+       left grid-template-areas declaring 3 named columns ("rail stream
+       members"). grid-template-areas can imply column tracks beyond what
+       grid-template-columns explicitly sizes — verified live: the single
+       explicit `1fr` track absorbed ~all the width under the (invisible)
+       rail column, while .stream/.composer were squeezed into an ~86px
+       sliver in an auto-sized second track. On mobile, any channel with
+       2+ threads would render its main chat view unusably narrow.
+     - grid-template-areas alone, without also collapsing
+       grid-template-columns, would still reserve --thread-rail-w's width
+       for the (hidden) rail column.
+     .main.rail-visible.rail-collapsed is listed explicitly too, not left
+     to fall back on .main.rail-visible above — three classes beats two on
+     specificity regardless of source order, so without its own entry here
+     a collapsed-AND-visible rail on mobile would win over this rule via
+     .main.rail-visible.rail-collapsed's plain (non-media) definition and
+     reintroduce the exact bug this comment already describes. */
+  .main,
+  .main.rail-visible,
+  .main.rail-visible.rail-collapsed {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "stream"
+      "compose";
+  }
   .search-wrap input { width: 180px; }
   .post-title { display: none; }
 }

@@ -30,6 +30,56 @@ describe("segmentBody", () => {
       { type: "text", value: " how are you" },
     ]);
   });
+
+  it("renders a handle mention as the cached real name when available", () => {
+    const users = new Map([
+      [42, { id: 42, name: "Jordan Conner", handle: "jconner_trades" }],
+    ]);
+    expect(
+      segmentBody("hi ${0}", {
+        0: { user_id: 42, text: "@jconner_trades" },
+      }, users)
+    ).toEqual([
+      { type: "text", value: "hi " },
+      { type: "mention", value: "@Jordan Conner", userId: 42 },
+    ]);
+  });
+
+  it("keeps handle text when no real-name metadata is available", () => {
+    expect(
+      segmentBody("hi ${0}", {
+        0: { user_id: 42, text: "@jconner_trades" },
+      })
+    ).toEqual([
+      { type: "text", value: "hi " },
+      { type: "mention", value: "@jconner_trades", userId: 42 },
+    ]);
+  });
+
+  it("does not replace a useful handle with a synthetic cached name", () => {
+    const users = new Map([
+      [42, { id: 42, name: "User #42", handle: null, _nameFallback: true }],
+    ]);
+    expect(
+      segmentBody("hi ${0}", {
+        0: { user_id: 42, text: "@jconner_trades" },
+      }, users)
+    ).toEqual([
+      { type: "text", value: "hi " },
+      { type: "mention", value: "@jconner_trades", userId: 42 },
+    ]);
+  });
+
+  it("resolves numeric cached ids when the mention user id is a string", () => {
+    const users = new Map([[42, { id: 42, name: "Jordan Conner" }]]);
+    expect(
+      segmentBody("${0}", {
+        0: { user_id: "42", text: "@jconner_trades" },
+      }, users)
+    ).toEqual([
+      { type: "mention", value: "@Jordan Conner", userId: "42" },
+    ]);
+  });
 });
 
 describe("linkifyText", () => {
