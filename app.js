@@ -60,6 +60,7 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  resolveModelId,
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
@@ -3874,7 +3875,10 @@ function restoreWatchedUsers() {
           state.aiKeys = res.bssc_ai_keys;
         }
         if (typeof res.bssc_ai_model === "string" && res.bssc_ai_model) {
-          state.aiModel = res.bssc_ai_model;
+          // A preference saved before a provider retired its model id would
+          // otherwise replay the dead id into every call (and show it as
+          // the selected option in the Tune dialog).
+          state.aiModel = resolveModelId(res.bssc_ai_model);
         }
         if (
           typeof res.bssc_ai_budget_chars === "number" &&

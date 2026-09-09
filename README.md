@@ -230,7 +230,7 @@ Default models are the cheap-fast tier for each provider:
 |---|---|---|---|
 | OpenAI | gpt-4o-mini | gpt-4o (~17× cost) | Not yet (Responses API migration pending) |
 | Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 (~3× cost) | ✅ native `web_search_20250305` |
-| Google | gemini-2.5-flash | gemini-2.5-pro (~17× cost) | ✅ native `google_search` grounding |
+| Google | gemini-3.6-flash | gemini-2.5-pro (~2× cost) | ✅ native `google_search` grounding |
 
 Per-call cost at the 60K char default (~15K input tokens) computes to (Summary mode, 2048 cap → ~1600 output tokens at the 0.78 fill rate):
 
@@ -238,7 +238,7 @@ Per-call cost at the 60K char default (~15K input tokens) computes to (Summary m
 |---|---|---|
 | OpenAI | ~$0.003 | ~$0.054 |
 | Anthropic | ~$0.023 | ~$0.069 |
-| Google | ~$0.002 | ~$0.035 |
+| Google | ~$0.017 | ~$0.035 |
 
 Ask mode runs ~2× this when the whole chat fits (no input-budget cap) + ~2× output cap. These are static estimates against each provider's published per-million-token rates at the time of writing. The dialog shows the live computed number on every change — trust the dialog, not this table, if pricing has moved.
 

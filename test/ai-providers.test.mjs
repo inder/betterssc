@@ -14,6 +14,8 @@ import {
   callProvider,
   MODEL_CATALOG,
   getModelInfo,
+  LEGACY_MODEL_IDS,
+  resolveModelId,
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
@@ -870,6 +872,50 @@ describe("buildRequest with params.model override", () => {
       model: "gemini-2.5-pro",
     });
     expect(url).toContain("gemini-2.5-pro:generateContent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retired model ids — a stored preference must not replay a dead id
+// ---------------------------------------------------------------------------
+
+describe("resolveModelId / LEGACY_MODEL_IDS", () => {
+  it("google default is the current flash id, and it is the catalog's cheap tier", () => {
+    expect(google.model).toBe("gemini-3.6-flash");
+    expect(MODEL_CATALOG.google[0].id).toBe(google.model);
+  });
+  it("maps the retired gemini-2.5-flash to gemini-3.6-flash", () => {
+    expect(resolveModelId("gemini-2.5-flash")).toBe("gemini-3.6-flash");
+  });
+  it("passes live ids, unknown ids, and non-strings through unchanged", () => {
+    expect(resolveModelId("gemini-2.5-pro")).toBe("gemini-2.5-pro");
+    expect(resolveModelId("some-future-model")).toBe("some-future-model");
+    expect(resolveModelId(undefined)).toBeUndefined();
+    expect(resolveModelId(null)).toBeNull();
+    expect(resolveModelId("")).toBe("");
+  });
+  it("does not resolve through Object.prototype keys", () => {
+    expect(resolveModelId("constructor")).toBe("constructor");
+    expect(resolveModelId("hasOwnProperty")).toBe("hasOwnProperty");
+  });
+  it("every alias target is a live catalog id and no alias key is one", () => {
+    const live = new Set(Object.values(MODEL_CATALOG).flat().map((m) => m.id));
+    for (const [from, to] of Object.entries(LEGACY_MODEL_IDS)) {
+      expect(live.has(to)).toBe(true);
+      expect(live.has(from)).toBe(false);
+    }
+  });
+  it("google.buildRequest rewrites a stored gemini-2.5-flash into the replacement URL", () => {
+    // Regression: "google 404: This model models/gemini-2.5-flash is no
+    // longer available to new users" from a preference saved pre-retirement.
+    const { url } = google.buildRequest({
+      systemPrompt: SYSTEM_PROMPT,
+      conversation: CONVERSATION,
+      apiKey: API_KEY,
+      model: "gemini-2.5-flash",
+    });
+    expect(url).toContain("/models/gemini-3.6-flash:generateContent");
+    expect(url).not.toContain("gemini-2.5-flash");
   });
 });
 
