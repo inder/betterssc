@@ -1,15 +1,15 @@
 {
-  "sha": "c6485a0",
+  "sha": "0d42d43",
   "branch": "main",
-  "ts": "2026-09-06T20:20:00Z",
-  "reviewer_model": "fable",
-  "verdict": "fix-these",
-  "retro_required": "yes",
-  "retro_reasoning": "313-line diff with 4 should-fix findings; the divider-in-scroll-container miss is a reusable lesson (adding position:relative to an overflow:auto element changes its containing-block semantics for every absolute child)",
+  "ts": "2026-09-09T15:04:52Z",
+  "reviewer_model": "claude-opus",
+  "verdict": "merge-with-fixes",
+  "retro_required": "no",
+  "retro_reasoning": "small diff, no critical findings, no schema or contract change",
   "critical_count": 0,
-  "should_fix_count": 4,
-  "nit_count": 7,
-  "files_reviewed": 5,
-  "resolution": "all 4 should-fix applied: (1) .thread-rail restructured to a non-scrolling flex column with .thread-rail-list owning overflow-y, divider anchored right:0 -- empirically re-verified live (no horizontal overflow, divider stays pinned across list scroll, list scrolls independently); (2) keyboard focus preserved across renderThreadRailHeader's rebuild; (3) divider cursor changed from misleading col-resize to pointer; (4) renderThreadRail falls back to the unfiltered row set when hideEmpty filtering would leave zero rows, with a new pure-function test locking in the exact scenario. 2 of 7 nits applied (aria-pressed/aria-expanded/aria-controls, guard comment on the collapsed-hide rule); 5 nits deliberately skipped as optional/precedented/would-require-touching-unrelated-existing-code per the reviewer's own framing. Suite 686/686 green.",
-  "scope": "Thread-rail hide-empty toggle + collapsible rail"
+  "should_fix_count": 5,
+  "nit_count": 5,
+  "files_reviewed": 4,
+  "resolution": "all 5 should-fix applied: (1) MODERATION_MAX_TOKENS 512->2048 so thought tokens can't consume the cap and block a send as a review failure; (2) MAX_TOKENS error string made neutral — it reaches the moderation surface where no cap control exists; (3) LOW-vs-MINIMAL comment rewritten around the real constraint (LOW documented for every 3.x model, MINIMAL unverified on 3.6-flash, fail-closed moderation); (4) gemini-2.5-pro gap stated in code with the 2.x-era thinkingBudget field named for a later, live-verified wiring; (5) GOOGLE_THINKING_LEVEL pinned to LOW in the test (was enum-membership, which HIGH would pass). Nits: trim on part-join, timeout comment reworded as headroom not measurement, CHANGELOG heading now covers both bullets, thought+groundingMetadata and moderation-shaped-request tests added; 'Tune AI Model' casing moot after the string became generic. Reviewer's uncounted aiBusy-leak observation checked: the clear is inside a finally. Suite 729/729 green. Not live-verified against Google's API.",
+  "scope": "Gemini 3.x thinking level + Insights timeout + thought-aware parseResponse + moderation cap"
 }
