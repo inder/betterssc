@@ -4607,9 +4607,12 @@ async function runAiInsights(providerName, apiKey, opts = {}) {
   });
 
   try {
-    // 30s timeout — provider hangs would otherwise lock aiBusy forever
-    // (button disabled until page reload, no recourse for the user).
-    const signal = AbortSignal.timeout(30_000);
+    // 60s timeout — provider hangs would otherwise lock aiBusy forever
+    // (button disabled until page reload, no recourse for the user). Was
+    // 30s, which a 60K-char summary on gemini-3.x at its default HIGH
+    // thinking level blew through; the request now pins LOW, and 60s is
+    // headroom for that (unmeasured) plus parity with Ask's 60s.
+    const signal = AbortSignal.timeout(60_000);
     const result = await callProvider(providerObj, {
       systemPrompt,
       conversation: [

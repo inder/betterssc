@@ -16,6 +16,8 @@ import {
   getModelInfo,
   LEGACY_MODEL_IDS,
   resolveModelId,
+  GOOGLE_THINKING_LEVEL,
+  supportsThinkingLevel,
   DEFAULT_MAX_TOKENS,
   MAX_TOKENS_OPTIONS,
   supportsWebSearch,
@@ -23,6 +25,7 @@ import {
   VISION_IMAGE_TYPES,
   normalizeImages,
 } from "../lib/ai-providers.js";
+import { MODERATION_MAX_TOKENS } from "../lib/moderation.js";
 
 const SYSTEM_PROMPT = "You are a helpful assistant.";
 const CONVERSATION = [
@@ -876,6 +879,120 @@ describe("buildRequest with params.model override", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Gemini 3.x thinking level — default HIGH thinking timed out AI Insights
+// ---------------------------------------------------------------------------
+
+describe("google thinking level", () => {
+  const build = (model) =>
+    JSON.parse(
+      google.buildRequest({
+        systemPrompt: SYSTEM_PROMPT,
+        conversation: CONVERSATION,
+        apiKey: API_KEY,
+        model,
+      }).init.body
+    );
+  it("GOOGLE_THINKING_LEVEL is pinned to LOW (the timeout was HIGH's fault)", () => {
+    expect(["MINIMAL", "LOW", "MEDIUM", "HIGH"]).toContain(GOOGLE_THINKING_LEVEL);
+    expect(GOOGLE_THINKING_LEVEL).toBe("LOW");
+    expect(GOOGLE_THINKING_LEVEL).not.toBe("HIGH");
+  });
+  it("a whitespace-only join is an error, not a blank reply", () => {
+    const res = google.parseResponse({
+      candidates: [{ content: { parts: [{ text: "  \n" }] }, finishReason: "STOP" }],
+    });
+    expect(res).toEqual({ error: "Google: no response text" });
+  });
+  it("supportsThinkingLevel: 3.x+ yes, 2.x no, garbage no", () => {
+    expect(supportsThinkingLevel("gemini-3.6-flash")).toBe(true);
+    expect(supportsThinkingLevel("gemini-3.8-flash")).toBe(true);
+    expect(supportsThinkingLevel("gemini-3.1-pro-preview")).toBe(true);
+    expect(supportsThinkingLevel("gemini-10-flash")).toBe(true);
+    expect(supportsThinkingLevel("gemini-2.5-pro")).toBe(false);
+    expect(supportsThinkingLevel("gemini-2.5-flash")).toBe(false);
+    expect(supportsThinkingLevel("gemini-30x")).toBe(false);
+    expect(supportsThinkingLevel(undefined)).toBe(false);
+    expect(supportsThinkingLevel("")).toBe(false);
+  });
+  it("default model (3.x) sends generationConfig.thinkingConfig.thinkingLevel", () => {
+    const body = build(undefined);
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: GOOGLE_THINKING_LEVEL });
+    // Existing fields untouched.
+    expect(body.generationConfig.temperature).toBe(0.4);
+    expect(body.generationConfig.maxOutputTokens).toBe(DEFAULT_MAX_TOKENS);
+  });
+  it("a stored legacy gemini-2.5-flash resolves to 3.x and gets the thinking level too", () => {
+    expect(build("gemini-2.5-flash").generationConfig.thinkingConfig).toEqual({ thinkingLevel: GOOGLE_THINKING_LEVEL });
+  });
+  it("2.x models get NO thinkingConfig (the API errors on thinkingLevel for them)", () => {
+    expect(build("gemini-2.5-pro").generationConfig.thinkingConfig).toBeUndefined();
+  });
+});
+
+describe("google.parseResponse — thinking-model envelopes", () => {
+  it("skips thought parts and joins every text part", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { text: "let me reason...", thought: true },
+              { text: "Hello " },
+              { text: "from Gemini." },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+    });
+    expect(res).toEqual({ text: "Hello from Gemini." });
+  });
+  it("names the output cap when MAX_TOKENS leaves no visible text", () => {
+    const res = google.parseResponse({
+      candidates: [{ content: { parts: [{ text: "…", thought: true }] }, finishReason: "MAX_TOKENS" }],
+    });
+    expect(res.text).toBeUndefined();
+    expect(res.error).toMatch(/output token cap/);
+  });
+  it("keeps citations when a thought part precedes grounded text", () => {
+    const res = google.parseResponse({
+      candidates: [
+        {
+          content: { parts: [{ text: "reasoning", thought: true }, { text: "Answer." }] },
+          finishReason: "STOP",
+          groundingMetadata: {
+            groundingChunks: [{ web: { uri: "https://example.com/a", title: "A" } }],
+          },
+        },
+      ],
+    });
+    expect(res.text).toBe("Answer.");
+    expect(res.citations).toEqual([{ url: "https://example.com/a", title: "A", snippet: "" }]);
+  });
+  it("a moderation-shaped request (no web search, moderation cap) still carries the thinking level", () => {
+    const body = JSON.parse(
+      google.buildRequest({
+        systemPrompt: SYSTEM_PROMPT,
+        conversation: CONVERSATION,
+        apiKey: API_KEY,
+        maxTokens: MODERATION_MAX_TOKENS,
+        webSearchEnabled: false,
+      }).init.body
+    );
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: GOOGLE_THINKING_LEVEL });
+    expect(body.generationConfig.maxOutputTokens).toBe(MODERATION_MAX_TOKENS);
+    expect(MODERATION_MAX_TOKENS).toBeGreaterThanOrEqual(2048);
+    expect(body.tools).toBeUndefined();
+  });
+  it("still reports the generic error for a text-less STOP", () => {
+    const res = google.parseResponse({
+      candidates: [{ content: { parts: [{ inlineData: {} }] }, finishReason: "STOP" }],
+    });
+    expect(res).toEqual({ error: "Google: no response text" });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Retired model ids — a stored preference must not replay a dead id
 // ---------------------------------------------------------------------------
 
@@ -906,6 +1023,7 @@ describe("resolveModelId / LEGACY_MODEL_IDS", () => {
     }
   });
   it("google.buildRequest rewrites a stored gemini-2.5-flash into the replacement URL", () => {
+    // (see the thinking-level block below for the alias's thinkingConfig)
     // Regression: "google 404: This model models/gemini-2.5-flash is no
     // longer available to new users" from a preference saved pre-retirement.
     const { url } = google.buildRequest({
