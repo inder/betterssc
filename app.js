@@ -470,6 +470,7 @@ async function init() {
     setWsStatus("disabled");
   }
   startPollingFallback();
+  startReactionRefreshPolling();
 }
 
 const POLL_INTERVAL_MS = 12_000;
@@ -480,6 +481,20 @@ function startPollingFallback() {
   if (_pollTimer) clearInterval(_pollTimer);
   _pollTimer = setInterval(pollNewMessages, POLL_INTERVAL_MS);
   // First poll fires after one interval — initial load already covers t=0.
+}
+
+// Reaction-refresh poll. `pollNewMessages` filters by created_at (`after=`),
+// so a reaction added to an ALREADY-loaded message never arrives there — the
+// message's created_at hasn't changed, only its reactions have. Slower than
+// the message poll (reactions aren't as time-critical as new messages) and
+// on its own timer so it can't be starved by — or starve — the message poll.
+const REACTION_REFRESH_INTERVAL_MS = 20_000;
+let _reactionRefreshTimer = null;
+let _reactionRefreshInflight = false;
+
+function startReactionRefreshPolling() {
+  if (_reactionRefreshTimer) clearInterval(_reactionRefreshTimer);
+  _reactionRefreshTimer = setInterval(pollReactionRefresh, REACTION_REFRESH_INTERVAL_MS);
 }
 
 // ── Telegram bridge (v0.9) ───────────────────────────────────────────────────
@@ -898,6 +913,66 @@ function getNewestCommentISO() {
     if (c && c.created_at && !c._aiGenerated) return c.created_at;
   }
   return null;
+}
+
+// Re-fetch the most recent page of the thread (the same `before=`-anchored
+// endpoint used for backward history pagination, anchored at "now" instead
+// of the earliest-loaded timestamp) and pick up any reaction-count changes
+// on messages we already have. This is intentionally NOT a general resync:
+// a comment id we don't already know about is skipped here — new-message
+// detection stays pollNewMessages' job exclusively, so this can't create a
+// second, divergent path for notifications / Telegram-forwarding / unread
+// counts. Naturally scoped to "the last page of the thread" (whatever
+// Substack's own page size is), which is the population that plausibly gets
+// a fresh reaction shortly after being posted — a reaction on a message
+// OLDER than that page is only picked up on the next full reload, not lost
+// (pollNewMessages will still have ingested the message itself normally).
+async function pollReactionRefresh() {
+  if (_reactionRefreshInflight || !state.postUuid) return;
+  _reactionRefreshInflight = true;
+  // Snapshot BEFORE issuing the fetch, not after it resolves: a reaction
+  // this tab sends while the fetch is in flight can complete (and record
+  // itself in _reactionSendCompletedAt) before we get to processing the
+  // now-stale response below. Comparing against the fetch's ISSUE time
+  // (not the poll's processing time) is what actually closes that window —
+  // see the fetchStartedAt check below.
+  const fetchStartedAt = Date.now();
+  try {
+    const res = await fetchCommentsBefore(state.postUuid, new Date().toISOString());
+    const replies = flattenReplies(res && res.replies);
+    for (const r of replies) {
+      const unwrapped = unwrapComment(r);
+      const id = unwrapped && commentId(unwrapped);
+      if (id == null) continue;
+      const prev = state.comments.get(id);
+      if (!prev) continue; // not already loaded — not this poll's job
+      // Pending/failed optimistic rows belong to reconcilePending, not us —
+      // a wholesale ingestComment replace here would bypass its carry-forward
+      // (media_uploads, _localPreview/_stagedFile cleanup) the same way an
+      // unguarded poll ingest has bitten this project before.
+      if (prev._pending || prev._failed) continue;
+      // Defer to sendReaction for a comment it's actively sending a reaction
+      // for (or just finished sending, AFTER our snapshot was taken) — a
+      // reaction our OWN tab just posted can resolve server-side after this
+      // fetch was issued but before we finish processing its (now stale)
+      // response, which would otherwise silently revert the optimistic bump
+      // until the next tick self-corrects it.
+      if (_reactionSendInflight.has(id)) continue;
+      const sentAt = _reactionSendCompletedAt.get(id);
+      if (sentAt != null && sentAt > fetchStartedAt) continue;
+      if (!reactionsChanged(prev.reactions, unwrapped.reactions)) continue;
+      ingestComment(r, { silent: true });
+      updateReactionsDom(id, state.comments.get(id));
+    }
+  } catch (e) {
+    // Best-effort — a failed refresh just means reactions catch up on the
+    // next tick (or a full reload). The message poll already owns the
+    // "can't reach Substack" banner; this stays silent so it never doubles
+    // up on that signal.
+    console.warn("[BetterSSC REACTION REFRESH] failed:", e && e.message);
+  } finally {
+    _reactionRefreshInflight = false;
+  }
 }
 
 // ============================================================
@@ -7973,6 +8048,7 @@ function bindEventHandlers() {
     if (!document.hidden) {
       resetUnreadWhileHidden();
       pollNewMessages();
+      pollReactionRefresh();
       if (state.postUuid) markViewed();
     }
   });
@@ -7980,6 +8056,7 @@ function bindEventHandlers() {
   window.addEventListener("beforeunload", () => {
     if (state.ws) state.ws.close();
     if (_pollTimer) clearInterval(_pollTimer);
+    if (_reactionRefreshTimer) clearInterval(_reactionRefreshTimer);
     if (_markViewedTimer) clearInterval(_markViewedTimer);
     stopTickerRefreshTimer();
   });
@@ -8019,6 +8096,7 @@ import {
   mergeMentionSuggestions,
   buildMentionSelection,
   updateReactionCount,
+  reactionsChanged,
   topReactionsInChat,
   setReplyTarget,
   clearReplyTarget,
@@ -10410,25 +10488,51 @@ async function toggleEmojiPicker(node, comment) {
   }, 0);
 }
 
+// Comment ids with an in-flight sendReaction POST, and when each id's last
+// send SETTLED (Date.now(), success or rollback alike). pollReactionRefresh
+// consults both to avoid a race: it wholesale-replaces the stored comment
+// object (ingestComment) from a `fetchCommentsBefore` snapshot that can have
+// been taken before Substack's server sees a reaction this tab JUST sent —
+// overwriting the optimistic bump with stale (pre-reaction) counts until the
+// next 20s tick self-corrects. Checking BOTH in-flight-now AND settled-after-
+// the-refresh-fetch-was-issued closes the window even when this tab's own
+// send resolves in the gap between the refresh poll issuing its request and
+// finishing processing the (by then stale) response.
+const _reactionSendInflight = new Set();
+const _reactionSendCompletedAt = new Map();
+
 async function sendReaction(comment, type) {
   if (!comment || !type) return;
   const id = comment.id;
-  // Optimistic bump.
-  const prevReactions = comment.reactions;
-  comment.reactions = updateReactionCount(prevReactions, type, +1);
-  // Surgical DOM update — replace only the .msg-reactions row on this
-  // message's node. Full renderAll() would replaceChildren the whole
-  // message list and yank scroll position when reacting mid-history.
-  updateReactionsDom(id, comment);
+  // Resolve the live store entry rather than trusting the object a caller
+  // was handed at render time: pollReactionRefresh now routinely replaces
+  // known comment objects wholesale (not just the rare, disabled-by-default
+  // WS path this used to be true for), so a stale `comment` reference here
+  // would optimistically-bump an object state.comments no longer points at,
+  // silently dropping the user's own reaction on the next render.
+  const live = state.comments.get(id) || comment;
+  _reactionSendInflight.add(id);
   try {
-    await apiPostReaction(id, type);
-  } catch (e) {
-    // Rollback — same surgical path.
-    comment.reactions = prevReactions;
-    updateReactionsDom(id, comment);
-    showError(
-      "Reaction failed: " + ((e && e.message) || "unknown error")
-    );
+    // Optimistic bump.
+    const prevReactions = live.reactions;
+    live.reactions = updateReactionCount(prevReactions, type, +1);
+    // Surgical DOM update — replace only the .msg-reactions row on this
+    // message's node. Full renderAll() would replaceChildren the whole
+    // message list and yank scroll position when reacting mid-history.
+    updateReactionsDom(id, live);
+    try {
+      await apiPostReaction(id, type);
+    } catch (e) {
+      // Rollback — same surgical path.
+      live.reactions = prevReactions;
+      updateReactionsDom(id, live);
+      showError(
+        "Reaction failed: " + ((e && e.message) || "unknown error")
+      );
+    }
+  } finally {
+    _reactionSendInflight.delete(id);
+    _reactionSendCompletedAt.set(id, Date.now());
   }
 }
 

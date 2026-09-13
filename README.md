@@ -135,6 +135,8 @@ Bring your own OpenAI / Anthropic / Google key. See the dedicated **[AI Insights
 
 Polling once every 12 seconds, which is the same thing Substack's own native client does. The status pill in the header shows you what's live: 🟢 live poll or 🟢 ws on. WebSocket support is on the roadmap, polling handles things in the meantime.
 
+A second, slower (20s) poll picks up reactions added to messages you've already loaded — the main poll only catches genuinely *new* messages, so a reaction on an older message used to sit invisible until you reloaded the tab. This refresh is scoped to the most recent page of the thread; a reaction on something further back still needs a reload.
+
 ### ✈ Telegram bridge (stream the chat to a bot)
 
 Stream the live Substack Chat feed to your own Telegram bot — read it, post to it, and react from your phone — without leaving Telegram.

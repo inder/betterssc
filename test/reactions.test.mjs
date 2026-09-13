@@ -10,6 +10,8 @@ import {
   updateReactionCount,
   pickSuggestedReactions,
   DEFAULT_SUGGESTED_REACTIONS,
+  normalizeReactionCounts,
+  reactionsChanged,
 } from "../lib/compose.js";
 
 describe("updateReactionCount — REST shape (numeric count)", () => {
@@ -184,5 +186,47 @@ describe("rollback flow — optimistic then failure", () => {
     // Click 1 fails — rollback -1
     r = updateReactionCount(r, "fire", -1);
     expect(r).toEqual({ fire: 1 });
+  });
+});
+
+describe("normalizeReactionCounts", () => {
+  it("passes through numeric (REST) shape, dropping zero-count entries", () => {
+    expect(normalizeReactionCounts({ thumbs_up: 2, fire: 0 })).toEqual({
+      thumbs_up: 2,
+    });
+  });
+  it("reduces object (WS) shape to its count", () => {
+    expect(
+      normalizeReactionCounts({ fire: { count: 3, has_reacted: true } })
+    ).toEqual({ fire: 3 });
+  });
+  it("handles null/undefined/non-object input", () => {
+    expect(normalizeReactionCounts(null)).toEqual({});
+    expect(normalizeReactionCounts(undefined)).toEqual({});
+    expect(normalizeReactionCounts("nope")).toEqual({});
+  });
+});
+
+describe("reactionsChanged — reaction-refresh poll's diff gate", () => {
+  it("false when both are empty/absent", () => {
+    expect(reactionsChanged(null, undefined)).toBe(false);
+    expect(reactionsChanged({}, {})).toBe(false);
+  });
+  it("false when counts match across REST vs WS shape", () => {
+    expect(
+      reactionsChanged({ fire: 3 }, { fire: { count: 3, has_reacted: false } })
+    ).toBe(false);
+  });
+  it("true when a count increases", () => {
+    expect(reactionsChanged({ fire: 3 }, { fire: 4 })).toBe(true);
+  });
+  it("true when a new reaction type appears", () => {
+    expect(reactionsChanged({ fire: 1 }, { fire: 1, thumbs_up: 1 })).toBe(true);
+  });
+  it("true when a reaction is removed (count drops to 0 / key absent)", () => {
+    expect(reactionsChanged({ fire: 1 }, {})).toBe(true);
+  });
+  it("true when the same count moves to a different reaction type", () => {
+    expect(reactionsChanged({ fire: 1 }, { thumbs_up: 1 })).toBe(true);
   });
 });
