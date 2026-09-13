@@ -1,15 +1,15 @@
 {
-  "sha": "0d42d43",
+  "sha": "3239aa3",
   "branch": "main",
-  "ts": "2026-09-09T15:04:52Z",
-  "reviewer_model": "claude-opus",
+  "ts": "2026-09-13T20:39:00Z",
+  "reviewer_model": "fable",
   "verdict": "merge-with-fixes",
   "retro_required": "no",
-  "retro_reasoning": "small diff, no critical findings, no schema or contract change",
+  "retro_reasoning": "Reviewer flagged retro_required=yes (should-fix findings recur a previously-banked lesson: pending-row reconcile bypass). Not run this session per the standing 'Retro discipline — OFF by default, manual-only' policy; the lesson is already captured in project memory (new-pending-field-needs-both-reconcile-branches.md) and the fix applied here is a direct instance of applying it, not a new pattern needing a fresh memory write.",
   "critical_count": 0,
-  "should_fix_count": 5,
+  "should_fix_count": 3,
   "nit_count": 5,
-  "files_reviewed": 4,
-  "resolution": "all 5 should-fix applied: (1) MODERATION_MAX_TOKENS 512->2048 so thought tokens can't consume the cap and block a send as a review failure; (2) MAX_TOKENS error string made neutral — it reaches the moderation surface where no cap control exists; (3) LOW-vs-MINIMAL comment rewritten around the real constraint (LOW documented for every 3.x model, MINIMAL unverified on 3.6-flash, fail-closed moderation); (4) gemini-2.5-pro gap stated in code with the 2.x-era thinkingBudget field named for a later, live-verified wiring; (5) GOOGLE_THINKING_LEVEL pinned to LOW in the test (was enum-membership, which HIGH would pass). Nits: trim on part-join, timeout comment reworded as headroom not measurement, CHANGELOG heading now covers both bullets, thought+groundingMetadata and moderation-shaped-request tests added; 'Tune AI Model' casing moot after the string became generic. Reviewer's uncounted aiBusy-leak observation checked: the clear is inside a finally. Suite 729/729 green. Not live-verified against Google's API.",
-  "scope": "Gemini 3.x thinking level + Insights timeout + thought-aware parseResponse + moderation cap"
+  "files_reviewed": 3,
+  "resolution": "All 3 should-fix applied before push: (1) the sendReaction/pollReactionRefresh race — added _reactionSendCompletedAt (Map<id, Date.now()>) alongside the existing _reactionSendInflight Set; pollReactionRefresh now snapshots fetchStartedAt BEFORE issuing its fetch and skips any id whose send settled after that snapshot, closing the window where a send resolves between the refresh fetch being issued and its (stale) response being processed; (2) pollReactionRefresh now skips any comment with prev._pending or prev._failed set, so a wholesale ingestComment replace can never bypass reconcilePending's carry-forward (media_uploads, _localPreview/_stagedFile cleanup) for an in-flight optimistic row; (3) sendReaction now resolves `state.comments.get(id) || comment` at entry instead of trusting whatever object reference its caller was holding, since pollReactionRefresh's routine wholesale replacement made a stale caller-held reference a real (if rare) way to silently drop the user's own reaction. One nit taken (added a reactionsChanged test for same-count-different-key); two nits taken as doc clarifications (pollReactionRefresh's docstring now states the 'reaction on an older page = needs reload, not lost' scope; the _reactionSendInflight+_reactionSendCompletedAt comment rewritten to explain both fields). Remaining nits (string-shaped reaction value silently normalizing to 0, no fetch timeout on the refresh poll) left as-is per reviewer's own 'take it or leave it' / 'noting only, not new' framing. Suite 743/743 green, node --check clean. Not live-verified against Substack's real API from this session (dogfood pending).",
+  "scope": "New pollReactionRefresh() 20s poll + reactionsChanged/normalizeReactionCounts (lib/compose.js) + sendReaction hardening"
 }
