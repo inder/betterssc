@@ -168,7 +168,7 @@ const state = {
   // Telegram bridge (v0.9) — mirror of the persisted bridge config. The live
   // controller lives in telegramBridge (lib/telegram-bridge.js); this is what
   // we save to / restore from chrome.storage. streaming defaults OFF.
-  telegram: { token: null, chatId: null, streaming: false, bot: null },
+  telegram: { token: null, chatId: null, streaming: false, bot: null, pinnedOnly: false },
   publication: null, // /api/v1/publication/public/<id> response
   comments: new Map(), // id → comment
   order: [], // ordered list of comment ids, oldest → newest
@@ -503,6 +503,9 @@ const telegramBridge = createTelegramBridge({
   makeClientId: () => composerUuid(),
   postSubstackMessage: postSubstackFromTelegram,
   addSubstackReaction: addSubstackReactionFromTelegram,
+  // Pinned-only filter (v0.12) — reuses the same pinned-member rail
+  // (state.pinnedUserIds) that already drives the member-list sort.
+  isPinnedAuthor: (userId) => state.pinnedUserIds.has(userId),
 });
 
 // Post a Telegram-originated message to the Substack thread, as the logged-in
@@ -537,6 +540,7 @@ function saveTelegramConfig() {
         bssc_telegram_bot_token: state.telegram.token || "",
         bssc_telegram_chat_id: state.telegram.chatId,
         bssc_telegram_streaming: !!state.telegram.streaming,
+        bssc_telegram_pinned_only: !!state.telegram.pinnedOnly,
       });
   } catch (_) {}
 }
@@ -556,10 +560,12 @@ function restoreTelegramFromStorage(res) {
   state.telegram.token = token;
   state.telegram.chatId = chatId;
   state.telegram.streaming = streaming && !!token && chatId != null;
+  state.telegram.pinnedOnly = !!res.bssc_telegram_pinned_only;
   telegramBridge.setConfig({
     token,
     chatId,
     streaming: state.telegram.streaming,
+    pinnedOnly: state.telegram.pinnedOnly,
   });
   if (token) telegramBridge.startPoll();
   if (state.telegram.streaming) telegramBridge.enableStreaming();
@@ -722,6 +728,28 @@ function renderTelegramModalBody(body) {
           : "Streaming is off. Turn it on to forward new chat messages to Telegram."
       )
     );
+
+    // Pinned-only filter (v0.12) — optional, off by default. Reuses the
+    // same pinned-member rail (member list's pin toggle) as the filter set.
+    const pinRow = document.createElement("div");
+    pinRow.className = "tune-toggle-row";
+    const pinCheckbox = document.createElement("input");
+    pinCheckbox.type = "checkbox";
+    pinCheckbox.id = "tgPinnedOnly";
+    pinCheckbox.checked = !!t.pinnedOnly;
+    const pinLabel = document.createElement("label");
+    pinLabel.htmlFor = "tgPinnedOnly";
+    pinLabel.className = "tune-toggle-label";
+    pinLabel.textContent =
+      "Only forward messages from pinned members. Pin members from the pin icon in the member list.";
+    pinCheckbox.addEventListener("change", () => {
+      state.telegram.pinnedOnly = pinCheckbox.checked;
+      telegramBridge.setConfig({ pinnedOnly: state.telegram.pinnedOnly });
+      saveTelegramConfig();
+    });
+    pinRow.appendChild(pinCheckbox);
+    pinRow.appendChild(pinLabel);
+    body.appendChild(pinRow);
   }
 
   // Disconnect option (always available once a token is set).
@@ -732,7 +760,7 @@ function renderTelegramModalBody(body) {
     // Full teardown — clears the bridge's per-bot offset/sentIds so reconnecting
     // a different bot doesn't reuse stale state.
     telegramBridge.reset();
-    state.telegram = { token: null, chatId: null, streaming: false, bot: null };
+    state.telegram = { token: null, chatId: null, streaming: false, bot: null, pinnedOnly: false };
     saveTelegramConfig();
     renderTelegramButton();
     renderTelegramModalBody(body);
@@ -3861,6 +3889,7 @@ function restoreWatchedUsers() {
         "bssc_telegram_bot_token",
         "bssc_telegram_chat_id",
         "bssc_telegram_streaming",
+        "bssc_telegram_pinned_only",
       ],
       (res) => {
         if (!res) return;

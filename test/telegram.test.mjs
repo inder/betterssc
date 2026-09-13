@@ -152,6 +152,47 @@ describe("shouldForward", () => {
     expect(shouldForward(null, new Set())).toBe(false);
     expect(shouldForward({ body: "x" }, new Set())).toBe(false);
   });
+
+  describe("pinnedOnly filter (opt-in)", () => {
+    const pinnedSet = new Set([7]);
+    const isPinnedAuthor = (id) => pinnedSet.has(id);
+
+    it("is a no-op when pinnedOnly is not set", () => {
+      expect(shouldForward(comment({ author: { id: 99 } }), new Set())).toBe(true);
+    });
+    it("forwards a pinned author's message", () => {
+      expect(
+        shouldForward(comment({ author: { id: 7 } }), new Set(), {
+          pinnedOnly: true,
+          isPinnedAuthor,
+        })
+      ).toBe(true);
+    });
+    it("skips a non-pinned author's message", () => {
+      expect(
+        shouldForward(comment({ author: { id: 99 } }), new Set(), {
+          pinnedOnly: true,
+          isPinnedAuthor,
+        })
+      ).toBe(false);
+    });
+    it("fails open (forwards) when the comment has no author id", () => {
+      expect(
+        shouldForward(comment({ author: null }), new Set(), {
+          pinnedOnly: true,
+          isPinnedAuthor,
+        })
+      ).toBe(true);
+    });
+    it("idempotency (sentIds) still wins over pinnedOnly", () => {
+      expect(
+        shouldForward(comment({ id: "c1", author: { id: 7 } }), new Set(["c1"]), {
+          pinnedOnly: true,
+          isPinnedAuthor,
+        })
+      ).toBe(false);
+    });
+  });
 });
 
 describe("parseGetUpdates / nextOffset", () => {
