@@ -1,15 +1,15 @@
 {
-  "sha": "3239aa3",
+  "sha": "bb92f78",
   "branch": "main",
-  "ts": "2026-09-13T20:39:00Z",
-  "reviewer_model": "fable",
+  "ts": "2026-09-18T17:16:25Z",
+  "reviewer_model": "claude-opus",
   "verdict": "merge-with-fixes",
   "retro_required": "no",
-  "retro_reasoning": "Reviewer flagged retro_required=yes (should-fix findings recur a previously-banked lesson: pending-row reconcile bypass). Not run this session per the standing 'Retro discipline — OFF by default, manual-only' policy; the lesson is already captured in project memory (new-pending-field-needs-both-reconcile-branches.md) and the fix applied here is a direct instance of applying it, not a new pattern needing a fresh memory write.",
+  "retro_reasoning": "loop iteration; retro is manual-only",
   "critical_count": 0,
-  "should_fix_count": 3,
+  "should_fix_count": 2,
   "nit_count": 5,
-  "files_reviewed": 3,
-  "resolution": "All 3 should-fix applied before push: (1) the sendReaction/pollReactionRefresh race — added _reactionSendCompletedAt (Map<id, Date.now()>) alongside the existing _reactionSendInflight Set; pollReactionRefresh now snapshots fetchStartedAt BEFORE issuing its fetch and skips any id whose send settled after that snapshot, closing the window where a send resolves between the refresh fetch being issued and its (stale) response being processed; (2) pollReactionRefresh now skips any comment with prev._pending or prev._failed set, so a wholesale ingestComment replace can never bypass reconcilePending's carry-forward (media_uploads, _localPreview/_stagedFile cleanup) for an in-flight optimistic row; (3) sendReaction now resolves `state.comments.get(id) || comment` at entry instead of trusting whatever object reference its caller was holding, since pollReactionRefresh's routine wholesale replacement made a stale caller-held reference a real (if rare) way to silently drop the user's own reaction. One nit taken (added a reactionsChanged test for same-count-different-key); two nits taken as doc clarifications (pollReactionRefresh's docstring now states the 'reaction on an older page = needs reload, not lost' scope; the _reactionSendInflight+_reactionSendCompletedAt comment rewritten to explain both fields). Remaining nits (string-shaped reaction value silently normalizing to 0, no fetch timeout on the refresh poll) left as-is per reviewer's own 'take it or leave it' / 'noting only, not new' framing. Suite 743/743 green, node --check clean. Not live-verified against Substack's real API from this session (dogfood pending).",
-  "scope": "New pollReactionRefresh() 20s poll + reactionsChanged/normalizeReactionCounts (lib/compose.js) + sendReaction hardening"
+  "files_reviewed": 4,
+  "resolution": "First pass: do-not-merge, 3 Critical / 6 should-fix / 11 nit, every finding empirically verified by the reviewer running the module. C1 dead '?' guard (sentence split consumed the terminator) → zero-width split keeps it; C2 everyday nouns + 2-letter abbreviations admitted as tickers → JARGON gained both classes, header states the real admit set, per-trade confidence added; C3 forwardScan crossed clause boundaries → bounded at first comma/conjunction. S1-S6 folded (past-time gaps, sentence-scoped past check → verb window, cashtag swallowed by numeric skip, 'cut my losses on X' is an exit, negative rows for the lowercase path, mislabeled row). Re-check by the same reviewer with its probe script: merge-with-fixes, 0 Critical; new S2-R (past marker after a comma) folded by splitting absolute vs weekday markers; C2-R residue pinned as rows and mitigated by confidence:'low'; nits 1/5 pinned as fixture rows. Fixture 232 rows, meta 250/250, suite 993/993.",
+  "scope": "trade ticker arc slice 1: lib/trades.js parser + ET-day helpers + fixture + meta-test"
 }
