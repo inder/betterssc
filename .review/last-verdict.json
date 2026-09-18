@@ -1,15 +1,15 @@
 {
-  "sha": "69b2b88",
+  "sha": "a266260",
   "branch": "main",
-  "ts": "2026-09-18T17:45:03Z",
+  "ts": "2026-09-18T18:12:00Z",
   "reviewer_model": "claude-opus",
   "verdict": "merge-with-fixes",
   "retro_required": "no",
   "retro_reasoning": "loop iteration; retro is manual-only",
   "critical_count": 0,
-  "should_fix_count": 5,
-  "nit_count": 7,
-  "files_reviewed": 5,
-  "resolution": "All 5 should-fix applied: (S1) _tradesTickInflight guard with finally reset; (S2) an empty threads page keeps the previous snapshot instead of hiding the rail and blanking roots; (S3) strip rows use data-trade-id so jumpToMessage/focusSearchHit's unscoped [data-id] lookups can never match a strip row; (S4) rebuild skipped when rows+header state are unchanged, scrollTop and focused row carried across otherwise; (S5) mobile deferral to slice 4 named in the app.html comment and the arc spec (slice queue + decisions). All 7 nits applied: dead etDateKey import removed then re-added where it is now really used (day-key memo prune, N2), themed --danger-bg-soft (N3), real '?' element with title/aria-label (N4), mutation test through the memo path (N5), warn once per failure transition (N6), enabled re-check before any DOM work after the await (N7). Reviewer verified all 4 arc invariants hold and 12/12 START-review changes honoured. Founder live-eyes pass on the real extension: passed; two parser misses it surfaced fixed in the preceding commit. Suite 1015/1015.",
-  "scope": "trade ticker arc slice 2: trades strip UI + derivation + prefs + 60s roots refresh"
+  "should_fix_count": 3,
+  "nit_count": 8,
+  "files_reviewed": 8,
+  "resolution": "All 3 should-fix applied: (S1) _tradeAlertsReady armed as the storage callback's first statement in its own try/catch, and set before key-loading inside restoreTradeAlertsFromStorage; (S2) rollover requires a valid day key (a failed clock read can no longer wipe the dedupe set and persist day:null), guard test asserts rollover:false + dayKey:null; (S3) bridge test now observes msgMapSize via _state() with a mirrored-comment control so rememberSent-on-a-text-item is actually detectable. All 8 nits applied: label copy (one Telegram message per chat message); whole-message clamp under the exported MAX_MESSAGE_LEN keeping the link; keys un-claimed when enqueueText returns false; pending debounced write flushed synchronously when the toggle goes off; trusted-badge and midnight-edge comments; fixture floor asserts every positive row carries confidence; upgrade-path truth in the state comment. Reviewer verified all 12 START-review changes landed and every arc invariant held under probing (double-alert across both call sites, own-send alerting, reload during the debounce, first run, stale day). Suite 1041/1041. Founder's Telegram live check pending before push.",
+  "scope": "trade ticker arc slice 3: Telegram BUY/SELL alerts + tagged bridge queue + Substack comment permalink"
 }
