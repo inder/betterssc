@@ -4,6 +4,8 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-18
+
 ### Added — 💹 Trades strip + Telegram BUY/SELL alerts
 
 - **Today's buys and sells, parsed from the chat, above the Active pane.** Members announce fills in prose ("Bought: CBRS at 12.40", "trimmed half of NVDA", "out of HOOD", "close $QQQ 718 lottos"); BetterSSC reads them and lists them newest-first with a 🟢 BUY / 🔴 SELL·closed / 🟠 SELL·partial badge, ticker(s), author and ET time. Click a row to jump to the message; the author's own "Bought: …" root posts open the post view. Off by default — **Show the trades strip** in Chat preferences — with a **pinned members only** toggle and a persisted collapse.
@@ -12,7 +14,7 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 - **Three independent Opus reviews per slice** (START design + END code, over review-gatherer bundles). The END review of the parser caught 3 Criticals before merge — a dead question guard, everyday nouns admitted as tickers ("picked up steam" → STEAM), and a forward scan binding a later clause's ticker to the wrong verb — all closed and re-verified by the reviewer's own probe script. The strip review caught that the channel's thread roots were fetched once at boot (now refreshed every 60s while on) and that rows never dropped at ET midnight in a quiet chat (now they do). The alerts review caught a boot-ordering fragility that could silently disable alerts for a session (the ready flag is now armed first).
 - **Founder dogfood fed straight back into the corpus:** "took small profits in GEV" and bare "add GEV 928" / "close $QQQ" were misses in the first live pass and are now verbs with the real messages pinned.
 - **Deep-link fix on the side:** `parseSubstackChatUrl` only read the camelCase `targetReplyId`, which native Substack "Copy link" URLs never carry — it now reads `target_reply_id` too, so a native permalink pasted into the toolbar flow keeps its comment anchor.
-- New pure modules `lib/trades.js`, `lib/trades-strip.js`, `lib/trade-alerts.js`; `lib/telegram-bridge.js` gains tagged queue items + `enqueueText` (one rate limiter for mirror and alerts; a text item never touches the mirror's reply map) and a `fetchImpl` test seam. 305 new tests; 1048/1048 passing.
+- New pure modules `lib/trades.js`, `lib/trades-strip.js`, `lib/trade-alerts.js`; `lib/telegram-bridge.js` gains tagged queue items + `enqueueText` (one rate limiter for mirror and alerts; a text item never touches the mirror's reply map) and a `fetchImpl` test seam. 305 new tests; 1049/1049 passing.
 - **Known limits:** comments in other threads of the channel aren't loaded and don't appear; "long X" / "I'm short X" are position statements, not fills; an edited message never re-alerts; a 429'd alert send is dropped. Under 800px wide the strip becomes a slim bar across the top of the chat (the members pane stays hidden); with the strip off the narrow layout is byte-identical to before.
 
 ## [0.11.1] — 2026-09-16
