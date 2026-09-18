@@ -96,18 +96,9 @@ import { planTradeAlerts, formatTradeAlert } from "./lib/trade-alerts.js";
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
 // ============================================================
 
-const ICON_PIN_OFF = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none"
-  stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-  stroke-linejoin="round" aria-hidden="true">
-  <path d="M12 17v5"/>
-  <path d="M9 10.76V6h6v4.76l3.5 4.24H5.5L9 10.76z"/>
-</svg>`;
+const ICON_PIN_OFF = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M12 3.2l2.6 5.5 6 .8-4.4 4.2 1.1 6L12 16.8l-5.3 2.9 1.1-6L3.4 9.5l6-.8z"/></svg>`;
 
-const ICON_PIN_ON = `<svg viewBox="0 0 24 24" width="14" height="14"
-  fill="currentColor" aria-hidden="true">
-  <path d="M12 17v5"/>
-  <path d="M9 10.76V6h6v4.76l3.5 4.24H5.5L9 10.76z"/>
-</svg>`;
+const ICON_PIN_ON = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.5l-5.9 3.2 1.2-6.6L2.5 9.5l6.6-.9z"/></svg>`;
 
 const ICON_BELL_ON = `<svg viewBox="0 0 24 24" width="14" height="14"
   fill="currentColor" aria-hidden="true">
@@ -770,7 +761,7 @@ function renderTelegramModalBody(body) {
     pinLabel.htmlFor = "tgPinnedOnly";
     pinLabel.className = "tune-toggle-label";
     pinLabel.textContent =
-      "Only forward messages from pinned members (applies to the chat mirror only — BUY/SELL trade alerts follow the pinned-only switch in Chat preferences). Pin members from the pin icon in the member list.";
+      "Only forward messages from favorites (applies to the chat mirror only — BUY/SELL trade alerts follow the favorites-only switch in Chat preferences). Add favorites with the ★ next to a name in the member list.";
     pinCheckbox.addEventListener("change", () => {
       state.telegram.pinnedOnly = pinCheckbox.checked;
       telegramBridge.setConfig({ pinnedOnly: state.telegram.pinnedOnly });
@@ -3727,7 +3718,7 @@ function renderMembers() {
   if (pinned.length) {
     const sub = document.createElement("li");
     sub.className = "member-subheader";
-    sub.textContent = "Pinned";
+    sub.textContent = "Favorites";
     frag.appendChild(sub);
     for (const a of pinned) frag.appendChild(buildMemberRow(a, true));
     const sub2 = document.createElement("li");
@@ -3791,8 +3782,8 @@ function buildMemberRow(a, isPinned) {
   pin.className = "member-pin" + (isPinned ? " on" : "");
   pin.innerHTML = isPinned ? ICON_PIN_ON : ICON_PIN_OFF;
   pin.title = isPinned
-    ? `Unpin ${a.profile.name}`
-    : `Pin ${a.profile.name} to the top of the Active rail`;
+    ? `Remove ${a.profile.name} from favorites`
+    : `Add ${a.profile.name} to favorites (kept at the top of the Active rail)`;
   pin.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -6316,7 +6307,7 @@ function openChatPrefsModal() {
   tradesPinnedLabel.htmlFor = "chatPrefsTradesPinnedOnly";
   tradesPinnedLabel.className = "tune-toggle-label";
   tradesPinnedLabel.textContent =
-    "Trades strip: pinned members only. Applies to the strip AND to Telegram trade alerts (the Telegram bridge's own pinned-only switch covers only the message mirror). Uses the same pinned list as the Active pane.";
+    "Trades strip: favorites only. Applies to the strip AND to Telegram trade alerts (the Telegram bridge's own favorites-only switch covers only the message mirror). Uses the same ★ favorites as the Active pane.";
   tradesPinnedRow.appendChild(tradesPinnedCheckbox);
   tradesPinnedRow.appendChild(tradesPinnedLabel);
   body.appendChild(tradesPinnedRow);
@@ -6456,7 +6447,7 @@ function openResetConfirmModal() {
   const list = document.createElement("ul");
   list.className = "reset-confirm-list";
   const things = [
-    "📌 Pinned members and 🔔 watch / alert preferences",
+    "★ Favorites and 🔔 watch / alert preferences",
     "✨ AI provider settings and API key (you'll re-paste it next time)",
     "Tuned AI model, context-budget slider, and custom prompt",
     "Theme (light / dark), member-rail sort, notify-all toggle",
@@ -6813,7 +6804,7 @@ function renderTradesStrip() {
   const header = document.createElement("div");
   header.className = "trades-strip-header";
   const title = document.createElement("span");
-  title.textContent = `Trades today · ${rows.length}${state.tradesPinnedOnly ? " · pinned" : ""}`;
+  title.textContent = `Trades today · ${rows.length}${state.tradesPinnedOnly ? " · favorites" : ""}`;
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "trades-strip-toggle";
@@ -6839,7 +6830,7 @@ function renderTradesStrip() {
     const empty = document.createElement("li");
     empty.className = "trades-strip-empty";
     empty.textContent = state.tradesPinnedOnly
-      ? "No trades from pinned members yet today."
+      ? "No trades from favorites yet today."
       : "No trades parsed yet today.";
     list.appendChild(empty);
   }
@@ -7075,7 +7066,7 @@ function onNewCommentsForTradeAlerts(newComments) {
     }
   }
   if (!plan.messages.length) {
-    tradeAlertsTrace(`${newComments.length} new, no alert (not a trade, already alerted, not today ET, pre-boot backlog, or filtered by pinned-only)`);
+    tradeAlertsTrace(`${newComments.length} new, no alert (not a trade, already alerted, not today ET, pre-boot backlog, or filtered by favorites-only)`);
   }
   if (_tradeAlertsDirty) saveTradeAlertsSoon();
 }

@@ -4,9 +4,9 @@ A Chrome extension that gives Substack Chat a Discord-style makeover.
 
 ![tests](https://img.shields.io/badge/tests-686%2F686-brightgreen) ![latest tag](https://img.shields.io/github/v/tag/inder/betterssc) ![license](https://img.shields.io/github/license/inder/betterssc)
 
-Latest release: **v0.12.0** (Sep 18, 2026) — 💹 **Trades strip + Telegram BUY/SELL alerts** (today's buys and sells parsed out of the chat and listed above the Active pane — BUY / SELL·closed / SELL·partial, ticker, who, ET time, click to jump to the message; one Telegram alert per trade as it lands with a Link straight to the comment; opt-in, pinned-only filter, corpus-calibrated regex with 247 pinned fixture rows). Previous: **v0.11.1** — 🤖 Google AI provider fixed, 👍 reactions on already-loaded messages, ✈ Telegram pinned-members-only filter, 🔌 dead proxy tab recovery. 1049/1049 tests passing.
+Latest release: **v0.12.0** (Sep 18, 2026) — 💹 **Trades strip + Telegram BUY/SELL alerts** (today's buys and sells parsed out of the chat and listed above the Active pane — BUY / SELL·closed / SELL·partial, ticker, who, ET time, click to jump to the message; one Telegram alert per trade as it lands with a Link straight to the comment; opt-in, favorites-only filter, corpus-calibrated regex with 247 pinned fixture rows). Previous: **v0.11.1** — 🤖 Google AI provider fixed, 👍 reactions on already-loaded messages, ✈ Telegram favorites-only filter, 🔌 dead proxy tab recovery. 1049/1049 tests passing.
 
-![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, pinned users, and the ✨ AI Insights button in the header](assets/hero.png)
+![BetterSSC running on Za's Market Terminal — Discord-style layout with member rail, favorites, and the ✨ AI Insights button in the header](assets/hero.png)
 
 **[Install](#install)** · **[Give feedback](https://github.com/inder/betterssc/issues/new)** · **[Roadmap](#roadmap)**
 
@@ -114,8 +114,8 @@ The whole feed is keyboard-driven. You can use it without ever touching the mous
 ### Following specific people
 
 - 🔔 bell next to each name in the Active rail. Toggle it on and you'll get a desktop notification when that person posts, even if BetterSSC is in another tab.
-- 📌 pin people to the top of the Active rail so you always see them first.
-- You're auto-pinned and auto-bell'd by default. Your own row sits at the top of the rail no matter the sort.
+- ★ **Favorites** — star people to keep them at the top of the Active rail so you always see them first.
+- You're a favorite and auto-bell'd by default. Your own row sits at the top of the rail no matter the sort.
 - Sort the rail by most-active (default) or alphabetically.
 - The browser tab title shows an unread count while you're away: `(3) Your Chat Name · BetterSSC`.
 - Auto mark-viewed every 30 seconds (and instantly when you switch back to the tab), so your unread count in native Substack stays in sync.
@@ -143,11 +143,11 @@ Stream the live Substack Chat feed to your own Telegram bot — read it, post to
 
 - **Set it up in ~1 minute.** Create a bot with [@BotFather](https://t.me/BotFather) and copy its token. In BetterSSC, click the **✈** button in the header, paste the token (validated via `getMe`), then send your bot any message in Telegram so it can reach you (a bot can't message you until you message it first). BetterSSC captures the chat automatically — then hit **Start streaming**.
 - **Stream (read):** every new chat message appears in your Telegram chat with a **bold author header** (the bot is the nominal sender, so the original author rides in the text). Images forward as photos; other attachments get a `📎` marker.
-- **Only pinned members, optionally:** a checkbox in the bridge dialog ("Only forward messages from pinned members") reuses the same pinned-member rail as the member list — turn it on to mirror just your pinned people's messages to Telegram instead of the whole feed. Off by default (mirrors everyone); your own messages always forward since you're pinned by default.
+- **Only favorites, optionally:** a checkbox in the bridge dialog ("Only forward messages from favorites") reuses the same ★ favorites as the member list — turn it on to mirror just your favorites' messages to Telegram instead of the whole feed. Off by default (mirrors everyone); your own messages always forward since you're a favorite by default.
 - **Post back:** type a message to the bot and it posts to the Substack thread **as you**. (Messages starting with `/` are treated as bot commands and not posted.)
 - **React back:** react to a streamed message in Telegram and the closest Substack reaction lands on the matching comment. Unmapped reactions are skipped, never guessed.
 - **Runs only while the BetterSSC tab is open** — no server, no always-on background process. The bot token lives only in `chrome.storage` and is never logged. Latency is ~12s with the tab active (longer when the tab is hidden, due to browser timer throttling).
-- **BUY/SELL alerts** ride the same bot, independently of streaming — see [the trades strip](#-trades-strip--telegram-buysell-alerts-opt-in). The bridge's own pinned-only checkbox covers the mirror; the strip's covers the alerts.
+- **BUY/SELL alerts** ride the same bot, independently of streaming — see [the trades strip](#-trades-strip--telegram-buysell-alerts-opt-in). The bridge's own favorites-only checkbox covers the mirror; the strip's covers the alerts.
 - **Not supported (yet):** replies/threading, AI features in Telegram, operation while Chrome is closed, sending media *from* Telegram, and multiple threads. Reaction changes/removals are lossy.
 
 ### 💹 Trades strip + Telegram BUY/SELL alerts (opt-in)
@@ -158,7 +158,7 @@ Members announce fills in prose — "Bought: CBRS at 12.40", "trimmed half of NV
 - **Roots and comments both count.** The publication author's trades are usually thread *root* posts, members' trades are comments in the daily thread — the strip reads both. Comments in *other* threads of the channel aren't loaded by the app and don't appear; the channel's thread roots refresh every 60s while the strip is on.
 - **"Today" is the calendar day in New York**, midnight to midnight, whatever your own timezone. Rows drop at ET midnight on their own.
 - **Narrow window?** Under 800px wide the members pane is hidden as always, but with the strip on it becomes a slim trades bar across the top of the chat (capped at about a third of the window; the chevron collapses it to one line).
-- **Pinned members only** (second toggle) narrows the strip — and the Telegram alerts — to your pinned people, the same pinned list as the Active pane.
+- **Favorites only** (second toggle) narrows the strip — and the Telegram alerts — to your ★ favorites, the same list as the Active pane.
 - **Telegram alerts** (third toggle, on by default once the strip is on and a bot is connected via ✈): one Telegram message per chat message that contains a trade, in the same shape — `🔴 **SELL·closed QQQ** — Jordan Kerner: close $QQQ 718 lottos` — followed by a **Link** that opens the thread scrolled to that exact comment. Fires whether or not the full chat mirror is streaming; never for history, only for messages that arrive while the tab is open; never twice for the same trade, even across a reload (the day's alerts are remembered). Your own messages alert too.
 - **Best-effort regex, no AI.** The parser is calibrated against a committed corpus of real chat messages plus hand-built near-misses (hypotheticals, questions, "closed the gap", third-party "Cramer bought", past-tense "back in March", all-caps shouting…) and every row is asserted by the test suite. It looks for a trade verb with a ticker next to it in the same sentence; lowercase tickers are accepted right after the verb ("bought orcu") and marked with a **?** in the strip and "unconfirmed ticker" in Telegram. Known misses, on purpose: "long AMZN" / "I'm short oil" (position statements, not fills), a ticker in an earlier sentence ("NBIS looks good. Bought it."), and an edited message never re-alerts.
 
@@ -269,7 +269,7 @@ Each field has a per-field "Reset to default" button. The author-aware perspecti
 
 #### 3. Reset all saved data
 
-Wipes everything BetterSSC has saved on your device: pinned/watched members, AI provider + API key, theme, member-sort, notify-all toggle, WebSocket-enabled flag. Confirmation dialog lists exactly what gets cleared. The page reloads to land cleanly at defaults.
+Wipes everything BetterSSC has saved on your device: favorites/watched members, AI provider + API key, theme, member-sort, notify-all toggle, WebSocket-enabled flag. Confirmation dialog lists exactly what gets cleared. The page reloads to land cleanly at defaults.
 
 This does NOT touch anything on Substack's side — your actual chats stay where they are.
 
@@ -325,7 +325,7 @@ app.js gets to work:
        so Substack's S3 bucket serves them properly
 ```
 
-Nothing leaves your browser except calls to `substack.com`. No analytics, no tracking, no third-party scripts. Your preferences (theme, pinned users, watched users, sort order) live in `chrome.storage.local`.
+Nothing leaves your browser except calls to `substack.com`. No analytics, no tracking, no third-party scripts. Your preferences (theme, favorites, watched users, sort order) live in `chrome.storage.local`.
 
 ## Install
 
@@ -420,12 +420,12 @@ The roadmap below is my current wish list. What you actually need will reshape i
 
 ## Privacy
 
-**The core extension is server-less.** Nothing about your messages, identity, reactions, search queries, pinned users, watched users, or theme ever gets sent to me, to a third party, or to anyone else. I cannot see what you read or write in your chats. Nobody else can either.
+**The core extension is server-less.** Nothing about your messages, identity, reactions, search queries, favorites, watched users, or theme ever gets sent to me, to a third party, or to anyone else. I cannot see what you read or write in your chats. Nobody else can either.
 
 - There is no BetterSSC server. There is no BetterSSC database. There is no BetterSSC backend at all.
 - Every Substack-side network request goes directly from your browser to `substack.com`, using the session cookie you already have from being logged in.
 - No analytics. No telemetry. No "anonymous usage data." No crash reporters. No third-party scripts. None.
-- Settings (theme, pinned users, watched users, sort preference, notify-all toggle, AI provider + key) live in `chrome.storage.local`. That's a per-browser-profile bucket on your disk. They never leave your machine.
+- Settings (theme, favorites, watched users, sort preference, notify-all toggle, AI provider + key) live in `chrome.storage.local`. That's a per-browser-profile bucket on your disk. They never leave your machine.
 - Failed-image URLs are cached in memory only for the lifetime of the tab, then forgotten.
 - The source is all here in this repo. Read it, audit it, fork it. Roughly 3000 lines of vanilla JS with no build step. What you see is what runs.
 

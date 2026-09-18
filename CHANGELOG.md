@@ -4,6 +4,9 @@ All notable changes to BetterSSC. Format roughly follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Changed — 📌 "Pinned" is now ★ "Favorites"
+- Every user-facing mention — the member rail's section header and star buttons, the Chat preferences and Telegram bridge copy, the trades strip header and empty state, the reset dialog, the README. Same feature, same saved list (the storage key and code names are unchanged, so nobody's favorites are lost); only the word and the glyph changed, from a pin to a star.
+
 ## [0.12.0] — 2026-09-18
 
 ### Added — 💹 Trades strip + Telegram BUY/SELL alerts
