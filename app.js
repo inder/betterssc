@@ -90,6 +90,7 @@ import {
 import { extractTrending, extractQueryTickers } from "./lib/trending.js";
 import { etDateKey } from "./lib/trades.js";
 import { deriveTradeRows, formatTradeTimeET, tradeBadge } from "./lib/trades-strip.js";
+import { planTradeAlerts, formatTradeAlert } from "./lib/trade-alerts.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -169,6 +170,12 @@ const state = {
   tradesStripEnabled: false,
   tradesPinnedOnly: false,
   tradesStripCollapsed: false,
+  // Telegram BUY/SELL alerts (slice 3): default ON. Only reachable once the
+  // strip is on AND a Telegram bot is connected — for a fresh setup that is
+  // an opt-in; for an EXISTING setup that already has both, the upgrade
+  // turns alerts on without a click (accepted: solo-user product, and the
+  // founder asked for exactly this; revisit before any wider release).
+  tradesAlertsEnabled: true,
   threadRailHideEmpty: true,
   threadRailCollapsed: false,
   user: null, // {id, name, handle} from _analyticsConfig (via background)
@@ -763,7 +770,7 @@ function renderTelegramModalBody(body) {
     pinLabel.htmlFor = "tgPinnedOnly";
     pinLabel.className = "tune-toggle-label";
     pinLabel.textContent =
-      "Only forward messages from pinned members. Pin members from the pin icon in the member list.";
+      "Only forward messages from pinned members (applies to the chat mirror only — BUY/SELL trade alerts follow the pinned-only switch in Chat preferences). Pin members from the pin icon in the member list.";
     pinCheckbox.addEventListener("change", () => {
       state.telegram.pinnedOnly = pinCheckbox.checked;
       telegramBridge.setConfig({ pinnedOnly: state.telegram.pinnedOnly });
@@ -878,6 +885,13 @@ async function pollNewMessages() {
       // using a stable id per chat post so subsequent polls REPLACE the
       // previous notification instead of stacking.
       maybeAlertAllMessages(newlyAdded);
+      // Telegram BUY/SELL alerts — after the native alerts, wrapped, so a
+      // parse/format throw can never break the unread/pill path below.
+      try {
+        onNewCommentsForTradeAlerts(newlyAdded);
+      } catch (e) {
+        console.warn("[BetterSSC] trade alerts failed (non-fatal):", e && e.message);
+      }
       if (state.isAtBottom) {
         scrollToBottom();
       } else {
@@ -3928,6 +3942,7 @@ function restoreWatchedUsers() {
           "bssc_trades_strip_enabled",
           "bssc_trades_pinned_only",
           "bssc_trades_strip_collapsed",
+          "bssc_trades_alerts_enabled",
         ],
         (res) => {
           if (res) {
@@ -3953,6 +3968,8 @@ function restoreWatchedUsers() {
             state.tradesStripEnabled = !!res.bssc_trades_strip_enabled;
             state.tradesPinnedOnly = !!res.bssc_trades_pinned_only;
             state.tradesStripCollapsed = !!res.bssc_trades_strip_collapsed;
+            // Explicit `=== false`: unset keeps the default ON.
+            if (res.bssc_trades_alerts_enabled === false) state.tradesAlertsEnabled = false;
           }
           ensureSelfDefaults();
           renderMembers();
@@ -3988,8 +4005,18 @@ function restoreWatchedUsers() {
         "bssc_telegram_chat_id",
         "bssc_telegram_streaming",
         "bssc_telegram_pinned_only",
+        "bssc_trade_alerts_sent",
       ],
       (res) => {
+        // Arm trade alerts FIRST: the flag gates the whole feature, and this
+        // callback runs a lot of other code (AI config, Telegram restore with
+        // DOM writes) whose throw would otherwise leave the flag false for
+        // the whole session with no console signal (END review, slice 3, S1).
+        try {
+          restoreTradeAlertsFromStorage(res);
+        } catch (_) {
+          _tradeAlertsReady = true;
+        }
         if (!res) return;
         if (
           res.bssc_ai_provider === "openai" ||
@@ -6282,10 +6309,25 @@ function openChatPrefsModal() {
   tradesPinnedLabel.htmlFor = "chatPrefsTradesPinnedOnly";
   tradesPinnedLabel.className = "tune-toggle-label";
   tradesPinnedLabel.textContent =
-    "Trades strip: pinned members only. Uses the same pinned list as the Active pane.";
+    "Trades strip: pinned members only. Applies to the strip AND to Telegram trade alerts (the Telegram bridge's own pinned-only switch covers only the message mirror). Uses the same pinned list as the Active pane.";
   tradesPinnedRow.appendChild(tradesPinnedCheckbox);
   tradesPinnedRow.appendChild(tradesPinnedLabel);
   body.appendChild(tradesPinnedRow);
+
+  const tradesAlertsRow = document.createElement("div");
+  tradesAlertsRow.className = "tune-toggle-row";
+  const tradesAlertsCheckbox = document.createElement("input");
+  tradesAlertsCheckbox.type = "checkbox";
+  tradesAlertsCheckbox.id = "chatPrefsTradesAlerts";
+  tradesAlertsCheckbox.checked = !!state.tradesAlertsEnabled;
+  const tradesAlertsLabel = document.createElement("label");
+  tradesAlertsLabel.htmlFor = "chatPrefsTradesAlerts";
+  tradesAlertsLabel.className = "tune-toggle-label";
+  tradesAlertsLabel.textContent =
+    "Also send BUY/SELL alerts to Telegram as they land — one Telegram message per chat message, listing every trade in it, with a link to the comment. Needs the trades strip on and a Telegram bot connected (✈ in the header); works whether or not the full chat mirror is streaming.";
+  tradesAlertsRow.appendChild(tradesAlertsCheckbox);
+  tradesAlertsRow.appendChild(tradesAlertsLabel);
+  body.appendChild(tradesAlertsRow);
 
   const footer = document.createElement("footer");
   footer.className = "ai-settings-footer";
@@ -6340,6 +6382,8 @@ function openChatPrefsModal() {
 
     state.tradesStripEnabled = !!tradesCheckbox.checked;
     state.tradesPinnedOnly = !!tradesPinnedCheckbox.checked;
+    state.tradesAlertsEnabled = !!tradesAlertsCheckbox.checked;
+    if (!tradeAlertsActive()) flushTradeAlertsNow(); // off ⇒ no write lands later
     persistTradesStripPrefs();
     syncTradesStripTimer();
     renderTradesStrip();
@@ -6874,8 +6918,116 @@ function persistTradesStripPrefs() {
         bssc_trades_strip_enabled: state.tradesStripEnabled,
         bssc_trades_pinned_only: state.tradesPinnedOnly,
         bssc_trades_strip_collapsed: state.tradesStripCollapsed,
+        bssc_trades_alerts_enabled: state.tradesAlertsEnabled,
       });
   } catch (_) {}
+}
+
+// ---- Telegram BUY/SELL alerts (trade ticker arc, slice 3) ----
+// The persisted per-ET-day dedupe set. Keys are pre-claimed BEFORE the send
+// (same idempotency pattern as the bridge's sentIds) and written debounced.
+// Nothing here runs while the feature is off (arc invariant 4): the boot
+// READ is the only thing that happens unconditionally, and it has no side
+// effect. Until that read lands, new comments are DROPPED, not buffered —
+// without the loaded keys we cannot dedupe, and a double alert is worse
+// than a missed one (invariant 1).
+const _tradeAlertKeys = new Set();
+let _tradeAlertDay = null;
+let _tradeAlertsReady = false;
+let _tradeAlertsDirty = false;
+let _tradeAlertsSaveTimer = null;
+
+function restoreTradeAlertsFromStorage(res) {
+  // Arm before loading: a malformed record must not leave the feature off.
+  _tradeAlertsReady = true;
+  const rec = res && res.bssc_trade_alerts_sent;
+  if (rec && typeof rec.day === "string" && Array.isArray(rec.keys)) {
+    _tradeAlertDay = rec.day;
+    for (const k of rec.keys) if (typeof k === "string") _tradeAlertKeys.add(k);
+  }
+}
+
+function saveTradeAlertsSoon() {
+  if (!_tradeAlertsDirty) return;
+  clearTimeout(_tradeAlertsSaveTimer);
+  _tradeAlertsSaveTimer = setTimeout(() => {
+    _tradeAlertsDirty = false;
+    try {
+      chrome.storage &&
+        chrome.storage.local &&
+        chrome.storage.local.set({
+          bssc_trade_alerts_sent: { day: _tradeAlertDay, keys: Array.from(_tradeAlertKeys).slice(-2000) },
+        });
+    } catch (_) {}
+  }, 500);
+}
+
+// Flush (or discard) a pending debounced write synchronously — used when the
+// feature is switched off so a timer can't write storage after "off".
+function flushTradeAlertsNow() {
+  if (!_tradeAlertsSaveTimer) return;
+  clearTimeout(_tradeAlertsSaveTimer);
+  _tradeAlertsSaveTimer = null;
+  if (!_tradeAlertsDirty) return;
+  _tradeAlertsDirty = false;
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_trade_alerts_sent: { day: _tradeAlertDay, keys: Array.from(_tradeAlertKeys).slice(-2000) },
+      });
+  } catch (_) {}
+}
+
+function tradeAlertsActive() {
+  return (
+    !!state.tradesStripEnabled &&
+    !!state.tradesAlertsEnabled &&
+    !!state.telegram.token &&
+    state.telegram.chatId != null
+  );
+}
+
+// Called from EXACTLY two places — the poll's new-this-poll set and the
+// user's own reconciled send — the same two sites that feed the Telegram
+// mirror. Never from ingestComment (invariant 1). Callers wrap it in
+// try/catch and call it AFTER the native alert dispatch, so a throw here
+// can never take the unread/pill path down with it (invariant 8 in spirit).
+function onNewCommentsForTradeAlerts(newComments) {
+  if (!tradeAlertsActive()) return;
+  if (!_tradeAlertsReady) return;
+  if (!newComments || !newComments.length) return;
+  const plan = planTradeAlerts({
+    comments: newComments,
+    now: new Date(),
+    pinnedOnly: state.tradesPinnedOnly,
+    pinnedIds: state.pinnedUserIds,
+    sentKeys: _tradeAlertKeys,
+    dayKey: _tradeAlertDay,
+  });
+  if (plan.rollover) {
+    // Lazy ET-day rollover, only inside this gated path — no timer, and
+    // therefore no storage write while the feature is off.
+    _tradeAlertKeys.clear();
+    _tradeAlertDay = plan.dayKey;
+    _tradeAlertsDirty = true;
+  }
+  for (const m of plan.messages) {
+    for (const k of m.keys) _tradeAlertKeys.add(k); // claim before the send
+    _tradeAlertsDirty = true;
+    const link = buildSubstackChatUrl({
+      channelId: state.channelId,
+      publicationId: state.publicationId,
+      postUuid: m.postUuid || state.postUuid,
+      targetReplyId: m.commentId,
+    });
+    if (!telegramBridge.enqueueText(formatTradeAlert(m, { link }))) {
+      // The bridge refused (bot disconnected between the gate check and the
+      // enqueue): give the keys back so the trade can alert once it is.
+      for (const k of m.keys) _tradeAlertKeys.delete(k);
+    }
+  }
+  if (_tradeAlertsDirty) saveTradeAlertsSoon();
 }
 
 // While the strip is enabled, a 60s tick (a) refreshes the channel's thread
@@ -10334,7 +10486,15 @@ function reconcileAndForward(freshly) {
     freshly
   );
   const final = state.comments.get(freshly.id);
-  if (final) telegramBridge.forwardNewMessages([final]);
+  if (final) {
+    telegramBridge.forwardNewMessages([final]);
+    // Own sends alert too (invariant 5: never skip self).
+    try {
+      onNewCommentsForTradeAlerts([final]);
+    } catch (e) {
+      console.warn("[BetterSSC] trade alerts failed (non-fatal):", e && e.message);
+    }
+  }
 }
 
 // Walk a postComment response trying to find the just-created comment with

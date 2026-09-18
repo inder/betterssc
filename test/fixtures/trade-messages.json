@@ -15,7 +15,7 @@
     "M11": "all-caps shouting",
     "M12": "real trade with no ticker"
   },
-  "_contract": "expect[] compares action/qualifier/tickers only. [] means 'no trade rows'. kind=known-miss rows pin deliberate v1 recall gaps.",
+  "_contract": "expect[] compares action/qualifier/tickers/confidence. [] means 'no trade rows'. kind=known-miss rows pin deliberate v1 recall gaps. confidence 'low' = ticker inferred from a lowercase word (Telegram alerts mark these as unconfirmed).",
   "rows": [
     {
       "id": "r001",
@@ -28,7 +28,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -43,7 +44,8 @@
           "qualifier": "closed",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -58,7 +60,8 @@
           "qualifier": "partial",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -73,7 +76,8 @@
           "qualifier": null,
           "tickers": [
             "MO"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "2-letter bare ticker in the object slot — adjacency, not the 3-5 rule"
@@ -89,7 +93,8 @@
           "qualifier": null,
           "tickers": [
             "ORCU"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "lowercase ticker right after the verb"
@@ -105,7 +110,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "low"
         }
       ]
     },
@@ -120,7 +126,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -135,7 +142,8 @@
           "qualifier": null,
           "tickers": [
             "ARMG"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "'for Monday' points forward, not past"
@@ -152,7 +160,8 @@
           "tickers": [
             "SMCI",
             "CRWV"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "hedge word in an EARLIER sentence must not poison this one"
@@ -168,7 +177,8 @@
           "qualifier": null,
           "tickers": [
             "MDB"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -183,7 +193,8 @@
           "qualifier": null,
           "tickers": [
             "ANET"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -198,7 +209,8 @@
           "qualifier": null,
           "tickers": [
             "ANET"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "LOD is jargon, never a ticker"
@@ -214,7 +226,8 @@
           "qualifier": null,
           "tickers": [
             "GEV"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -229,7 +242,8 @@
           "qualifier": null,
           "tickers": [
             "SOXL"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -244,7 +258,8 @@
           "qualifier": null,
           "tickers": [
             "HPE"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -259,7 +274,8 @@
           "qualifier": null,
           "tickers": [
             "MU"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "quantity word then a 2-letter lowercase ticker"
@@ -276,7 +292,8 @@
           "tickers": [
             "FIG",
             "RDW"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -292,7 +309,8 @@
           "tickers": [
             "VST",
             "ANET"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -307,7 +325,8 @@
           "qualifier": null,
           "tickers": [
             "ONDS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "present participle = live fill, ticker adjacent"
@@ -323,7 +342,8 @@
           "qualifier": null,
           "tickers": [
             "ETHA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -338,7 +358,8 @@
           "qualifier": null,
           "tickers": [
             "CCXI"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -353,7 +374,8 @@
           "qualifier": null,
           "tickers": [
             "NRG"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -368,7 +390,8 @@
           "qualifier": null,
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -384,7 +407,8 @@
           "tickers": [
             "QLYS",
             "DT"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "2-letter caps accepted as a joined continuation"
@@ -400,7 +424,8 @@
           "qualifier": null,
           "tickers": [
             "ARM"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "object-first shape; 'sub' is a preposition, not a ticker"
@@ -417,7 +442,8 @@
           "tickers": [
             "KRKNF",
             "ONDS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "slash-joined pair"
@@ -433,7 +459,8 @@
           "qualifier": null,
           "tickers": [
             "MUU"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -448,7 +475,8 @@
           "qualifier": null,
           "tickers": [
             "PURR"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -463,7 +491,8 @@
           "qualifier": null,
           "tickers": [
             "META"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -478,7 +507,8 @@
           "qualifier": null,
           "tickers": [
             "OUST"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -493,7 +523,8 @@
           "qualifier": null,
           "tickers": [
             "SPCX"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -508,7 +539,8 @@
           "qualifier": null,
           "tickers": [
             "RBRK"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -523,14 +555,16 @@
           "qualifier": null,
           "tickers": [
             "COIN"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "CONL"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "two buys in one message"
@@ -546,7 +580,8 @@
           "qualifier": null,
           "tickers": [
             "LITE"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -561,7 +596,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -576,7 +612,8 @@
           "qualifier": null,
           "tickers": [
             "NBEX"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "'for NBIS' is a reason, not a second buy"
@@ -592,7 +629,8 @@
           "qualifier": null,
           "tickers": [
             "QQQ"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "OCC option symbol → underlying"
@@ -608,7 +646,8 @@
           "qualifier": null,
           "tickers": [
             "ARM"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -623,7 +662,8 @@
           "qualifier": null,
           "tickers": [
             "GEV"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "' - ' is a sentence boundary; 'will' after it must not hedge the sell"
@@ -639,7 +679,8 @@
           "qualifier": null,
           "tickers": [
             "DELL"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "options sell degrades to a plain SELL"
@@ -655,7 +696,8 @@
           "qualifier": null,
           "tickers": [
             "INTC"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -670,7 +712,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "'not' AFTER the verb is not a negation of it"
@@ -686,7 +729,8 @@
           "qualifier": null,
           "tickers": [
             "MU"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -701,7 +745,8 @@
           "qualifier": null,
           "tickers": [
             "INTC"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -716,7 +761,8 @@
           "qualifier": "partial",
           "tickers": [
             "GNRC"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -731,7 +777,8 @@
           "qualifier": "partial",
           "tickers": [
             "META"
-          ]
+          ],
+          "confidence": "low"
         }
       ]
     },
@@ -746,7 +793,8 @@
           "qualifier": "partial",
           "tickers": [
             "APPL"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "typo preserved verbatim — the strip shows what was typed"
@@ -762,7 +810,8 @@
           "qualifier": "partial",
           "tickers": [
             "META"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -777,7 +826,8 @@
           "qualifier": "partial",
           "tickers": [
             "HOOD"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -792,7 +842,8 @@
           "qualifier": "partial",
           "tickers": [
             "SPCX"
-          ]
+          ],
+          "confidence": "low"
         }
       ]
     },
@@ -807,7 +858,8 @@
           "qualifier": "partial",
           "tickers": [
             "SPCX"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -822,7 +874,8 @@
           "qualifier": "partial",
           "tickers": [
             "MULL"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "'mull' is an English word AND the ticker; adjacency wins"
@@ -838,14 +891,16 @@
           "qualifier": "partial",
           "tickers": [
             "SMTC"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "LLY"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "opposing verbs in one message; 'will' 8 tokens before 'bought' must not hedge it"
@@ -862,7 +917,8 @@
           "tickers": [
             "TNA",
             "TQQQ"
-          ]
+          ],
+          "confidence": "low"
         }
       ],
       "note": "covering a short closes it"
@@ -878,7 +934,8 @@
           "qualifier": "closed",
           "tickers": [
             "QQQ"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -893,7 +950,8 @@
           "qualifier": "closed",
           "tickers": [
             "HPE"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -908,7 +966,8 @@
           "qualifier": "closed",
           "tickers": [
             "INTC"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -923,7 +982,8 @@
           "qualifier": "closed",
           "tickers": [
             "CRWV"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -938,7 +998,8 @@
           "qualifier": "closed",
           "tickers": [
             "HOOD"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -953,7 +1014,8 @@
           "qualifier": "closed",
           "tickers": [
             "MU"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -968,7 +1030,8 @@
           "qualifier": null,
           "tickers": [
             "AXON"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "'from yesterday' describes the position, not the trade time"
@@ -984,7 +1047,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "the motivating thread title; 'Nvidia' is a proper noun, never a ticker"
@@ -1000,7 +1064,8 @@
           "qualifier": null,
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "the 'Updated portfolio' ticker list must NOT leak into the buy"
@@ -1016,7 +1081,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1031,7 +1097,8 @@
           "qualifier": null,
           "tickers": [
             "TEM"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "'Was stopped out' in the same sentence has no ticker of its own"
@@ -1048,7 +1115,8 @@
           "tickers": [
             "INTC",
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "two tickers after the verb; the CEO's buy at the end has no object"
@@ -1064,7 +1132,8 @@
           "qualifier": null,
           "tickers": [
             "XYZ"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1439,7 +1508,8 @@
           "qualifier": null,
           "tickers": [
             "VST"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "the hedged 'buying' drops, the real 'bought VST' stays"
@@ -1509,7 +1579,8 @@
           "qualifier": "partial",
           "tickers": [
             "AAPL"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "shifted-key typo tail is accepted as caps"
@@ -1688,14 +1759,16 @@
           "qualifier": null,
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "AMD"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1710,14 +1783,16 @@
           "qualifier": "partial",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "AMD"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1760,7 +1835,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "NVDA is a real ticker but not the verb's object"
@@ -1776,7 +1852,8 @@
           "qualifier": null,
           "tickers": [
             "SPY"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "options buy degrades to a plain BUY"
@@ -1792,7 +1869,8 @@
           "qualifier": null,
           "tickers": [
             "AAPL"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1807,14 +1885,16 @@
           "qualifier": "closed",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1829,7 +1909,8 @@
           "qualifier": "closed",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1844,7 +1925,8 @@
           "qualifier": "partial",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1859,7 +1941,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "plain sold: qualifier unknown"
@@ -1875,7 +1958,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1890,7 +1974,8 @@
           "qualifier": "closed",
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1905,7 +1990,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1920,7 +2006,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "caps but not shouting (2 tokens)"
@@ -1936,7 +2023,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1951,7 +2039,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -1966,7 +2055,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "URL stripped first"
@@ -1982,7 +2072,8 @@
           "qualifier": null,
           "tickers": [
             "CBRS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "mention placeholder stripped first"
@@ -2137,7 +2228,8 @@
           "tickers": [
             "GLD",
             "MU"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "2-letter cashtag after a 3-letter bare"
@@ -2176,7 +2268,8 @@
           "qualifier": null,
           "tickers": [
             "USO"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "forward scan within the clause still finds the underlying"
@@ -2220,7 +2313,8 @@
           "qualifier": null,
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "END review S2: a time word in ANOTHER clause must not kill the buy"
@@ -2236,7 +2330,8 @@
           "qualifier": null,
           "tickers": [
             "ORCL"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "the hedged future trim drops, the buy stays"
@@ -2252,14 +2347,16 @@
           "qualifier": null,
           "tickers": [
             "AXON"
-          ]
+          ],
+          "confidence": "high"
         },
         {
           "action": "BUY",
           "qualifier": null,
           "tickers": [
             "MU"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "only the narrated-past verb is rejected"
@@ -2276,7 +2373,8 @@
           "tickers": [
             "MU",
             "AMD"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "END review S3: a 2-letter cashtag is not a number"
@@ -2293,7 +2391,8 @@
           "tickers": [
             "GE",
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -2308,7 +2407,8 @@
           "qualifier": "closed",
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "design review item 5: a real exit"
@@ -2339,7 +2439,8 @@
           "qualifier": null,
           "tickers": [
             "OXY"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "an ALL-CAPS proper noun is indistinguishable from a ticker; the subject guard only knows Capitalized words"
@@ -2504,7 +2605,8 @@
           "qualifier": null,
           "tickers": [
             "MS"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "MS is on the JARGON list (2-letter abbreviation); the cashtag is how a member says the ticker — do NOT delete the JARGON entry to 'fix' bare MS"
@@ -2520,7 +2622,8 @@
           "qualifier": null,
           "tickers": [
             "GOLD"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "same: GOLD is stoplisted bare (commodity noun), cashtag wins"
@@ -2560,7 +2663,8 @@
           "qualifier": "partial",
           "tickers": [
             "GEV"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "founder's own message, 2026-09-18 — missed by v1 ('took profits' only)"
@@ -2576,7 +2680,8 @@
           "qualifier": null,
           "tickers": [
             "GEV"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "founder's own message, 2026-09-18"
@@ -2592,7 +2697,8 @@
           "qualifier": null,
           "tickers": [
             "GEV"
-          ]
+          ],
+          "confidence": "high"
         }
       ],
       "note": "bare 'add' as a fill announcement (member, 2026-09-18)"
@@ -2608,7 +2714,8 @@
           "qualifier": "partial",
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },
@@ -2623,7 +2730,8 @@
           "qualifier": "partial",
           "tickers": [
             "NVDA"
-          ]
+          ],
+          "confidence": "high"
         }
       ]
     },

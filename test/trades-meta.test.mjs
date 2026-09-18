@@ -11,7 +11,7 @@ import { parseTradeMessage, etDateKey, isTodayET } from "../lib/trades.js";
 // happy-dom shadows URL, so resolve the fixture from the repo root (vitest cwd)
 // the way the other fixture-backed tests in this suite do.
 const fixture = JSON.parse(fs.readFileSync(path.resolve("test/fixtures/trade-messages.json"), "utf8"));
-const strip = (t) => ({ action: t.action, qualifier: t.qualifier, tickers: t.tickers });
+const strip = (t) => ({ action: t.action, qualifier: t.qualifier, tickers: t.tickers, confidence: t.confidence });
 
 describe("trade-messages fixture — coverage floors", () => {
   it("has 20+ real positives, 10+ real natural negatives, and every failure mode M1..M12", () => {
@@ -23,6 +23,9 @@ describe("trade-messages fixture — coverage floors", () => {
     expect(fixture.rows.filter((r) => r.kind === "terse").length).toBeGreaterThanOrEqual(3);
     expect(fixture.rows.filter((r) => r.kind === "root").length).toBeGreaterThanOrEqual(5);
     expect(fixture.dates.length).toBeGreaterThanOrEqual(5);
+  });
+  it("every positive expect entry pins a confidence (toEqual treats a missing key as undefined)", () => {
+    for (const r of fixture.rows) for (const e of r.expect) expect(["high", "low"]).toContain(e.confidence);
   });
 });
 

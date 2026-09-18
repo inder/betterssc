@@ -103,6 +103,24 @@ describe("buildSubstackChatUrl", () => {
     expect(buildSubstackChatUrl()).toBe("https://substack.com/chat");
   });
 
+  it("appends Substack's own comment-permalink params when a targetReplyId is given (live-verified 2026-09-18)", () => {
+    expect(buildSubstackChatUrl({ channelId: CH, postUuid: POST, targetReplyId: "7d8c61a6-9323-4d88-a298-8c082f211250" })).toBe(
+      `https://substack.com/chat/group/${CH}/post/${POST}?target_reply_id=7d8c61a6-9323-4d88-a298-8c082f211250&showTarget=true`
+    );
+    expect(buildSubstackChatUrl({ publicationId: "6459287", postUuid: POST, targetReplyId: "x y" })).toBe(
+      `https://substack.com/chat/6459287/post/${POST}?target_reply_id=x%20y&showTarget=true`
+    );
+    // No post → no anchor (a comment id is meaningless without its thread).
+    expect(buildSubstackChatUrl({ channelId: CH, targetReplyId: "abc" })).toBe(`https://substack.com/chat/group/${CH}`);
+  });
+
+  it("parses target_reply_id (Substack's spelling) as well as the legacy camelCase", () => {
+    const native = parseSubstackChatUrl(`https://substack.com/chat/group/${CH}/post/${POST}?target_reply_id=abc&showTarget=true`);
+    expect(native && native.targetReplyId).toBe("abc");
+    const camel = parseSubstackChatUrl(`https://substack.com/chat/group/${CH}/post/${POST}?targetReplyId=def`);
+    expect(camel && camel.targetReplyId).toBe("def");
+  });
+
   it("round-trips a parsed channel URL", () => {
     const url = `https://substack.com/chat/group/${CH}/post/${POST}`;
     expect(buildSubstackChatUrl(parseSubstackChatUrl(url))).toBe(url);
