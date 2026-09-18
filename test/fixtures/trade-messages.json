@@ -1,0 +1,2650 @@
+{
+  "_source": "Real rows captured 2026-09-18 from a live Substack chat channel's last ten daily threads (6,133 comments scanned, 765 hit a broad trade-keyword grep) plus the channel's thread ROOT posts. Author names removed; bodies otherwise verbatim (URLs replaced). Hand-built adversarials cover the 12 semantic failure modes from the slice-1 design review.",
+  "_modes": {
+    "P": "positive",
+    "M1": "hypothetical/conditional",
+    "M2": "intent/advice/watching",
+    "M3": "question",
+    "M4": "idiom on the verb side",
+    "M5": "idiom on the ticker side",
+    "M6": "quoted parent",
+    "M7": "negation",
+    "M8": "third-party attribution",
+    "M9": "past-trade narration",
+    "M10": "opposing verbs in one message",
+    "M11": "all-caps shouting",
+    "M12": "real trade with no ticker"
+  },
+  "_contract": "expect[] compares action/qualifier/tickers only. [] means 'no trade rows'. kind=known-miss rows pin deliberate v1 recall gaps.",
+  "rows": [
+    {
+      "id": "r001",
+      "kind": "oracle",
+      "mode": "P",
+      "body": "Bought: CBRS at 12.40",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r002",
+      "kind": "oracle",
+      "mode": "P",
+      "body": "Closed CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r003",
+      "kind": "oracle",
+      "mode": "P",
+      "body": "Trimmed half of CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r004",
+      "kind": "real",
+      "mode": "P",
+      "body": "Bought MO",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MO"
+          ]
+        }
+      ],
+      "note": "2-letter bare ticker in the object slot — adjacency, not the 3-5 rule"
+    },
+    {
+      "id": "r005",
+      "kind": "real",
+      "mode": "P",
+      "body": "bought orcu",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCU"
+          ]
+        }
+      ],
+      "note": "lowercase ticker right after the verb"
+    },
+    {
+      "id": "r006",
+      "kind": "real",
+      "mode": "P",
+      "body": "I added orcl",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r007",
+      "kind": "real",
+      "mode": "P",
+      "body": "I added ORCL back too",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r008",
+      "kind": "real",
+      "mode": "P",
+      "body": "Just bought small armg for Monday. Looks ready",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ARMG"
+          ]
+        }
+      ],
+      "note": "'for Monday' points forward, not past"
+    },
+    {
+      "id": "r009",
+      "kind": "real",
+      "mode": "P",
+      "body": "Inflation numbers today are very benign. I do t think we get a rate increase next week. I bought the dip in SMCI and CRWV.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "SMCI",
+            "CRWV"
+          ]
+        }
+      ],
+      "note": "hedge word in an EARLIER sentence must not poison this one"
+    },
+    {
+      "id": "r010",
+      "kind": "real",
+      "mode": "P",
+      "body": "Bought MDB. Market is insane. If this breaks out",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MDB"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r011",
+      "kind": "real",
+      "mode": "P",
+      "body": "Bought some ANET. Tested the 50MA and bounced",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ANET"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r012",
+      "kind": "real",
+      "mode": "P",
+      "body": "Bought ANET, stop LOD",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ANET"
+          ]
+        }
+      ],
+      "note": "LOD is jargon, never a ticker"
+    },
+    {
+      "id": "r013",
+      "kind": "real",
+      "mode": "P",
+      "body": "I bought $GEV here with a stop at 866.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GEV"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r014",
+      "kind": "real",
+      "mode": "P",
+      "body": "In addition, I bought SOXL at 101.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "SOXL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r015",
+      "kind": "real",
+      "mode": "P",
+      "body": "bought some HPE",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "HPE"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r016",
+      "kind": "real",
+      "mode": "P",
+      "body": "bought more mu.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MU"
+          ]
+        }
+      ],
+      "note": "quantity word then a 2-letter lowercase ticker"
+    },
+    {
+      "id": "r017",
+      "kind": "real",
+      "mode": "P",
+      "body": "Picked up some $FIG & $RDW",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "FIG",
+            "RDW"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r018",
+      "kind": "real",
+      "mode": "P",
+      "body": "Entered VST ANET",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "VST",
+            "ANET"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r019",
+      "kind": "real",
+      "mode": "P",
+      "body": "Adding ONDS $7.21",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ONDS"
+          ]
+        }
+      ],
+      "note": "present participle = live fill, ticker adjacent"
+    },
+    {
+      "id": "r020",
+      "kind": "real",
+      "mode": "P",
+      "body": "Adding to ETHA $18.15",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ETHA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r021",
+      "kind": "real",
+      "mode": "P",
+      "body": "added back CCXI",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CCXI"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r022",
+      "kind": "real",
+      "mode": "P",
+      "body": "Added NRG",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NRG"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r023",
+      "kind": "real",
+      "mode": "P",
+      "body": "I added NVDA",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r024",
+      "kind": "real",
+      "mode": "P",
+      "body": "added more QLYS and DT here",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "QLYS",
+            "DT"
+          ]
+        }
+      ],
+      "note": "2-letter caps accepted as a joined continuation"
+    },
+    {
+      "id": "r025",
+      "kind": "real",
+      "mode": "P",
+      "body": "ARM added sub 240 again. Stop at break even",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ARM"
+          ]
+        }
+      ],
+      "note": "object-first shape; 'sub' is a preposition, not a ticker"
+    },
+    {
+      "id": "r026",
+      "kind": "real",
+      "mode": "P",
+      "body": "Long term position but adding to KRKNF/ONDS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "KRKNF",
+            "ONDS"
+          ]
+        }
+      ],
+      "note": "slash-joined pair"
+    },
+    {
+      "id": "r027",
+      "kind": "real",
+      "mode": "P",
+      "body": "$MUU starter",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MUU"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r028",
+      "kind": "real",
+      "mode": "P",
+      "body": "PURR starter",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "PURR"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r029",
+      "kind": "real",
+      "mode": "P",
+      "body": "META sept 25 700 starter",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "META"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r030",
+      "kind": "real",
+      "mode": "P",
+      "body": "OUST oct36 starter",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "OUST"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r031",
+      "kind": "real",
+      "mode": "P",
+      "body": "$SPCX sept 25 160 starter",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "SPCX"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r032",
+      "kind": "real",
+      "mode": "P",
+      "body": "RBRK Jan 130 adding",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "RBRK"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r033",
+      "kind": "real",
+      "mode": "P",
+      "body": "Bought the dip in $COIN with a starter in $CONL in the $4,40",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "COIN"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CONL"
+          ]
+        }
+      ],
+      "note": "two buys in one message"
+    },
+    {
+      "id": "r034",
+      "kind": "real",
+      "mode": "P",
+      "body": "bought 1 11/20/26 LITE 900s $117....lottery trade",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "LITE"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r035",
+      "kind": "real",
+      "mode": "P",
+      "body": "I added ORCL 10/9 $150 C",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r036",
+      "kind": "real",
+      "mode": "P",
+      "body": "buying NBEX for NBIS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NBEX"
+          ]
+        }
+      ],
+      "note": "'for NBIS' is a reason, not a second buy"
+    },
+    {
+      "id": "r037",
+      "kind": "real",
+      "mode": "P",
+      "body": "🌮 trade…at 3:55pm I bought Call to Open 1 QQQ260918C715 at 3.9",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "QQQ"
+          ]
+        }
+      ],
+      "note": "OCC option symbol → underlying"
+    },
+    {
+      "id": "r038",
+      "kind": "real",
+      "mode": "P",
+      "body": "Sold ARM again for another small win. Tomorrow could be worse. Tbd",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "ARM"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r039",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold GEV - we will handle it some other day. signing off. see you all tomorrow.",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "GEV"
+          ]
+        }
+      ],
+      "note": "' - ' is a sentence boundary; 'will' after it must not hedge the sell"
+    },
+    {
+      "id": "r040",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold $DELL Oct 16 $500 puts for 9.20",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "DELL"
+          ]
+        }
+      ],
+      "note": "options sell degrades to a plain SELL"
+    },
+    {
+      "id": "r041",
+      "kind": "real",
+      "mode": "P",
+      "body": "Sold INTC Puts 9/18 for 97 strike",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "INTC"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r042",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold ORCL puts not moving take 20%",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ],
+      "note": "'not' AFTER the verb is not a negation of it"
+    },
+    {
+      "id": "r043",
+      "kind": "real",
+      "mode": "P",
+      "body": "selling MU 9/18 $950/940 put spread. Using ATH AVWAP ($953) as support beneath 8/10/21 MA. Collecting about $3 in premium",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "MU"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r044",
+      "kind": "real",
+      "mode": "P",
+      "body": "selling INTC Nov $150c (20 delta) against my shares.",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "INTC"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r045",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold 1/2 GNRC oct 230 for 50%",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "GNRC"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r046",
+      "kind": "real",
+      "mode": "P",
+      "body": "Sold 1/2 meta 685 lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "META"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r047",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold 1/2 appl 340 lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "APPL"
+          ]
+        }
+      ],
+      "note": "typo preserved verbatim — the strip shows what was typed"
+    },
+    {
+      "id": "r048",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold 1/2 $META lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "META"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r049",
+      "kind": "real",
+      "mode": "P",
+      "body": "trim $hood sept 18 115 up 50%",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "HOOD"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r050",
+      "kind": "real",
+      "mode": "P",
+      "body": "Trim spcx lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "SPCX"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r051",
+      "kind": "real",
+      "mode": "P",
+      "body": "trim SPCX lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "SPCX"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r052",
+      "kind": "real",
+      "mode": "P",
+      "body": "Trim mull",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "MULL"
+          ]
+        }
+      ],
+      "note": "'mull' is an English word AND the ticker; adjacency wins"
+    },
+    {
+      "id": "r053",
+      "kind": "real",
+      "mode": "P",
+      "body": "just sold some SMTC calls with some insane cap gains that I will worry about next year, letting commons run, bought LLY with proceeds",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "SMTC"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "LLY"
+          ]
+        }
+      ],
+      "note": "opposing verbs in one message; 'will' 8 tokens before 'bought' must not hedge it"
+    },
+    {
+      "id": "r054",
+      "kind": "real",
+      "mode": "P",
+      "body": "Covered tna and tqqq short.",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "TNA",
+            "TQQQ"
+          ]
+        }
+      ],
+      "note": "covering a short closes it"
+    },
+    {
+      "id": "r055",
+      "kind": "real",
+      "mode": "P",
+      "body": "Out of QQQ calls $11.3 in $10.11",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "QQQ"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r056",
+      "kind": "real",
+      "mode": "P",
+      "body": "out of HPE for today",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "HPE"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r057",
+      "kind": "real",
+      "mode": "P",
+      "body": "Out of INTC completely no option position open currently",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "INTC"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r058",
+      "kind": "real",
+      "mode": "P",
+      "body": "Out of CRWV taking a loss",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "CRWV"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r059",
+      "kind": "real",
+      "mode": "P",
+      "body": "out of HOOD",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "HOOD"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r060",
+      "kind": "real",
+      "mode": "P",
+      "body": "Out of MU calls 32.72",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "MU"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r061",
+      "kind": "real",
+      "mode": "P",
+      "body": "sold $AXON sept 25 500 from yesterday Holding OCt 16 550 and call spread",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "AXON"
+          ]
+        }
+      ],
+      "note": "'from yesterday' describes the position, not the trade time"
+    },
+    {
+      "id": "r062",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: CBRS In times of panic and chaos I’ll go to the king, Nvidia first. Then I’ll go to the crazy annoying little brother. Done with AI dip buys, tried a more stable name in Nvidia and then a high beta volatile name",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "the motivating thread title; 'Nvidia' is a proper noun, never a ticker"
+    },
+    {
+      "id": "r063",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: NVDA In times of panic and chaos I’ll go to the king first. Stop: $207, 1.5% risk. Updated portfolio: DELL $156x MRVL $84x SPCX $109x NVDA $210x ARM $140x HOOD $83x INTC $90x NET $204x XYZ $77x My stops on all ot",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ],
+      "note": "the 'Updated portfolio' ticker list must NOT leak into the buy"
+    },
+    {
+      "id": "r064",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: ORCL Took a 1% loss earlier but trying it one more time today. If this fails it’ll be a 2.5% total loss between the two trades, I’m comfortable with that. Stop: $150. Psych level and 20 day moving average there.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r065",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: TEM Was stopped out breakeven last time, trying it again. Stop: LOD, $58. Right about 1% risk. Updated portfolio: DELL $156x MRVL $84x SPCX $109x ARM $140x HOOD $83x INTC $90x NET $204x XYZ $77x TEM $58x My stops",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "TEM"
+          ]
+        }
+      ],
+      "note": "'Was stopped out' in the same sentence has no ticker of its own"
+    },
+    {
+      "id": "r066",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: INTC CBRS INTC feels like it’s trying to put in a floor around this 95 spot which is where the offering was and where the CEO bought. CBRS… no words for this thing anymore. Done for the day, this feels like a str",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "INTC",
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "two tickers after the verb; the CEO's buy at the end has no object"
+    },
+    {
+      "id": "r067",
+      "kind": "root",
+      "mode": "P",
+      "body": "Bought: XYZ Dipping the toes in for the first time this week to see what feedback is. Expectations pretty low but we’ll see what happens, risking just 1% or so.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "XYZ"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r068",
+      "kind": "real",
+      "mode": "M9",
+      "body": "SMCI looks great. I added more on Friday.",
+      "expect": [],
+      "note": "past-day trade narrated today"
+    },
+    {
+      "id": "r069",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Maybe we have to buy the dip",
+      "expect": []
+    },
+    {
+      "id": "r070",
+      "kind": "real",
+      "mode": "M7",
+      "body": "I am not buying that’s for sure.",
+      "expect": []
+    },
+    {
+      "id": "r071",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Why sell when shares are pulling back and sentiment was going lower.",
+      "expect": []
+    },
+    {
+      "id": "r072",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Knowing he wants to sell I wouldn’t buy it.",
+      "expect": []
+    },
+    {
+      "id": "r073",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Ellison selling a bunch of shares- up to $7.5 billion",
+      "expect": []
+    },
+    {
+      "id": "r074",
+      "kind": "real",
+      "mode": "M1",
+      "body": "Almost bought those Puts you suggested arghhhh",
+      "expect": []
+    },
+    {
+      "id": "r075",
+      "kind": "real",
+      "mode": "M12",
+      "body": "Glad I exited",
+      "expect": []
+    },
+    {
+      "id": "r076",
+      "kind": "real",
+      "mode": "M2",
+      "body": "I would say yes but not sure what market does into FOMC. I will buy calls Tuesday on soxx or soxl",
+      "expect": []
+    },
+    {
+      "id": "r077",
+      "kind": "real",
+      "mode": "M12",
+      "body": "should have kept orcl short",
+      "expect": []
+    },
+    {
+      "id": "r078",
+      "kind": "real",
+      "mode": "M12",
+      "body": "Yep still short shares",
+      "expect": []
+    },
+    {
+      "id": "r079",
+      "kind": "real",
+      "mode": "M3",
+      "body": "R u out of orcl?",
+      "expect": []
+    },
+    {
+      "id": "r080",
+      "kind": "real",
+      "mode": "M1",
+      "body": "VST yes I almost added it today too",
+      "expect": []
+    },
+    {
+      "id": "r081",
+      "kind": "real",
+      "mode": "M1",
+      "body": "Knew I should’ve added MU yesterday! Was close",
+      "expect": []
+    },
+    {
+      "id": "r082",
+      "kind": "real",
+      "mode": "M9",
+      "body": "Still in and added again last week",
+      "expect": []
+    },
+    {
+      "id": "r083",
+      "kind": "real",
+      "mode": "M8",
+      "body": "SpaceX getting added to Nasdaq tonight",
+      "expect": []
+    },
+    {
+      "id": "r084",
+      "kind": "real",
+      "mode": "M11",
+      "body": "BE ADDED TO S&P500",
+      "expect": []
+    },
+    {
+      "id": "r085",
+      "kind": "real",
+      "mode": "M4",
+      "body": "$NVDA closed the gap!!",
+      "expect": []
+    },
+    {
+      "id": "r086",
+      "kind": "real",
+      "mode": "M4",
+      "body": "ETHA closed up",
+      "expect": []
+    },
+    {
+      "id": "r087",
+      "kind": "real",
+      "mode": "M4",
+      "body": "GEV at the 8 day. closed the gap - almost",
+      "expect": []
+    },
+    {
+      "id": "r088",
+      "kind": "real",
+      "mode": "M4",
+      "body": "ORCL closing over the 200 week 3 weeks straight after being under it for 2 months",
+      "expect": []
+    },
+    {
+      "id": "r089",
+      "kind": "real",
+      "mode": "M4",
+      "body": "Nice move out of the qqq’s",
+      "expect": []
+    },
+    {
+      "id": "r090",
+      "kind": "real",
+      "mode": "M4",
+      "body": "Nah bro warsh wants you out of iran",
+      "expect": []
+    },
+    {
+      "id": "r091",
+      "kind": "real",
+      "mode": "M4",
+      "body": "$CAT breaking out of this 10 week long downtrend",
+      "expect": []
+    },
+    {
+      "id": "r092",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Someone panic sold",
+      "expect": []
+    },
+    {
+      "id": "r093",
+      "kind": "real",
+      "mode": "M9",
+      "body": "cant believe i sold my dell calls 20 pts ago",
+      "expect": []
+    },
+    {
+      "id": "r094",
+      "kind": "real",
+      "mode": "M12",
+      "body": "I sold early. Ugh.",
+      "expect": []
+    },
+    {
+      "id": "r095",
+      "kind": "real",
+      "mode": "M12",
+      "body": "bought this morning",
+      "expect": []
+    },
+    {
+      "id": "r096",
+      "kind": "real",
+      "mode": "M12",
+      "body": "i bought itm",
+      "expect": [],
+      "note": "ITM is jargon"
+    },
+    {
+      "id": "r097",
+      "kind": "real",
+      "mode": "M12",
+      "body": "i bought the calls WTF!",
+      "expect": []
+    },
+    {
+      "id": "r098",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Tempted to buy some RKT here right in support",
+      "expect": []
+    },
+    {
+      "id": "r099",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Really tempted to sell INTC here",
+      "expect": []
+    },
+    {
+      "id": "r100",
+      "kind": "real",
+      "mode": "M3",
+      "body": "Worth adding some FLNC here?",
+      "expect": []
+    },
+    {
+      "id": "r101",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Anyone adding INTC here",
+      "expect": []
+    },
+    {
+      "id": "r102",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Hindsight, whoever bought at QQQ 700 yesterday !",
+      "expect": []
+    },
+    {
+      "id": "r103",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Saw this post elsewhere this morning: $TEM -- Somebody bought 10,000 January 85/105 call spread for $6M",
+      "expect": []
+    },
+    {
+      "id": "r104",
+      "kind": "real",
+      "mode": "M11",
+      "body": "*SITUATIONAL AWARENESS IS REPORTEDLY ACTIVELY BUYING CALLS IN THE OPTIONS MARKETS TODAY",
+      "expect": []
+    },
+    {
+      "id": "r105",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Leopold Aschenbrenner’s Situational Awareness fund is active again in options, reportedly buying sizable calls in $SNDK, $AMD, $BE and $CRWV.",
+      "expect": []
+    },
+    {
+      "id": "r106",
+      "kind": "real",
+      "mode": "M12",
+      "body": "I got stopped out of a lot today.",
+      "expect": []
+    },
+    {
+      "id": "r107",
+      "kind": "real",
+      "mode": "M12",
+      "body": "Pre fed lightened up positions unfortunately",
+      "expect": []
+    },
+    {
+      "id": "r108",
+      "kind": "real",
+      "mode": "M12",
+      "body": "great great call ,1st trim",
+      "expect": []
+    },
+    {
+      "id": "r109",
+      "kind": "real",
+      "mode": "M9",
+      "body": "closed DELL 570 friday still have 585 from last week",
+      "expect": []
+    },
+    {
+      "id": "r110",
+      "kind": "real",
+      "mode": "M9",
+      "body": "Well adding to ETHA at $18 a few days ago was a great idea",
+      "expect": []
+    },
+    {
+      "id": "r111",
+      "kind": "real",
+      "mode": "M9",
+      "body": "I am at least glad I sold my $110 calls on Friday",
+      "expect": []
+    },
+    {
+      "id": "r112",
+      "kind": "real",
+      "mode": "M2",
+      "body": "sell into strength and set buy orders for $100",
+      "expect": []
+    },
+    {
+      "id": "r113",
+      "kind": "real",
+      "mode": "M2",
+      "body": "Take profits don’t be greedy trim and trail",
+      "expect": []
+    },
+    {
+      "id": "r114",
+      "kind": "real",
+      "mode": "M2",
+      "body": "buy OCt 16 9's",
+      "expect": []
+    },
+    {
+      "id": "r115",
+      "kind": "real",
+      "mode": "M12",
+      "body": "i have sept 25 500 from yesterday and added oct 16 550 this am",
+      "expect": [],
+      "note": "'oct' is an expiry, not a ticker"
+    },
+    {
+      "id": "r116",
+      "kind": "real",
+      "mode": "M8",
+      "body": "damn they got me out of SMCI on the shakeout",
+      "expect": []
+    },
+    {
+      "id": "r117",
+      "kind": "real",
+      "mode": "M12",
+      "body": "No one ever got hurt taking profits",
+      "expect": []
+    },
+    {
+      "id": "r118",
+      "kind": "real",
+      "mode": "M8",
+      "body": "Or you bought more at $770 in July 🤷‍♂️",
+      "expect": []
+    },
+    {
+      "id": "r119",
+      "kind": "real",
+      "mode": "M1",
+      "body": "Was very close to buying it and bought VST instead lmao",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "VST"
+          ]
+        }
+      ],
+      "note": "the hedged 'buying' drops, the real 'bought VST' stays"
+    },
+    {
+      "id": "r120",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "I closed be on the recent s&p news (made too much quickly to hold) but I want back in. There are more big deals coming",
+      "expect": [],
+      "note": "recall miss: 'be' (Bloom Energy) is a lowercase stopword — a false negative, NOT a natural negative"
+    },
+    {
+      "id": "r121",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "long AMZN 9/25 $255c",
+      "expect": [],
+      "note": "long/short are position statements, not verbs, in v1"
+    },
+    {
+      "id": "r122",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "Trying CRWV long via 10/16 $80 calls stop today’s low",
+      "expect": []
+    },
+    {
+      "id": "r123",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "I’m short oil futures",
+      "expect": []
+    },
+    {
+      "id": "r124",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "with orcl, crwv, smci as new buys today.",
+      "expect": [],
+      "note": "'buys' is a noun"
+    },
+    {
+      "id": "r125",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "AAPL Risk Reversal - sold Nov $300p bought 350/360 call",
+      "expect": [],
+      "note": "no ticker after either verb; the underlying sits in the previous sentence"
+    },
+    {
+      "id": "r126",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "Trim back on mu bounce",
+      "expect": [],
+      "note": "lowercase ticker after a preposition is not accepted"
+    },
+    {
+      "id": "r127",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "trim AAPl lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "AAPL"
+          ]
+        }
+      ],
+      "note": "shifted-key typo tail is accepted as caps"
+    },
+    {
+      "id": "r128",
+      "kind": "adversarial",
+      "mode": "M1",
+      "body": "would have bought CBRS at 11",
+      "expect": []
+    },
+    {
+      "id": "r129",
+      "kind": "adversarial",
+      "mode": "M1",
+      "body": "if it dips I'll buy CBRS",
+      "expect": []
+    },
+    {
+      "id": "r130",
+      "kind": "adversarial",
+      "mode": "M1",
+      "body": "almost bought CBRS",
+      "expect": []
+    },
+    {
+      "id": "r131",
+      "kind": "adversarial",
+      "mode": "M2",
+      "body": "thinking of buying CBRS here",
+      "expect": []
+    },
+    {
+      "id": "r132",
+      "kind": "adversarial",
+      "mode": "M2",
+      "body": "CBRS on my watchlist, added it to my watchlist",
+      "expect": []
+    },
+    {
+      "id": "r133",
+      "kind": "adversarial",
+      "mode": "M2",
+      "body": "added CBRS to my watchlist",
+      "expect": []
+    },
+    {
+      "id": "r134",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "anyone bought CBRS?",
+      "expect": []
+    },
+    {
+      "id": "r135",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "did you trim NVDA?",
+      "expect": []
+    },
+    {
+      "id": "r136",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought the dip mentality",
+      "expect": []
+    },
+    {
+      "id": "r137",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "closed the laptop",
+      "expect": []
+    },
+    {
+      "id": "r138",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "sold on the idea",
+      "expect": []
+    },
+    {
+      "id": "r139",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "out of the money",
+      "expect": []
+    },
+    {
+      "id": "r140",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "bought into the CPI trade",
+      "expect": [],
+      "note": "real verb, caps token is not a ticker"
+    },
+    {
+      "id": "r141",
+      "kind": "adversarial",
+      "mode": "M6",
+      "body": "nice",
+      "expect": [],
+      "note": "reply whose QUOTED parent says 'Bought: CBRS'. A pure function over a string cannot demonstrate quote exclusion — invariant #2 lives in the CALLER (pass c.body only); slice 2's review checks the call site."
+    },
+    {
+      "id": "r142",
+      "kind": "adversarial",
+      "mode": "M7",
+      "body": "not buying CBRS here",
+      "expect": []
+    },
+    {
+      "id": "r143",
+      "kind": "adversarial",
+      "mode": "M7",
+      "body": "didn’t trim NVDA",
+      "expect": []
+    },
+    {
+      "id": "r144",
+      "kind": "adversarial",
+      "mode": "M7",
+      "body": "never bought CBRS",
+      "expect": []
+    },
+    {
+      "id": "r145",
+      "kind": "adversarial",
+      "mode": "M8",
+      "body": "Cramer bought CBRS",
+      "expect": []
+    },
+    {
+      "id": "r146",
+      "kind": "adversarial",
+      "mode": "M8",
+      "body": "my buddy sold out of CBRS",
+      "expect": []
+    },
+    {
+      "id": "r147",
+      "kind": "adversarial",
+      "mode": "M8",
+      "body": "she closed CBRS this morning",
+      "expect": []
+    },
+    {
+      "id": "r148",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "I bought CBRS back in March",
+      "expect": []
+    },
+    {
+      "id": "r149",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "added CBRS on Friday",
+      "expect": []
+    },
+    {
+      "id": "r150",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "bought CBRS 3 weeks ago",
+      "expect": []
+    },
+    {
+      "id": "r151",
+      "kind": "adversarial",
+      "mode": "M10",
+      "body": "sold NVDA, bought AMD",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "NVDA"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "AMD"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r152",
+      "kind": "adversarial",
+      "mode": "M10",
+      "body": "Trimmed half of CBRS and added AMD",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "CBRS"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "AMD"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r153",
+      "kind": "adversarial",
+      "mode": "M11",
+      "body": "JUST BOUGHT MORE LFG HUGE",
+      "expect": []
+    },
+    {
+      "id": "r154",
+      "kind": "adversarial",
+      "mode": "M12",
+      "body": "bought more",
+      "expect": []
+    },
+    {
+      "id": "r155",
+      "kind": "adversarial",
+      "mode": "M12",
+      "body": "took profits",
+      "expect": []
+    },
+    {
+      "id": "r156",
+      "kind": "adversarial",
+      "mode": "M12",
+      "body": "added to my position",
+      "expect": []
+    },
+    {
+      "id": "r157",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "Bought CBRS at 12.40 after the CPI print, ATH for NVDA",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "NVDA is a real ticker but not the verb's object"
+    },
+    {
+      "id": "r158",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "Bought SPY CALLS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "SPY"
+          ]
+        }
+      ],
+      "note": "options buy degrades to a plain BUY"
+    },
+    {
+      "id": "r159",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "grabbed AAPL 250P",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "AAPL"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r160",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "closed CBRS, bought NVDA",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "CBRS"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r161",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "sold all of my CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r162",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "sold some CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r163",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "sold CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "plain sold: qualifier unknown"
+    },
+    {
+      "id": "r164",
+      "kind": "terse",
+      "mode": "P",
+      "body": "Bought CBRS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r165",
+      "kind": "terse",
+      "mode": "P",
+      "body": "out of CBRS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r166",
+      "kind": "terse",
+      "mode": "P",
+      "body": "$CBRS added",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r167",
+      "kind": "terse",
+      "mode": "P",
+      "body": "BOUGHT CBRS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "caps but not shouting (2 tokens)"
+    },
+    {
+      "id": "r168",
+      "kind": "format",
+      "mode": "P",
+      "body": "🚀 Bought CBRS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r169",
+      "kind": "format",
+      "mode": "P",
+      "body": "**Bought** CBRS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r170",
+      "kind": "format",
+      "mode": "P",
+      "body": "Bought CBRS https://example.com/x?y=1",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "URL stripped first"
+    },
+    {
+      "id": "r171",
+      "kind": "format",
+      "mode": "P",
+      "body": "${0} bought CBRS",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "CBRS"
+          ]
+        }
+      ],
+      "note": "mention placeholder stripped first"
+    },
+    {
+      "id": "r172",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "trimmed NVDA today?",
+      "expect": [],
+      "note": "END review C1: the '?' guard was dead code once"
+    },
+    {
+      "id": "r173",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "out of HOOD?",
+      "expect": []
+    },
+    {
+      "id": "r174",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "sold NVDA?",
+      "expect": []
+    },
+    {
+      "id": "r175",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "bought CBRS at 12.40?",
+      "expect": []
+    },
+    {
+      "id": "r176",
+      "kind": "adversarial",
+      "mode": "M3",
+      "body": "anyone bought CBRS? I did",
+      "expect": [],
+      "note": "the question sentence is dropped; the answer has no ticker"
+    },
+    {
+      "id": "r177",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "market picked up steam after the print",
+      "expect": [],
+      "note": "END review C2"
+    },
+    {
+      "id": "r178",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "ORCL picked up steam today",
+      "expect": []
+    },
+    {
+      "id": "r179",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "grabbed lunch",
+      "expect": []
+    },
+    {
+      "id": "r180",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought pizza for the team",
+      "expect": []
+    },
+    {
+      "id": "r181",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "sold my soul",
+      "expect": []
+    },
+    {
+      "id": "r182",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought a house today",
+      "expect": []
+    },
+    {
+      "id": "r183",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "closed my books for the day",
+      "expect": []
+    },
+    {
+      "id": "r184",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "added fuel to the fire",
+      "expect": []
+    },
+    {
+      "id": "r185",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought gold",
+      "expect": [],
+      "note": "a commodity, not a ticker; $GLD or GLD is"
+    },
+    {
+      "id": "r186",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "entered a trade",
+      "expect": []
+    },
+    {
+      "id": "r187",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "added EV exposure",
+      "expect": [],
+      "note": "EV is a sector abbreviation, named by the design review"
+    },
+    {
+      "id": "r188",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "sold EV names",
+      "expect": []
+    },
+    {
+      "id": "r189",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "bought ER straddles",
+      "expect": []
+    },
+    {
+      "id": "r190",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "added TA setups",
+      "expect": []
+    },
+    {
+      "id": "r191",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "bought GLD and $MU",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GLD",
+            "MU"
+          ]
+        }
+      ],
+      "note": "2-letter cashtag after a 3-letter bare"
+    },
+    {
+      "id": "r192",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "Took profits, rotating into NVDA",
+      "expect": [],
+      "note": "END review C3: the later clause's ticker is a prospective buy, not the exit"
+    },
+    {
+      "id": "r193",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "took profits today, might re-enter NVDA later",
+      "expect": []
+    },
+    {
+      "id": "r194",
+      "kind": "adversarial",
+      "mode": "M5",
+      "body": "trimmed a bit, still holding ORCL",
+      "expect": [],
+      "note": "bounded scan: ORCL is in the next clause"
+    },
+    {
+      "id": "r195",
+      "kind": "real",
+      "mode": "P",
+      "body": "added NOV 130 puts small USO",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "USO"
+          ]
+        }
+      ],
+      "note": "forward scan within the clause still finds the underlying"
+    },
+    {
+      "id": "r196",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "bought CBRS in May",
+      "expect": []
+    },
+    {
+      "id": "r197",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "bought CBRS last quarter",
+      "expect": []
+    },
+    {
+      "id": "r198",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "added NVDA earlier in the summer",
+      "expect": []
+    },
+    {
+      "id": "r199",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "yesterday I bought CBRS",
+      "expect": []
+    },
+    {
+      "id": "r200",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "Bought NVDA here, earnings Monday",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ],
+      "note": "END review S2: a time word in ANOTHER clause must not kill the buy"
+    },
+    {
+      "id": "r201",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "Added ORCL, will trim Monday",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "ORCL"
+          ]
+        }
+      ],
+      "note": "the hedged future trim drops, the buy stays"
+    },
+    {
+      "id": "r202",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "sold AXON I bought 3 weeks ago and added MU",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "AXON"
+          ]
+        },
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MU"
+          ]
+        }
+      ],
+      "note": "only the narrated-past verb is rejected"
+    },
+    {
+      "id": "r203",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "bought $MU and $AMD",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "MU",
+            "AMD"
+          ]
+        }
+      ],
+      "note": "END review S3: a 2-letter cashtag is not a number"
+    },
+    {
+      "id": "r204",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "Picked up $GE and $NVDA",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GE",
+            "NVDA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r205",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "cut my losses on NVDA",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ],
+      "note": "design review item 5: a real exit"
+    },
+    {
+      "id": "r206",
+      "kind": "adversarial",
+      "mode": "M12",
+      "body": "cut my losses",
+      "expect": []
+    },
+    {
+      "id": "r207",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "cut through the noise on NVDA",
+      "expect": [],
+      "note": "idiom"
+    },
+    {
+      "id": "r208",
+      "kind": "known-miss",
+      "mode": "M8",
+      "body": "BUFFETT bought OXY",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "OXY"
+          ]
+        }
+      ],
+      "note": "an ALL-CAPS proper noun is indistinguishable from a ticker; the subject guard only knows Capitalized words"
+    },
+    {
+      "id": "r209",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "SOLD HALF MY NVDA HERE",
+      "expect": [],
+      "note": "shouting guard drops a real shouted trade (precision bias)"
+    },
+    {
+      "id": "r210",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "added MU, 3 weeks ago",
+      "expect": [],
+      "note": "re-check S2-R: an unambiguous past marker after the comma still counts"
+    },
+    {
+      "id": "r211",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "bought CBRS, back in March",
+      "expect": []
+    },
+    {
+      "id": "r212",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "bought CBRS in Q2",
+      "expect": []
+    },
+    {
+      "id": "r213",
+      "kind": "adversarial",
+      "mode": "M9",
+      "body": "added NVDA in FY25",
+      "expect": []
+    },
+    {
+      "id": "r214",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "picked up milk",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r215",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought bread",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r216",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "grabbed sushi",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r217",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought a watch",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r218",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "picked up slack",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r219",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought a bike",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r220",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "sold my bike",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r221",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "added salt",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r222",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "grabbed a cab",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r223",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought socks",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r224",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "bought paint",
+      "expect": [],
+      "note": "re-check C2-R: everyday noun after a trade verb"
+    },
+    {
+      "id": "r225",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "trimmed a bit, still holding ORCL",
+      "expect": [],
+      "note": "C3 bound: the ticker is in the next clause; widening CLAUSE_STOP_RE re-opens 'Took profits, rotating into NVDA'"
+    },
+    {
+      "id": "r226",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "sold my calls, ORCL still looks weak",
+      "expect": [],
+      "note": "same C3 bound"
+    },
+    {
+      "id": "r227",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "bought CBRS (why not?)",
+      "expect": [],
+      "note": "C1: the question guard is whole-sentence; narrowing it to a terminal '?' re-opens 'trimmed NVDA today?'"
+    },
+    {
+      "id": "r228",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "sold $MS",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "MS"
+          ]
+        }
+      ],
+      "note": "MS is on the JARGON list (2-letter abbreviation); the cashtag is how a member says the ticker — do NOT delete the JARGON entry to 'fix' bare MS"
+    },
+    {
+      "id": "r229",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "bought $GOLD",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GOLD"
+          ]
+        }
+      ],
+      "note": "same: GOLD is stoplisted bare (commodity noun), cashtag wins"
+    },
+    {
+      "id": "r230",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "sold MS",
+      "expect": [],
+      "note": "bare 2-letter MS is a stoplisted abbreviation"
+    },
+    {
+      "id": "r231",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "I was up big yesterday and sold NVDA",
+      "expect": [],
+      "note": "the first verb's pre-window carries 'yesterday' — recall-only, pre-existing class"
+    },
+    {
+      "id": "r232",
+      "kind": "known-miss",
+      "mode": "P",
+      "body": "bought SPY calls in May",
+      "expect": [],
+      "note": "'in May' is an unambiguous past marker even when it is an expiry"
+    }
+  ],
+  "dates": [
+    {
+      "id": "d01",
+      "iso": "2026-09-18T03:59:00.000Z",
+      "now": "2026-09-18T12:00:00.000Z",
+      "key": "2026-09-17",
+      "today": false,
+      "note": "23:59 ET the night before"
+    },
+    {
+      "id": "d02",
+      "iso": "2026-09-18T04:00:00.000Z",
+      "now": "2026-09-18T12:00:00.000Z",
+      "key": "2026-09-18",
+      "today": true,
+      "note": "00:00 ET"
+    },
+    {
+      "id": "d03",
+      "iso": "2026-03-08T06:30:00.000Z",
+      "now": "2026-03-08T20:00:00.000Z",
+      "key": "2026-03-08",
+      "today": true,
+      "note": "spring-forward day, before the change (EST)"
+    },
+    {
+      "id": "d04",
+      "iso": "2026-03-09T03:30:00.000Z",
+      "now": "2026-03-08T20:00:00.000Z",
+      "key": "2026-03-08",
+      "today": true,
+      "note": "spring-forward day, 23:30 EDT"
+    },
+    {
+      "id": "d05",
+      "iso": "2026-11-02T04:30:00.000Z",
+      "now": "2026-11-01T18:00:00.000Z",
+      "key": "2026-11-01",
+      "today": true,
+      "note": "fall-back day, 23:30 EST"
+    },
+    {
+      "id": "d06",
+      "iso": "2026-11-02T05:00:00.000Z",
+      "now": "2026-11-01T18:00:00.000Z",
+      "key": "2026-11-02",
+      "today": false,
+      "note": "00:00 EST the day after fall-back"
+    },
+    {
+      "id": "d07",
+      "iso": "2026-09-19T02:00:00.000Z",
+      "now": "2026-09-19T03:00:00.000Z",
+      "key": "2026-09-18",
+      "today": true,
+      "note": "viewer in Los Angeles (19:00 PT) — both sides through the ET formatter"
+    },
+    {
+      "id": "d08",
+      "iso": "2026-09-19T04:30:00.000Z",
+      "now": "2026-09-19T03:00:00.000Z",
+      "key": "2026-09-19",
+      "today": false,
+      "note": "00:30 ET already tomorrow while a Pacific viewer's 'now' is still 23:00 ET"
+    },
+    {
+      "id": "d09",
+      "iso": "2026-09-18T14:00:00.000Z",
+      "now": "2026-09-18T23:30:00.000Z",
+      "key": "2026-09-18",
+      "today": true,
+      "note": "viewer in Tokyo (08:30 next day locally)"
+    },
+    {
+      "id": "d10",
+      "iso": "2026-09-18T10:00:00",
+      "now": "2026-09-18T12:00:00.000Z",
+      "key": null,
+      "today": false,
+      "note": "no offset → refuse rather than guess local time"
+    },
+    {
+      "id": "d11",
+      "iso": "garbage",
+      "now": "2026-09-18T12:00:00.000Z",
+      "key": null,
+      "today": false
+    },
+    {
+      "id": "d12",
+      "iso": "2026-09-18T10:00:00-04:00",
+      "now": "2026-09-18T12:00:00.000Z",
+      "key": "2026-09-18",
+      "today": true,
+      "note": "explicit offset accepted"
+    }
+  ]
+}
