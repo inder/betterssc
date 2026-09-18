@@ -62,6 +62,18 @@ describe("planTradeAlerts — what alerts", () => {
     const plan = planTradeAlerts({ comments: [c("a", "bought orcu")], now: NOW, sentKeys: new Set(), dayKey: DAY });
     expect(plan.messages[0].trades[0].confidence).toBe("low");
   });
+  it("notBefore: a reload backlog (created before boot) never alerts, a post-boot message does", () => {
+    const boot = new Date("2026-09-18T15:00:00.000Z");
+    const plan = planTradeAlerts({
+      comments: [c("old", "Bought CBRS", "2026-09-18T14:30:00.000Z"), c("new", "Bought NVDA", "2026-09-18T15:00:01.000Z")],
+      now: NOW, sentKeys: new Set(), dayKey: DAY, notBefore: boot,
+    });
+    expect(plan.messages.map((m) => m.commentId)).toEqual(["new"]);
+    // No floor → both alert (the pure function does not assume a session).
+    expect(planTradeAlerts({ comments: [c("old", "Bought CBRS", "2026-09-18T14:30:00.000Z")], now: NOW, sentKeys: new Set(), dayKey: DAY }).messages.length).toBe(1);
+    // An unparseable floor is ignored rather than dropping everything.
+    expect(planTradeAlerts({ comments: [c("old", "Bought CBRS", "2026-09-18T14:30:00.000Z")], now: NOW, sentKeys: new Set(), dayKey: DAY, notBefore: "garbage" }).messages.length).toBe(1);
+  });
   it("invalid clock → nothing, and NOT a rollover (the caller must not wipe the day's keys)", () => {
     const plan = planTradeAlerts({ comments: [c("a", "Bought CBRS")], now: new Date("x"), sentKeys: new Set(["k"]), dayKey: DAY });
     expect(plan.messages).toEqual([]);

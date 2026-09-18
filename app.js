@@ -870,8 +870,15 @@ async function pollNewMessages() {
       renderAll();
       // Forward new messages to Telegram if streaming is on. Fire-and-forget
       // (it only enqueues) so Telegram latency never stalls the poll loop —
-      // _pollInflight must reset promptly in finally.
-      telegramBridge.forwardNewMessages(newlyAdded);
+      // _pollInflight must reset promptly in finally. LIVE messages only:
+      // Substack's initial page opens at the user's last-READ position, not
+      // the tail, so after a reload this poll walks forward through every
+      // message posted since then and would replay that whole backlog into
+      // Telegram at 1.2s each (observed in dogfood 2026-09-18: a reload at
+      // 12:20 re-mirrored 10:30–12:30). "Stream the live feed" means what
+      // arrives while the tab is open; the strip and the chat still show
+      // the backlog.
+      telegramBridge.forwardNewMessages(newlyAdded.filter(isPostBootComment));
       incrementUnreadWhileHidden(added);
       // For each new comment pick at most ONE alert in priority order:
       // reply-to-me → watched-user. (@mentions fire separately from
@@ -6932,6 +6939,18 @@ function persistTradesStripPrefs() {
 // without the loaded keys we cannot dedupe, and a double alert is worse
 // than a missed one (invariant 1).
 const _tradeAlertKeys = new Set();
+// Alerts only for messages that arrive while THIS tab is open: anything
+// created before boot (minus 2 min of slack for server clock skew) is a
+// reload backlog — visible in the strip, never alerted. Without this the
+// first poll after a reload can re-deliver everything since the user's
+// last-read position (Substack's initial page is positioned there, not at
+// the tail), which is exactly the 12:25 re-mirror burst seen in dogfood.
+const _tradeAlertsNotBefore = new Date(Date.now() - 2 * 60_000);
+// Shared with the Telegram mirror: "arrived while this tab is open".
+function isPostBootComment(c) {
+  const t = Date.parse((c && (c.created_at || c.date)) || "");
+  return Number.isFinite(t) && t >= _tradeAlertsNotBefore.getTime();
+}
 let _tradeAlertDay = null;
 let _tradeAlertsReady = false;
 let _tradeAlertsDirty = false;
@@ -7023,6 +7042,7 @@ function onNewCommentsForTradeAlerts(newComments) {
     pinnedIds: state.pinnedUserIds,
     sentKeys: _tradeAlertKeys,
     dayKey: _tradeAlertDay,
+    notBefore: _tradeAlertsNotBefore,
   });
   if (plan.rollover) {
     // Lazy ET-day rollover, only inside this gated path — no timer, and
@@ -7049,7 +7069,7 @@ function onNewCommentsForTradeAlerts(newComments) {
     }
   }
   if (!plan.messages.length) {
-    tradeAlertsTrace(`${newComments.length} new, no alert (not a trade, already alerted, not today ET, or filtered by pinned-only)`);
+    tradeAlertsTrace(`${newComments.length} new, no alert (not a trade, already alerted, not today ET, pre-boot backlog, or filtered by pinned-only)`);
   }
   if (_tradeAlertsDirty) saveTradeAlertsSoon();
 }
