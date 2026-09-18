@@ -88,6 +88,8 @@ import {
   splitTerms,
 } from "./lib/focus.js";
 import { extractTrending, extractQueryTickers } from "./lib/trending.js";
+import { etDateKey } from "./lib/trades.js";
+import { deriveTradeRows, formatTradeTimeET, tradeBadge } from "./lib/trades-strip.js";
 
 // ============================================================
 // SVG ICONS (inline so they inherit currentColor + scale crisply)
@@ -162,6 +164,11 @@ const state = {
   // hide 0-reply threads (declutters the common case — most of a channel's
   // posts are broadcast links with no replies, per pickLiveliestPost's own
   // reasoning); rail starts expanded.
+  // Trades strip prefs (trade ticker arc, slice 2). All default OFF/expanded;
+  // persisted as bssc_trades_* and restored in restoreWatchedUsers.
+  tradesStripEnabled: false,
+  tradesPinnedOnly: false,
+  tradesStripCollapsed: false,
   threadRailHideEmpty: true,
   threadRailCollapsed: false,
   user: null, // {id, name, handle} from _analyticsConfig (via background)
@@ -1857,6 +1864,7 @@ function renderAll() {
   buildThreadIndex();
   renderMessages();
   renderMembers();
+  renderTradesStrip();
   renderFooterStats();
   // Re-render the header so the top-right user avatar can pick up the
   // user's own photo once it lands via a new comment (state.user.photo_url
@@ -2164,8 +2172,22 @@ function stopTickerRefreshTimer() {
 }
 
 // Switching threads navigates the page rather than swapping state in
-// place — see the rationale comment on renderThreadRail. Delegated on the
-// list (not per-row) since the list is fully rebuilt on every render.
+// place — see the rationale comment on renderThreadRail. ONE path for every
+// caller (the rail, the trades strip's root rows): a full navigate with the
+// `reply` param dropped — `reply` names a comment id inside THIS thread
+// (state.targetReplyId, consumed by loadInitial's deep-link scroll); an old
+// thread's comment id has no meaning in the thread we're switching to and
+// would feed a scroll target that doesn't exist there.
+function navigateToThread(postUuid) {
+  if (!postUuid || postUuid === state.postUuid) return;
+  const url = new URL(location.href);
+  url.searchParams.set("post", postUuid);
+  url.searchParams.delete("reply");
+  location.href = url.toString();
+}
+
+// Delegated on the list (not per-row) since the list is fully rebuilt on
+// every render.
 function bindThreadRail() {
   const list = document.getElementById("threadRailList");
   if (list) {
@@ -2174,15 +2196,7 @@ function bindThreadRail() {
       if (!item) return;
       const postUuid = item.dataset.postUuid;
       if (!postUuid || postUuid === state.postUuid) return;
-      const url = new URL(location.href);
-      url.searchParams.set("post", postUuid);
-      // `reply` names a comment id inside THIS thread (state.targetReplyId,
-      // consumed by loadInitial's deep-link scroll). Cloning the current URL
-      // preserves it by default, which is right for pub/chan but wrong here —
-      // an old thread's comment id has no meaning in the thread we're
-      // switching to and would feed a scroll target that doesn't exist there.
-      url.searchParams.delete("reply");
-      location.href = url.toString();
+      navigateToThread(postUuid);
     });
   }
   // Double-click the divider to toggle collapse — a power-user shortcut
@@ -3911,6 +3925,9 @@ function restoreWatchedUsers() {
           "bssc_auto_load_all",
           "bssc_thread_rail_hide_empty",
           "bssc_thread_rail_collapsed",
+          "bssc_trades_strip_enabled",
+          "bssc_trades_pinned_only",
+          "bssc_trades_strip_collapsed",
         ],
         (res) => {
           if (res) {
@@ -3932,9 +3949,15 @@ function restoreWatchedUsers() {
             // threadRailCollapsed defaults false, so plain coercion is fine
             // here — no on-by-default contract to protect.
             state.threadRailCollapsed = !!res.bssc_thread_rail_collapsed;
+            // Trades strip: all three default false, plain coercion.
+            state.tradesStripEnabled = !!res.bssc_trades_strip_enabled;
+            state.tradesPinnedOnly = !!res.bssc_trades_pinned_only;
+            state.tradesStripCollapsed = !!res.bssc_trades_strip_collapsed;
           }
           ensureSelfDefaults();
           renderMembers();
+          renderTradesStrip();
+          syncTradesStripTimer();
           renderNotifyAllButton();
           // Re-render with restored prefs — the FIRST renderThreadRail call
           // in init() already ran (synchronously, before this async
@@ -6233,6 +6256,37 @@ function openChatPrefsModal() {
   modSkipRow.appendChild(modSkipLabel);
   body.appendChild(modSkipRow);
 
+  // Trades strip (trade ticker arc, slice 2) — off by default; opt in.
+  const tradesRow = document.createElement("div");
+  tradesRow.className = "tune-toggle-row";
+  const tradesCheckbox = document.createElement("input");
+  tradesCheckbox.type = "checkbox";
+  tradesCheckbox.id = "chatPrefsTradesStrip";
+  tradesCheckbox.checked = !!state.tradesStripEnabled;
+  const tradesLabel = document.createElement("label");
+  tradesLabel.htmlFor = "chatPrefsTradesStrip";
+  tradesLabel.className = "tune-toggle-label";
+  tradesLabel.textContent =
+    "Show the trades strip: today's buys and sells parsed from chat messages (\"Bought: CBRS\", \"trimmed half of NVDA\", \"out of HOOD\"), listed above the Active pane, newest first. Click a row to jump to the message. Best-effort regex, no AI — a \"?\" marks a ticker it guessed from a lowercase word.";
+  tradesRow.appendChild(tradesCheckbox);
+  tradesRow.appendChild(tradesLabel);
+  body.appendChild(tradesRow);
+
+  const tradesPinnedRow = document.createElement("div");
+  tradesPinnedRow.className = "tune-toggle-row";
+  const tradesPinnedCheckbox = document.createElement("input");
+  tradesPinnedCheckbox.type = "checkbox";
+  tradesPinnedCheckbox.id = "chatPrefsTradesPinnedOnly";
+  tradesPinnedCheckbox.checked = !!state.tradesPinnedOnly;
+  const tradesPinnedLabel = document.createElement("label");
+  tradesPinnedLabel.htmlFor = "chatPrefsTradesPinnedOnly";
+  tradesPinnedLabel.className = "tune-toggle-label";
+  tradesPinnedLabel.textContent =
+    "Trades strip: pinned members only. Uses the same pinned list as the Active pane.";
+  tradesPinnedRow.appendChild(tradesPinnedCheckbox);
+  tradesPinnedRow.appendChild(tradesPinnedLabel);
+  body.appendChild(tradesPinnedRow);
+
   const footer = document.createElement("footer");
   footer.className = "ai-settings-footer";
   const cancel = document.createElement("button");
@@ -6283,6 +6337,12 @@ function openChatPrefsModal() {
           bssc_ai_moderation_skip: state.aiModerationSkipReview,
         });
     } catch (_) {}
+
+    state.tradesStripEnabled = !!tradesCheckbox.checked;
+    state.tradesPinnedOnly = !!tradesPinnedCheckbox.checked;
+    persistTradesStripPrefs();
+    syncTradesStripTimer();
+    renderTradesStrip();
 
     closeChatPrefsModal();
   });
@@ -6624,6 +6684,254 @@ function toggleChatHeaderPanel() {
   if (backdrop.classList.contains("hidden")) openPostModal();
   else closePostModal();
 }
+
+// ============================================================
+// TRADES STRIP (trade ticker arc, slice 2)
+// ============================================================
+//
+// A pure DERIVATION of state.comments + the thread roots (lib/trades-strip.js)
+// rendered above the Active list. Never writes into the comment store. The
+// parse memo below is module-private render-layer cache — deliberately NOT on
+// `state`, or it would become a second owner of comment data (arc invariant 3;
+// the reaction-refresh poll's wholesale-replace bug class, 2026-09-13).
+// Keyed by id+body so that poll's replacement objects still hit; the ET-today
+// filter inside deriveTradeRows runs before the memo, so it holds one day.
+const _tradesMemo = new Map();
+let _tradesMemoDayKey = null; // prune the memo when the ET day rolls over (N2)
+let _tradesTimer = null;
+let _tradesTickInflight = false; // same idiom as _pollInflight / _reactionRefreshInflight (S1)
+let _tradesLastSig = null; // signature of the last rendered rows — skip a no-op rebuild (S4)
+let _tradesTickFailing = false; // warn once per transition into failure, not every 60s (N6)
+
+function renderTradesStrip() {
+  const el = document.getElementById("tradesStrip");
+  if (!el) return;
+  if (!state.tradesStripEnabled) {
+    // Disabled ⇒ zero side effects: clear anything a previous enable left
+    // behind (the live check is "gone when toggled off"), hide, and drop the
+    // memo so nothing lingers. No parsing runs past this line.
+    if (!el.hidden || el.childElementCount) {
+      el.replaceChildren();
+      el.hidden = true;
+    }
+    _tradesMemo.clear();
+    _tradesLastSig = null;
+    return;
+  }
+  const now = new Date();
+  const dayKey = etDateKey(now);
+  if (dayKey !== _tradesMemoDayKey) {
+    // Past-day entries would otherwise sit unread but retained for the life
+    // of the session — one day of bodies per day left open.
+    _tradesMemo.clear();
+    _tradesMemoDayKey = dayKey;
+  }
+  const rows = deriveTradeRows({
+    comments: state.comments.values(),
+    rootPost: state.post,
+    channelThreads: state.channelThreads,
+    now,
+    pinnedOnly: state.tradesPinnedOnly,
+    pinnedIds: state.pinnedUserIds,
+    memo: _tradesMemo,
+  });
+
+  // The strip is its own scroll container and the 60s tick re-renders even
+  // when nothing changed, so a full rebuild would reset the user's scroll and
+  // drop keyboard focus every minute. Skip when the rows AND the header state
+  // are identical; otherwise carry scrollTop + the focused row across.
+  const sig = `${state.tradesStripCollapsed ? "c" : "e"}|${state.tradesPinnedOnly ? "p" : "a"}|` +
+    rows.map((r) => `${r.id}:${r.action}:${r.qualifier}:${r.tickers.join("+")}`).join(",");
+  if (!el.hidden && sig === _tradesLastSig) return;
+  _tradesLastSig = sig;
+  const prevScroll = el.scrollTop;
+  const focused = document.activeElement && el.contains(document.activeElement)
+    ? document.activeElement.dataset.tradeId || null
+    : null;
+
+  el.replaceChildren();
+  el.hidden = false;
+  el.classList.toggle("collapsed", !!state.tradesStripCollapsed);
+
+  const header = document.createElement("div");
+  header.className = "trades-strip-header";
+  const title = document.createElement("span");
+  title.textContent = `Trades today · ${rows.length}${state.tradesPinnedOnly ? " · pinned" : ""}`;
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "trades-strip-toggle";
+  toggle.setAttribute("aria-expanded", String(!state.tradesStripCollapsed));
+  toggle.setAttribute("aria-controls", "tradesStripList");
+  toggle.title = state.tradesStripCollapsed ? "Expand trades" : "Collapse trades";
+  toggle.textContent = state.tradesStripCollapsed ? "▸" : "▾";
+  toggle.addEventListener("click", () => {
+    state.tradesStripCollapsed = !state.tradesStripCollapsed;
+    persistTradesStripPrefs();
+    renderTradesStrip();
+    const again = document.querySelector("#tradesStrip .trades-strip-toggle");
+    if (again) again.focus(); // the rebuild would otherwise drop keyboard focus
+  });
+  header.appendChild(title);
+  header.appendChild(toggle);
+  el.appendChild(header);
+
+  const list = document.createElement("ul");
+  list.id = "tradesStripList";
+  list.className = "trades-strip-list";
+  if (!rows.length) {
+    const empty = document.createElement("li");
+    empty.className = "trades-strip-empty";
+    empty.textContent = state.tradesPinnedOnly
+      ? "No trades from pinned members yet today."
+      : "No trades parsed yet today.";
+    list.appendChild(empty);
+  }
+  for (const r of rows) {
+    const li = document.createElement("li");
+    li.className = "trade-row" + (r.confidence === "low" ? " low-confidence" : "");
+    // `tradeId`, NOT `data-id`: the stream's message nodes own `data-id` and
+    // jumpToMessage / focusSearchHit query it unscoped — a strip row carrying
+    // the same attribute would shadow the message when the stream node is
+    // absent (END review, slice 2, S3).
+    li.dataset.tradeId = String(r.id);
+    li.dataset.kind = r.kind;
+    if (r.postUuid) li.dataset.postUuid = String(r.postUuid);
+    li.title = (r.raw || "").slice(0, 300); // attribute text — never innerHTML
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    const badge = tradeBadge(r.action, r.qualifier);
+    const b = document.createElement("span");
+    b.className = `trade-badge ${badge.cls}`;
+    b.textContent = badge.label;
+    const t = document.createElement("span");
+    t.className = "trade-tickers";
+    t.textContent = r.tickers.join(" ");
+    let guess = null;
+    if (r.confidence === "low") {
+      // A real element, not CSS generated content, so it survives copy and
+      // is announced: this ticker was inferred from a lowercase word.
+      guess = document.createElement("span");
+      guess.className = "trade-guess";
+      guess.textContent = "?";
+      guess.title = "Ticker guessed from a lowercase word — may be wrong";
+      guess.setAttribute("aria-label", "ticker guessed from a lowercase word");
+    }
+    const a = document.createElement("span");
+    a.className = "trade-author";
+    a.textContent = r.authorName || "";
+    const time = document.createElement("span");
+    time.className = "trade-time";
+    time.textContent = formatTradeTimeET(r.createdAt);
+    li.appendChild(b);
+    li.appendChild(t);
+    if (guess) li.appendChild(guess);
+    li.appendChild(a);
+    li.appendChild(time);
+    list.appendChild(li);
+  }
+  // Delegated on the list; the list is rebuilt every render so this binds
+  // exactly once per build.
+  list.addEventListener("click", onTradeRowClick);
+  list.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onTradeRowClick(e);
+    }
+  });
+  el.appendChild(list);
+  if (prevScroll) el.scrollTop = prevScroll;
+  if (focused) {
+    const again = list.querySelector(`.trade-row[data-trade-id="${cssEscape(focused)}"]`);
+    if (again) again.focus();
+  }
+}
+
+// Row click → the actual message. A comment is in the stream (jumpToMessage,
+// which also clears an active search and flashes the group). The CURRENT
+// thread's root post is NOT in the stream — it lives in the post modal — so
+// open that instead of jumping (jumpToMessage would show a bogus "not loaded
+// yet" error). Another thread's root navigates there via the rail's path.
+function onTradeRowClick(e) {
+  const li = e.target.closest(".trade-row");
+  if (!li) return;
+  const { tradeId, kind, postUuid } = li.dataset;
+  if (kind === "comment") {
+    jumpToMessage(tradeId);
+    return;
+  }
+  if (postUuid && postUuid !== state.postUuid) {
+    navigateToThread(postUuid);
+    return;
+  }
+  openPostModal();
+}
+
+function persistTradesStripPrefs() {
+  try {
+    chrome.storage &&
+      chrome.storage.local &&
+      chrome.storage.local.set({
+        bssc_trades_strip_enabled: state.tradesStripEnabled,
+        bssc_trades_pinned_only: state.tradesPinnedOnly,
+        bssc_trades_strip_collapsed: state.tradesStripCollapsed,
+      });
+  } catch (_) {}
+}
+
+// While the strip is enabled, a 60s tick (a) refreshes the channel's thread
+// roots — state.channelThreads is otherwise set once at boot, so the
+// publication author's own root-post trades would go stale — and (b)
+// re-renders so rows drop at ET midnight even in a quiet chat (renderAll only
+// runs when a poll ADDS messages). 60s, not the 12s poll: that would be 5x
+// the channel-feed request rate through the proxy tab for no gain. Off ⇒ no
+// timer at all (arc invariant 4: disabled means zero side effects).
+function syncTradesStripTimer() {
+  if (state.tradesStripEnabled && !_tradesTimer) {
+    _tradesTimer = setInterval(() => void tradesStripTick(), 60_000);
+  } else if (!state.tradesStripEnabled && _tradesTimer) {
+    clearInterval(_tradesTimer);
+    _tradesTimer = null;
+  }
+}
+
+async function tradesStripTick() {
+  if (!state.tradesStripEnabled) return;
+  if (_tradesTickInflight) return; // a slow proxy tab must not stack two page-1 fetches
+  _tradesTickInflight = true;
+  try {
+    if (state.channelId) {
+      try {
+        const res = await fetchChannelPosts(state.channelId);
+        if (!state.tradesStripEnabled) return; // toggled off mid-flight: no DOM work after disable (N7)
+        _tradesTickFailing = false;
+        // Wholesale replacement, never in-place mutation — the same rule the
+        // reaction-refresh poll learned the hard way. The rail reads the same
+        // array, so re-render it too (a new daily thread shows up without a
+        // reload as a side benefit). An EMPTY page (an auth blip through the
+        // proxy tab) keeps the previous snapshot: replacing it would hide the
+        // rail, re-layout the grid, and blank every root row until the next
+        // successful tick (END review, slice 2, S2).
+        if (res && Array.isArray(res.threads) && res.threads.length > 0) {
+          state.channelThreads = res.threads;
+          renderThreadRail();
+        }
+      } catch (e) {
+        if (!_tradesTickFailing) {
+          _tradesTickFailing = true;
+          console.warn("[BetterSSC] trades strip: channel roots refresh failed (non-fatal, will keep retrying quietly):", e && e.message);
+        }
+      }
+    }
+    if (!state.tradesStripEnabled) return; // toggled off during the await
+    renderTradesStrip();
+  } finally {
+    _tradesTickInflight = false;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.tradesStripEnabled) renderTradesStrip();
+});
 
 function renderFooterStats() {
   // v0.1.26: live-mechanism string moved into the header status badge

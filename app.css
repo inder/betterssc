@@ -28,6 +28,7 @@
   --warning-bg-soft: rgba(192, 132, 0, 0.14);
   --warning-bg-strong: rgba(192, 132, 0, 0.26);
   --danger: #c92a2a;
+  --danger-bg-soft: rgba(201, 42, 42, 0.12);
   --border: #d8dde3;
   --shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 1.5px 3px rgba(0, 0, 0, 0.05);
   color-scheme: light;
@@ -59,6 +60,7 @@
   --warning-bg-soft: rgba(240, 178, 50, 0.18);
   --warning-bg-strong: rgba(240, 178, 50, 0.32);
   --danger: #f23f42;
+  --danger-bg-soft: rgba(255, 99, 99, 0.16);
   --border: #0e0f11;
   --shadow: 0 1px 0 rgba(4, 4, 5, 0.2), 0 1.5px 0 rgba(6, 6, 7, 0.05),
     0 2px 0 rgba(4, 4, 5, 0.05);
@@ -1310,13 +1312,96 @@ button {
 }
 
 /* MEMBERS RAIL */
+/* A flex column so the trades strip (first child, auto height) can sit above
+   the Active list while the LIST owns the scroll — not the aside. min-height:0
+   is what lets a flex child shrink below its content and actually scroll. */
 .members {
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.member-list {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
-.members::-webkit-scrollbar { width: 6px; }
-.members::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 3px; }
+.member-list::-webkit-scrollbar { width: 6px; }
+.member-list::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 3px; }
+
+/* TRADES STRIP (trade ticker arc, slice 2) */
+.trades-strip {
+  flex: 0 0 auto;
+  max-height: 40vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+.trades-strip::-webkit-scrollbar { width: 6px; }
+.trades-strip::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 3px; }
+.trades-strip-header {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  padding: 12px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.trades-strip-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.trades-strip-toggle:hover { background: var(--bg-hover); }
+.trades-strip.collapsed .trades-strip-list { display: none; }
+.trades-strip-list { list-style: none; margin: 0; padding: 0 8px 8px; }
+.trades-strip-empty { padding: 4px 6px 6px; font-size: 12px; color: var(--text-muted); }
+.trade-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  min-width: 0;
+}
+.trade-row:hover { background: var(--bg-hover); }
+.trade-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+.trade-badge.buy { color: var(--success); background: var(--success-bg-soft); }
+.trade-badge.sell, .trade-badge.sell-closed { color: var(--danger); background: var(--danger-bg-soft); }
+.trade-badge.sell-partial { color: var(--warning); background: var(--warning-bg-soft); }
+.trade-tickers { flex: 0 0 auto; font-weight: 600; color: var(--text-primary); }
+.trade-guess { flex: 0 0 auto; color: var(--text-muted); font-weight: 400; cursor: help; }
+.trade-author {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trade-time { flex: 0 0 auto; font-size: 11px; color: var(--text-muted); }
 .members-header {
   padding: 12px 12px 8px;
   font-size: 11px;

@@ -335,6 +335,14 @@
         </div>
 
         <aside class="members" id="members">
+          <!-- Trades strip (trade ticker arc, slice 2): today's buys/sells
+               parsed from chat, above the Active list. Static `hidden` so a
+               user who never enables it gets zero DOM; renderTradesStrip
+               builds/clears the children. Nested in .members on purpose (no
+               .main grid change), so under 800px it is hidden WITH the
+               members pane — the mobile collapsible bar is deferred to
+               slice 4 of the trade ticker arc, not dropped. -->
+          <section id="tradesStrip" class="trades-strip" hidden aria-label="Trades today"></section>
           <div class="members-header" id="membersHeader">Active</div>
           <ul id="memberList" class="member-list"></ul>
         </aside>
