@@ -2234,6 +2234,43 @@ button {
       "stream"
       "compose";
   }
+  /* Trades strip on a narrow window (trade ticker arc, slice 4). The members
+     aside stays hidden EXCEPT while the strip is on — then it becomes a slim
+     bar across the top holding only the strip. Same three-selector discipline
+     as the rule above, each with .trades-on appended so it outranks that rule
+     at every class count (2 beats 1, 3 beats 2, 4 beats 3). No .trades-on
+     (strip off) ⇒ the rules above apply unchanged, byte for byte. */
+  .main.trades-on,
+  .main.rail-visible.trades-on,
+  .main.rail-visible.rail-collapsed.trades-on {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "members"
+      "stream"
+      "compose";
+  }
+  /* Inherits from the desktop .members rule on purpose: flex-direction:column,
+     min-height:0, overflow:hidden, background. Overrides: display (undoes the
+     mobile display:none above), the left border becomes a bottom border, and
+     ONE height cap owned here — the strip fills it instead of carrying its own
+     40vh, or border-box + overflow:hidden would clip the last row by 1px. */
+  .main.trades-on .members {
+    display: flex;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: min(30vh, 200px);
+  }
+  /* Allowlist, not denylist: whatever else the aside grows (a member search,
+     a count) stays out of the mobile bar by construction. */
+  .main.trades-on .members > * { display: none; }
+  .main.trades-on .members > #tradesStrip {
+    display: block;
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    border-bottom: 0;
+  }
   .search-wrap input { width: 180px; }
   .post-title { display: none; }
 }

@@ -6756,6 +6756,12 @@ let _tradesTickFailing = false; // warn once per transition into failure, not ev
 
 function renderTradesStrip() {
   const el = document.getElementById("tradesStrip");
+  // Narrow-window layout hook (slice 4): `.main.trades-on` lets the members
+  // aside surface as a slim trades bar under 800px. Toggled FIRST — above the
+  // disabled branch and the no-op-rebuild return — so disabling always clears
+  // it and a no-op tick never leaves it stale. Absent ⇒ CSS byte-identical.
+  const mainEl = document.querySelector("main.main");
+  if (mainEl) mainEl.classList.toggle("trades-on", !!el && !!state.tradesStripEnabled);
   if (!el) return;
   if (!state.tradesStripEnabled) {
     // Disabled ⇒ zero side effects: clear anything a previous enable left

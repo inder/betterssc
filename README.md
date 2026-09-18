@@ -147,7 +147,20 @@ Stream the live Substack Chat feed to your own Telegram bot — read it, post to
 - **Post back:** type a message to the bot and it posts to the Substack thread **as you**. (Messages starting with `/` are treated as bot commands and not posted.)
 - **React back:** react to a streamed message in Telegram and the closest Substack reaction lands on the matching comment. Unmapped reactions are skipped, never guessed.
 - **Runs only while the BetterSSC tab is open** — no server, no always-on background process. The bot token lives only in `chrome.storage` and is never logged. Latency is ~12s with the tab active (longer when the tab is hidden, due to browser timer throttling).
+- **BUY/SELL alerts** ride the same bot, independently of streaming — see [the trades strip](#-trades-strip--telegram-buysell-alerts-opt-in). The bridge's own pinned-only checkbox covers the mirror; the strip's covers the alerts.
 - **Not supported (yet):** replies/threading, AI features in Telegram, operation while Chrome is closed, sending media *from* Telegram, and multiple threads. Reaction changes/removals are lossy.
+
+### 💹 Trades strip + Telegram BUY/SELL alerts (opt-in)
+
+Members announce fills in prose — "Bought: CBRS at 12.40", "trimmed half of NVDA", "out of HOOD", "close $QQQ 718 lottos". BetterSSC reads those out of the chat and lists **today's buys and sells** above the Active pane, and can push each one to your Telegram bot as it lands.
+
+- **Off by default.** Turn on **Show the trades strip** in **Chat preferences**. A "TRADES TODAY · N" section appears above **Active**, newest first: a coloured badge (🟢 BUY / 🔴 SELL·closed / 🟠 SELL·partial / 🔴 SELL), the ticker(s), who, and the time in ET. Hover a row for the original message; click it to jump to the message (a member's comment flashes in the stream; the author's own "Bought: …" root posts open the post view; a root from another thread switches to that thread).
+- **Roots and comments both count.** The publication author's trades are usually thread *root* posts, members' trades are comments in the daily thread — the strip reads both. Comments in *other* threads of the channel aren't loaded by the app and don't appear; the channel's thread roots refresh every 60s while the strip is on.
+- **"Today" is the calendar day in New York**, midnight to midnight, whatever your own timezone. Rows drop at ET midnight on their own.
+- **Narrow window?** Under 800px wide the members pane is hidden as always, but with the strip on it becomes a slim trades bar across the top of the chat (capped at about a third of the window; the chevron collapses it to one line).
+- **Pinned members only** (second toggle) narrows the strip — and the Telegram alerts — to your pinned people, the same pinned list as the Active pane.
+- **Telegram alerts** (third toggle, on by default once the strip is on and a bot is connected via ✈): one Telegram message per chat message that contains a trade, in the same shape — `🔴 **SELL·closed QQQ** — Jordan Kerner: close $QQQ 718 lottos` — followed by a **Link** that opens the thread scrolled to that exact comment. Fires whether or not the full chat mirror is streaming; never for history, only for messages that arrive while the tab is open; never twice for the same trade, even across a reload (the day's alerts are remembered). Your own messages alert too.
+- **Best-effort regex, no AI.** The parser is calibrated against a committed corpus of real chat messages plus hand-built near-misses (hypotheticals, questions, "closed the gap", third-party "Cramer bought", past-tense "back in March", all-caps shouting…) and every row is asserted by the test suite. It looks for a trade verb with a ticker next to it in the same sentence; lowercase tickers are accepted right after the verb ("bought orcu") and marked with a **?** in the strip and "unconfirmed ticker" in Telegram. Known misses, on purpose: "long AMZN" / "I'm short oil" (position statements, not fills), a ticker in an earlier sentence ("NBIS looks good. Bought it."), and an edited message never re-alerts.
 
 ### Sending (when you do want to write)
 
@@ -446,6 +459,12 @@ The GIF button in the composer is the same story, smaller surface:
 - **What GIPHY sees:** your search queries and the IP they're sent from. They do NOT see any of your Substack chat content — the search is independent of the chat. Once you pick a GIF, the binary downloads to your browser and is re-uploaded to Substack from your browser. GIPHY never knows which chat you sent the GIF in or who saw it.
 - **What Substack sees:** the same thing as if you'd dragged a GIF in from your desktop — an `image/gif` upload from your own session.
 - Fully opt-in. Until you click `GIF` and configure a key, GIPHY's API isn't contacted.
+
+### 💹 Trades strip + alerts — local parsing, your own bot
+
+- The trade parser runs entirely in the extension page on messages the chat already delivered — no request leaves for it, no AI provider is involved.
+- Telegram alerts go only to the bot and chat you configured for the bridge, carrying the member's name, their message text (capped), and a Substack link to the comment. Nothing is sent when the strip or the alerts toggle is off.
+- The per-day "already alerted" list lives in `chrome.storage.local` as comment ids only.
 
 ### 🔗 Link previews — opt-in, cookieless
 
