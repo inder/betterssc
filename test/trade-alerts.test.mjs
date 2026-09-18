@@ -72,8 +72,8 @@ describe("planTradeAlerts — what alerts", () => {
     const trades = Array.from({ length: 400 }, (_, i) => ({ action: "BUY", qualifier: null, tickers: [`T${String(i).padStart(3, "0")}`], confidence: "high" }));
     const out = formatTradeAlert({ trades, authorName: "Za", raw: "x" }, { link: "https://substack.com/chat/group/c/post/p?target_reply_id=a&showTarget=true" });
     expect(out.text.length).toBeLessThanOrEqual(4096);
-    expect(out.text.endsWith("&amp;showTarget=true")).toBe(true);
-    expect(out.text).not.toMatch(/<[^>]*…/);
+    expect(out.text.endsWith('">Link</a>')).toBe(true);
+    expect(out.text).not.toMatch(/<b[^>]*…/);
   });
   it("tradeKey sorts tickers so order in the message does not matter", () => {
     expect(tradeKey("a", { action: "BUY", qualifier: null, tickers: ["INTC", "CBRS"] })).toBe("a|BUY||CBRS+INTC");
@@ -86,9 +86,8 @@ describe("formatTradeAlert", () => {
   it("single trade: the oracle line, bold symbol, link on its own line, preview off", () => {
     const m = { trades: [{ action: "BUY", qualifier: null, tickers: ["CBRS"], confidence: "high" }], authorName: "Za", raw: "Bought: CBRS at 12.40" };
     const out = formatTradeAlert(m, { link });
-    // The URL's "&" is entity-escaped for parse_mode HTML; Telegram decodes
-    // entities before linkifying, so the tap target is the real URL.
-    expect(out.text).toBe(`🟢 <b>BUY CBRS</b> — Za: Bought: CBRS at 12.40\n${link.replace(/&/g, "&amp;")}`);
+    // The link is a short anchor; its href is entity-escaped attribute text.
+    expect(out.text).toBe(`🟢 <b>BUY CBRS</b> — Za: Bought: CBRS at 12.40\n<a href="${link.replace(/&/g, "&amp;")}">Link</a>`);
     expect(out.parse_mode).toBe("HTML");
     expect(out.disable_web_page_preview).toBe(true);
   });
@@ -105,6 +104,11 @@ describe("formatTradeAlert", () => {
   it("marks a low-confidence ticker instead of hiding it", () => {
     const m = { trades: [{ action: "BUY", qualifier: null, tickers: ["ORCU"], confidence: "low" }], authorName: "Za", raw: "bought orcu" };
     expect(formatTradeAlert(m).text).toContain(`<b>BUY ORCU</b> ${UNCONFIRMED_MARKER}`);
+  });
+  it("escapes quotes in the link href", () => {
+    const m = { trades: [{ action: "BUY", qualifier: null, tickers: ["X"], confidence: "high" }], authorName: "Za", raw: "Bought X" };
+    const out = formatTradeAlert(m, { link: 'https://substack.com/chat/group/c/post/p?target_reply_id=a"b&showTarget=true' }).text;
+    expect(out).toContain('<a href="https://substack.com/chat/group/c/post/p?target_reply_id=a&quot;b&amp;showTarget=true">Link</a>');
   });
   it("escapes HTML in body, author and tickers; caps the body entity-safely; collapses whitespace", () => {
     const m = { trades: [{ action: "BUY", qualifier: null, tickers: ["A&B"], confidence: "high" }], authorName: "<Za>", raw: "Bought A&B <now>\n\n" + "x".repeat(500) };

@@ -2764,6 +2764,72 @@
       "mode": "M12",
       "body": "add more",
       "expect": []
+    },
+    {
+      "id": "r242",
+      "kind": "real",
+      "mode": "P",
+      "body": "close DIA lottos",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "closed",
+          "tickers": [
+            "DIA"
+          ],
+          "confidence": "high"
+        }
+      ],
+      "note": "bare 'close' as a fill (member, 2026-09-18, seen in the Telegram mirror)"
+    },
+    {
+      "id": "r243",
+      "kind": "real",
+      "mode": "P",
+      "body": "SOLD $DIA sept 25 517",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": null,
+          "tickers": [
+            "DIA"
+          ],
+          "confidence": "high"
+        }
+      ],
+      "note": "caps SOLD + cashtag (member, 2026-09-18)"
+    },
+    {
+      "id": "r244",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "buying into the close",
+      "expect": [],
+      "note": "'close' as a noun has no object"
+    },
+    {
+      "id": "r245",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "sold at the close",
+      "expect": [],
+      "note": "no ticker anywhere"
+    },
+    {
+      "id": "r246",
+      "kind": "adversarial",
+      "mode": "M1",
+      "body": "Was very close to buying NVDA",
+      "expect": [],
+      "note": "'close to' is a hedge"
+    },
+    {
+      "id": "r247",
+      "kind": "real",
+      "mode": "M12",
+      "body": "trailer U 1010 lottos",
+      "expect": [],
+      "note": "a trailing stop note, not a fill"
     }
   ],
   "dates": [

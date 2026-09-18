@@ -6993,10 +6993,29 @@ function tradeAlertsActive() {
 // mirror. Never from ingestComment (invariant 1). Callers wrap it in
 // try/catch and call it AFTER the native alert dispatch, so a throw here
 // can never take the unread/pill path down with it (invariant 8 in spirit).
+// One console breadcrumb per batch while the strip is on, so a "no alert
+// arrived" report can be read off DevTools instead of guessed at: which
+// gate stopped it, or how many messages were planned and enqueued.
+function tradeAlertsTrace(msg) {
+  if (!state.tradesStripEnabled) return;
+  try {
+    console.info(`[BetterSSC] trade alerts: ${msg}`);
+  } catch (_) {}
+}
+
 function onNewCommentsForTradeAlerts(newComments) {
-  if (!tradeAlertsActive()) return;
-  if (!_tradeAlertsReady) return;
   if (!newComments || !newComments.length) return;
+  if (!tradeAlertsActive()) {
+    tradeAlertsTrace(
+      `skipped ${newComments.length} new — strip=${!!state.tradesStripEnabled} alerts=${!!state.tradesAlertsEnabled} ` +
+        `token=${!!state.telegram.token} chatId=${state.telegram.chatId != null}`
+    );
+    return;
+  }
+  if (!_tradeAlertsReady) {
+    tradeAlertsTrace(`dropped ${newComments.length} new — persisted keys not loaded yet`);
+    return;
+  }
   const plan = planTradeAlerts({
     comments: newComments,
     now: new Date(),
@@ -7021,11 +7040,16 @@ function onNewCommentsForTradeAlerts(newComments) {
       postUuid: m.postUuid || state.postUuid,
       targetReplyId: m.commentId,
     });
-    if (!telegramBridge.enqueueText(formatTradeAlert(m, { link }))) {
+    const ok = telegramBridge.enqueueText(formatTradeAlert(m, { link }));
+    tradeAlertsTrace(`${ok ? "enqueued" : "bridge REFUSED"} ${m.trades.map((t) => `${t.action} ${t.tickers.join("+")}`).join(", ")} for comment ${m.commentId}`);
+    if (!ok) {
       // The bridge refused (bot disconnected between the gate check and the
       // enqueue): give the keys back so the trade can alert once it is.
       for (const k of m.keys) _tradeAlertKeys.delete(k);
     }
+  }
+  if (!plan.messages.length) {
+    tradeAlertsTrace(`${newComments.length} new, no alert (not a trade, already alerted, not today ET, or filtered by pinned-only)`);
   }
   if (_tradeAlertsDirty) saveTradeAlertsSoon();
 }
