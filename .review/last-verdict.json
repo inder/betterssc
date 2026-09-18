@@ -1,15 +1,15 @@
 {
-  "sha": "bb92f78",
+  "sha": "69b2b88",
   "branch": "main",
-  "ts": "2026-09-18T17:16:25Z",
+  "ts": "2026-09-18T17:45:03Z",
   "reviewer_model": "claude-opus",
   "verdict": "merge-with-fixes",
   "retro_required": "no",
   "retro_reasoning": "loop iteration; retro is manual-only",
   "critical_count": 0,
-  "should_fix_count": 2,
-  "nit_count": 5,
-  "files_reviewed": 4,
-  "resolution": "First pass: do-not-merge, 3 Critical / 6 should-fix / 11 nit, every finding empirically verified by the reviewer running the module. C1 dead '?' guard (sentence split consumed the terminator) → zero-width split keeps it; C2 everyday nouns + 2-letter abbreviations admitted as tickers → JARGON gained both classes, header states the real admit set, per-trade confidence added; C3 forwardScan crossed clause boundaries → bounded at first comma/conjunction. S1-S6 folded (past-time gaps, sentence-scoped past check → verb window, cashtag swallowed by numeric skip, 'cut my losses on X' is an exit, negative rows for the lowercase path, mislabeled row). Re-check by the same reviewer with its probe script: merge-with-fixes, 0 Critical; new S2-R (past marker after a comma) folded by splitting absolute vs weekday markers; C2-R residue pinned as rows and mitigated by confidence:'low'; nits 1/5 pinned as fixture rows. Fixture 232 rows, meta 250/250, suite 993/993.",
-  "scope": "trade ticker arc slice 1: lib/trades.js parser + ET-day helpers + fixture + meta-test"
+  "should_fix_count": 5,
+  "nit_count": 7,
+  "files_reviewed": 5,
+  "resolution": "All 5 should-fix applied: (S1) _tradesTickInflight guard with finally reset; (S2) an empty threads page keeps the previous snapshot instead of hiding the rail and blanking roots; (S3) strip rows use data-trade-id so jumpToMessage/focusSearchHit's unscoped [data-id] lookups can never match a strip row; (S4) rebuild skipped when rows+header state are unchanged, scrollTop and focused row carried across otherwise; (S5) mobile deferral to slice 4 named in the app.html comment and the arc spec (slice queue + decisions). All 7 nits applied: dead etDateKey import removed then re-added where it is now really used (day-key memo prune, N2), themed --danger-bg-soft (N3), real '?' element with title/aria-label (N4), mutation test through the memo path (N5), warn once per failure transition (N6), enabled re-check before any DOM work after the await (N7). Reviewer verified all 4 arc invariants hold and 12/12 START-review changes honoured. Founder live-eyes pass on the real extension: passed; two parser misses it surfaced fixed in the preceding commit. Suite 1015/1015.",
+  "scope": "trade ticker arc slice 2: trades strip UI + derivation + prefs + 60s roots refresh"
 }
