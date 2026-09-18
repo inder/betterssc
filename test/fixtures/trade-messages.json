@@ -2548,6 +2548,114 @@
       "body": "bought SPY calls in May",
       "expect": [],
       "note": "'in May' is an unambiguous past marker even when it is an expiry"
+    },
+    {
+      "id": "r233",
+      "kind": "real",
+      "mode": "P",
+      "body": "took small profits in GEV. sitting on the sidelines.",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "GEV"
+          ]
+        }
+      ],
+      "note": "founder's own message, 2026-09-18 — missed by v1 ('took profits' only)"
+    },
+    {
+      "id": "r234",
+      "kind": "real",
+      "mode": "P",
+      "body": "bought $GEV at open. stop at breakeven. done for the day.",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GEV"
+          ]
+        }
+      ],
+      "note": "founder's own message, 2026-09-18"
+    },
+    {
+      "id": "r235",
+      "kind": "real",
+      "mode": "P",
+      "body": "add GEV 928",
+      "expect": [
+        {
+          "action": "BUY",
+          "qualifier": null,
+          "tickers": [
+            "GEV"
+          ]
+        }
+      ],
+      "note": "bare 'add' as a fill announcement (member, 2026-09-18)"
+    },
+    {
+      "id": "r236",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "took some profits on NVDA",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r237",
+      "kind": "adversarial",
+      "mode": "P",
+      "body": "locked in profits on NVDA",
+      "expect": [
+        {
+          "action": "SELL",
+          "qualifier": "partial",
+          "tickers": [
+            "NVDA"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "r238",
+      "kind": "adversarial",
+      "mode": "M2",
+      "body": "take profits on NVDA here",
+      "expect": [],
+      "note": "imperative = advice, not a fill"
+    },
+    {
+      "id": "r239",
+      "kind": "adversarial",
+      "mode": "M4",
+      "body": "I'd add that the market is weak",
+      "expect": [],
+      "note": "bare 'add' in prose"
+    },
+    {
+      "id": "r240",
+      "kind": "adversarial",
+      "mode": "M2",
+      "body": "add it to my watchlist",
+      "expect": []
+    },
+    {
+      "id": "r241",
+      "kind": "adversarial",
+      "mode": "M12",
+      "body": "add more",
+      "expect": []
     }
   ],
   "dates": [
